@@ -22,7 +22,7 @@ use super::{
     access::Accessible,
     Command, DRAG_START, FAVICON_X, FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, MenuEntry, NAV,
     NAV_RADIUS, NAV_SIZE, PLATE_INSET, SECONDARY, SEGMENT_FAVICON_X, Shell, Space, UNSELECTED_TITLE,
-    clean_link, divider_box, favicon, folder_icon, host, SPACE_SWATCH_SHOWN, dashed_square,
+    clean_link, divider_box, favicon, file_url, folder_icon, host, SPACE_SWATCH_SHOWN, dashed_square,
     plate, row_box, space_icon_drawn, spring_to, split_plate, still_clear, title, Naming,
     PLATE_HEIGHT, PLATE_RADIUS, selected_plate,
     header::TipSide, keystroke_label,
@@ -2182,20 +2182,6 @@ impl Shell {
                 )
             })
     }
-}
-
-/// A `file:` URL for `path`, escaping what a URL can't hold as it is.
-pub(super) fn file_url(path: &str) -> String {
-    let mut url = String::from("file://");
-    for byte in path.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'_' | b'.' | b'~' => {
-                url.push(byte as char)
-            }
-            _ => url.push_str(&format!("%{byte:02X}")),
-        }
-    }
-    url
 }
 
 /// How far the running downloads have got in all, 0 to 1, or none while none runs. A held one,

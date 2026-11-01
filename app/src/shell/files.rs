@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use gpui::{AppContext, Context, PathPromptOptions};
 
-use super::{Shell, library::file_url};
+use super::{Shell, file_url};
 
 /// The most files and folders a folder from the desktop brings in, its folders' included, taken
 /// a level at a time, so a home folder dropped by mistake doesn't make thousands of rows (ours).
@@ -58,9 +58,11 @@ pub(super) fn file_path(url: &str) -> Option<PathBuf> {
         }
     }
     let path = String::from_utf8(path).ok()?;
-    // Windows' "/C:/Users", a drive after the URL's slash.
-    let drive = path.as_bytes().get(2) == Some(&b':') && cfg!(windows);
-    Some(PathBuf::from(if drive { &path[1..] } else { &path[..] }))
+    // Windows' "/C:/Users", a drive after the URL's slash, with the path's own backslashes.
+    if cfg!(windows) && path.as_bytes().get(2) == Some(&b':') {
+        return Some(PathBuf::from(path[1..].replace('/', "\\")));
+    }
+    Some(PathBuf::from(path))
 }
 
 /// The folder a dropped `url` names on the desktop, if it names one.

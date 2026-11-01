@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use gpui::{TestAppContext, point, px};
 
 use super::{FOLDER_ROWS, Listing, PANEL_PICKS_BOTH, file_path, list};
-use crate::shell::{Folders, Page, drag::detents::shell_with, library::file_url};
+use crate::shell::{Folders, Page, drag::detents::shell_with, file_url};
 
 /// A folder of its own under the system's temporary one, made empty.
 fn scratch(name: &str) -> PathBuf {
@@ -17,12 +17,14 @@ fn scratch(name: &str) -> PathBuf {
 fn notes(dir: &Path) -> PathBuf {
     let notes = dir.join("Notes");
     std::fs::create_dir_all(notes.join("sub")).unwrap();
-    for file in ["b.txt", "A.txt", ".cache", "sub/c.txt"] {
+    for file in ["b.txt", "A.txt", ".cache"] {
         std::fs::write(notes.join(file), "x").unwrap();
     }
+    std::fs::write(notes.join("sub").join("c.txt"), "x").unwrap();
     notes
 }
 
+/// `path`'s URL as the app makes it: on Windows "file:///C:/…", its backslashes slashes.
 fn url(path: &Path) -> String {
     file_url(&path.to_string_lossy())
 }
@@ -30,7 +32,7 @@ fn url(path: &Path) -> String {
 /// A `file:` URL gives back the path it names, its escapes undone; other URLs give none.
 #[test]
 fn a_file_url_names_its_path() {
-    let path = |url| file_path(url).map(|path| path.to_string_lossy().into_owned());
+    let path = |url: &str| file_path(url).map(|path| path.to_string_lossy().into_owned());
     assert_eq!(path("file:///tmp/my%20photo.jpg").as_deref(), Some("/tmp/my photo.jpg"));
     assert_eq!(path("file://localhost/etc/hosts").as_deref(), Some("/etc/hosts"));
     assert_eq!(path("file:///%E6%97%A5%E6%9C%AC").as_deref(), Some("/日本"));
@@ -39,6 +41,12 @@ fn a_file_url_names_its_path() {
     assert_eq!(path("file:relative"), None);
     let odd = "/tmp/a b#c%d日";
     assert_eq!(path(&file_url(odd)).as_deref(), Some(odd));
+    // A drive's, as Windows names it, with backslashes.
+    if cfg!(windows) {
+        let windows = r"C:\Users\a b\Notes\c.txt";
+        assert_eq!(file_url(windows), "file:///C:/Users/a%20b/Notes/c.txt");
+        assert_eq!(path(&file_url(windows)).as_deref(), Some(windows));
+    }
 }
 
 /// A folder comes in by name, case aside, its hidden files left out, its folders listed too, and
@@ -47,7 +55,7 @@ fn a_file_url_names_its_path() {
 fn a_folder_lists_its_files_and_folders_by_name() {
     let dir = scratch("list");
     let notes = notes(&dir);
-    let c = url(&notes.join("sub/c.txt"));
+    let c = url(&notes.join("sub").join("c.txt"));
     let sub = Listing { name: "sub".into(), files: vec![c], ..Default::default() };
     let whole = Listing {
         name: "Notes".into(),
@@ -85,7 +93,9 @@ fn a_folder_from_the_desktop_becomes_a_folder_of_its_files(cx: &mut TestAppConte
     ]);
     let calls = host.take();
     let opened = |folder, files: &[&str], index| {
-        let urls: Vec<String> = files.iter().map(|file| url(&notes.join(file))).collect();
+        let urls: Vec<String> = (files.iter())
+            .map(|file| url(&file.split('/').fold(notes.clone(), |path, name| path.join(name))))
+            .collect();
         format!("open behind {} true {folder} {index}", urls.join(" "))
     };
     assert!(calls.contains(&opened(inner, &["sub/c.txt"], 0)), "{calls:?}");
