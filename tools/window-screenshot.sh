@@ -48,7 +48,8 @@ public static class Capture {
   static Rectangle Frame(IntPtr hwnd) {
     const uint DWMWA_EXTENDED_FRAME_BOUNDS = 9;
     RECT r;
-    if (DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, out r, Marshal.SizeOf(r)) != 0)
+    if (DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, out r,
+        Marshal.SizeOf(typeof(RECT))) != 0)
       return Bounds(hwnd);
     return Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom);
   }
