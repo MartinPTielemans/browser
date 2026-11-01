@@ -168,7 +168,7 @@ impl Drop for Server {
         let _wake = connect(&self.shared.path);
         #[cfg(windows)]
         if let Some(accepting) = self.accepting.take() {
-            _ = accepting.join();
+            pipe::wait_for(accepting);
         }
         for (_, connection) in self.shared.connections.lock().unwrap().drain() {
             connection.close();

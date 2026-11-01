@@ -217,7 +217,7 @@ plutil -replace NSLocalNetworkUsageDescription -string "Websites and casting can
 # A prod build's crash reports name its functions only once the collector has its symbols: the
 # framework's and helpers' dSYMs, which the Release engine writes beside Chromium.app, and the app's
 # executable, which keeps its symbol table. tools/symbols.sh uploads them with SENTRY_AUTH_TOKEN
-# and the rest set (README.md › Releases). The app is built either way.
+# and the rest set (docs/releasing.md). The app is built either way.
 if [ -n "$features" ]; then
   set -- "$app/Contents/MacOS/Browser"
   for dsym in "$engine_out"/*.dSYM; do

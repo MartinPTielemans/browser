@@ -287,7 +287,7 @@ expect "^browser: menu shown $(cased "In Every Space, In Each Profile's Spaces (
   "a click on Favorites didn't show the choices, with Each Profile's Spaces chosen"
 send choose "$(cased 'In Each Space')"
 expect "^browser: favorites scope In Each Space\$" "choosing In Each Space in Settings didn't set it"
-send clickkey 519 60
+send clickkey $(drawn "toolbar Advanced")
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
 settings_drew Advanced
 send clickkey 592 126
@@ -561,7 +561,7 @@ expect "^browser: menu shown $(cased "In Every Space, In Each Profile's Spaces, 
   "Settings didn't keep Each Space across the quit"
 send choose "$(cased "In Each Profile's Spaces")"
 expect "^browser: favorites scope In Each Profile's Spaces\$" "choosing Each Profile's Spaces didn't set it"
-send clickkey 519 60
+send clickkey $(drawn "toolbar Advanced")
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
 settings_drew Advanced
 send clickkey 592 126

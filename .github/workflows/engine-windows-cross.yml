@@ -35,7 +35,7 @@ concurrency:
 
 jobs:
   build:
-    if: github.repository == 'MartinPTielemans/browser'
+    if: github.repository == 'MartinPTielemans/ilo'
     # Microsoft's toolchain zip stays on the owner's machine, so a second Linux engine runner must
     # never take this job.
     runs-on: [self-hosted, linux, x64, ilo-engine, ilo-engine-windows]
