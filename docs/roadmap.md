@@ -2,19 +2,6 @@
 
 Each phase ends with a check. Work that depends on a phase waits for its check.
 
-## Status
-
-| Phase | What | State |
-|---|---|---|
-| 0 | UX spec, measured | in progress: the imported spec's values in; layout, sidebar and Spaces motion, command bar, find, split view, Library and Little ilo measured; Peek, extensions, passwords, themes and drags left |
-| 1 | Architecture spike: GPUI + Chromium in one Mac process | done: go for GPUI |
-| 2 | Engine: ungoogled-chromium + patch series, prebuilt framework | done: the prebuilt engine downloads into the spike, passwords and autofill are on, Manifest V2 works, CI compiles the core on Linux |
-| 3 | Daily-driver MVP on Mac | in progress: sidebar, Spaces, pinned tabs and folders, favorites, command bar, split view, archive, downloads, find, DevTools, extensions, the password prompts, password fill, sign-in popups and updates; import left |
-| 4 | Polish and parity | — |
-| 5 | Windows, then Linux | in progress: 0.1.0 ships on Windows, with an installer, and on Linux, as a Flatpak; on Windows, input methods and protected video on real hardware are untested |
-
-[#454](https://github.com/MartinPTielemans/ilo/issues/454) tracks what 0.1.0, the first public beta, still needs.
-
 ## Phase 0: UX spec (2–3 days)
 
 - Import Ardia's Dia spec and parity list as the starting point.

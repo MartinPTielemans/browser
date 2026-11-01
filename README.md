@@ -46,6 +46,19 @@ ilo is in beta. Expect bugs, and please report them in [Issues](https://github.c
 
 Contributions are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) says what's likely to land and how to send it.
 
+## Status
+
+| Phase | What | State |
+|---|---|---|
+| 0 | UX spec, measured | in progress: Peek, extensions, passwords, themes and drags left |
+| 1 | Architecture spike: GPUI + Chromium in one process | done |
+| 2 | Engine: ungoogled-chromium + patch series, prebuilt | done |
+| 3 | Daily-driver MVP on Mac | in progress: updates, password fill and sign-in popups done; import left |
+| 4 | Polish and parity | — |
+| 5 | Windows, then Linux | in progress: 0.1.0 ships on both |
+
+[docs/roadmap.md](docs/roadmap.md) has each phase's exit check.
+
 ## Documentation
 
 - [Decisions](docs/decisions.md): why the stack is what it is, and what would change it.
