@@ -99,6 +99,12 @@ home_row() {
   echo "100 $(($(pinned_row 0 | cut -d' ' -f2) + tiles))"
 }
 
+# Where Settings last drew what $1 names, as the platforms' fonts move its tabs and rows.
+settings_at() {
+  await "^browser: settings $1 at " || fail "Settings didn't draw its $1"
+  grep "^browser: settings $1 at " "$log" | tail -1 | sed "s/^browser: settings $1 at //"
+}
+
 # Pinned, the tab's links to other sites open in the preview, which grows from the link.
 send key d cmd
 expect '^browser: command toggle-pin via page$' "⌘D with the page focused didn't reach the UI"
@@ -225,12 +231,10 @@ send key , cmd
 expect '^browser: settings shown General$' "⌘, didn't show Settings on its General tab"
 # Settings takes no click until it has drawn, nor a tab's rows until the tab has (#1101, #1133).
 expect '^browser: settings drew General$' "Settings didn't draw General"
-send clickkey 519 60
+send clickkey $(settings_at "toolbar Advanced")
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
 settings_drew Advanced
-expect '^browser: settings switch link previews at ' "Advanced didn't draw the link previews switch"
-# Its switch is the row under the haptics', as General's rows are 42 apart.
-send clickkey 592 168
+send clickkey $(settings_at "switch link previews")
 expect '^browser: link previews off$' "a click on the link previews switch didn't turn them off"
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
@@ -258,9 +262,9 @@ expect "^browser: selected $a\( in .*\)\{0,1\}\$" "the first Space didn't show t
 send key , cmd
 expect '^browser: settings shown Advanced$' "⌘, didn't show Settings on its Advanced tab"
 expect '^browser: settings drew Advanced$' "Settings didn't draw Advanced"
-send clickkey 592 168
+send clickkey $(settings_at "switch link previews")
 expect '^browser: link previews on$' "a click on the link previews switch didn't turn them on"
-send clickkey 162 60
+send clickkey $(settings_at "toolbar Links")
 expect '^browser: settings tab Links$' "a click on Links didn't show its tab"
 settings_drew Links
 expect '^browser: link rules drawn ' "the Links tab didn't draw its rules"

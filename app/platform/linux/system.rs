@@ -18,6 +18,11 @@ pub fn copy(text: &str, cx: &mut App) {
     cx.write_to_clipboard(ClipboardItem::new_string(text.to_owned()));
 }
 
+/// The clipboard's text, as host_paste reads it on the Mac.
+pub fn pasted(cx: &App) -> Option<String> {
+    cx.read_from_clipboard()?.text()
+}
+
 /// Puts the capture on the clipboard, as host_copy_png does on the Mac.
 pub fn copy_png(png: &[u8]) {
     let image = Image::from_bytes(ImageFormat::Png, png.to_vec());
