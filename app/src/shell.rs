@@ -57,6 +57,7 @@ mod empty;
 mod export;
 mod extensions;
 mod favorites;
+mod files;
 mod fly_in;
 mod footer;
 mod keys;
@@ -71,6 +72,7 @@ mod little;
 #[cfg(test)]
 mod little_tests;
 mod menu_bar;
+mod media_player;
 mod menus;
 mod naming;
 mod new_space;
@@ -80,6 +82,7 @@ mod page_dialog;
 mod page_motion;
 mod panes;
 mod permission;
+mod cast;
 mod agent_bar;
 mod agent_pointer;
 mod agent_question;
@@ -104,7 +107,7 @@ mod undo;
 
 pub use assets::Assets;
 pub use favorites::FavoritesScope;
-pub use browser::{AgentGrants, Browser, Folders, Page, Split, Trouble, WindowButton};
+pub use browser::{AgentGrants, Browser, Folders, MediaAction, Page, Split, Trouble, WindowButton};
 pub use commands::{
     BAR_ROWS, BAR_TABS_SHOWN, BarCommand, BarTab, CancelName, Command, CreateSpace, KEY_CONTEXT,
     KeepName, Match, bar_commands, bind_keys, copy_from_bar, copy_url_of_preview, find_commands,
@@ -117,8 +120,8 @@ pub use extensions::{
     pin_menu_item as extension_pin_menu_item,
 };
 pub use keys::{
-    Holder, OFF_THE_MAC, Refused, UserKeys, change_keys, page_keystroke, rebindable, recorded,
-    reserved, shortcut_found, user_keys, view_binding, web_keystroke, written_as,
+    Holder, OFF_THE_MAC, Refused, SecondPress, UserKeys, change_keys, page_keystroke, rebindable,
+    recorded, reserved, shortcut_found, user_keys, view_binding, web_keystroke, written_as,
 };
 pub use history::HistoryPage;
 pub use library::{Archived, Captured, Download, DownloadAction, DownloadState};
@@ -130,6 +133,7 @@ pub use side_panel::SidePanel;
 pub use page_dialog::{DialogKind, PageDialog, PageReply, ShownPageDialog};
 pub use panes::page_frame;
 pub use permission::{Answer, Question};
+pub use cast::{Cast, CastDevice, CastState};
 pub use trouble::{NOT_RESPONDING, RELOAD, WAIT};
 pub use trace::{RECORDING, STOP, recorded as trace_recorded};
 pub use picture::{PagePicture, picture_answered};
@@ -261,6 +265,7 @@ use crate::tokens::shell::TILE_HEIGHT;
 use crate::tokens::shell::TILE_GAP;
 use crate::tokens::shell::TILE_MIN;
 use crate::tokens::shell::TILE_RADIUS;
+use crate::tokens::shell::{TILE_MARK, TILE_MARK_INSET};
 use crate::tokens::shell::TALL_FAVORITES;
 use crate::tokens::shell::NAME_HEIGHT;
 // The name's left edge. After an icon it's Arc's 41, 2 pt before its titles at 43 (ax, measured on
@@ -448,12 +453,13 @@ use crate::tokens::shell::REVEAL_BORDER;
 // show while the pointer is over any of them, as AppKit's do.
 pub const WINDOW_BUTTONS: [(f32, u32); 3] =
     [(20., WINDOW_BUTTON_CLOSE), (43., WINDOW_BUTTON_MINIMIZE), (66., WINDOW_BUTTON_ZOOM)];
-// On Linux the browser window is Chromium's without a frame, so nothing else draws its buttons: the
-// UI draws them where AppKit's show.
-const DRAWS_WINDOW_BUTTONS: bool = cfg!(target_os = "linux");
-// The third button maximizes on Linux, as on every Linux desktop, where on the Mac it goes full
-// screen.
-const ZOOM_GLYPH: &str = match cfg!(target_os = "linux") {
+// On Linux the browser window is Chromium's without a frame, and on Windows the host takes its
+// title bar away (platform/windows/host.cc), so nothing else draws its buttons: the UI draws them
+// where AppKit's show.
+const DRAWS_WINDOW_BUTTONS: bool = cfg!(any(target_os = "linux", target_os = "windows"));
+// The third button maximizes on Linux and Windows, as their title bars' does, where on the Mac it
+// goes full screen.
+const ZOOM_GLYPH: &str = match cfg!(any(target_os = "linux", target_os = "windows")) {
     true => "icons/window-maximize.svg",
     false => "icons/window-full-screen.svg",
 };
@@ -463,6 +469,9 @@ use crate::tokens::shell::WINDOW_BUTTON_GLYPH;
 use crate::tokens::shell::WINDOW_BUTTON_CLOSE;
 use crate::tokens::shell::WINDOW_BUTTON_MINIMIZE;
 use crate::tokens::shell::WINDOW_BUTTON_ZOOM;
+use crate::tokens::shell::WINDOWS_BUTTON_GLYPH;
+use crate::tokens::shell::WINDOWS_BUTTON_PLATE;
+use crate::tokens::shell::WINDOWS_CLOSE_HOVERED;
 use crate::tokens::text;
 
 #[derive(Clone, Default)]
@@ -538,12 +547,28 @@ impl Space {
     /// The tabs and folders of its pinned rows and its Today rows: each split's first stands for
     /// the split, and what's in a closed folder has none, but the tab shown's (Arc).
     fn rows(&self) -> (Vec<u64>, Vec<u64>) {
-        let later = |tab: &u64| self.splits.iter().any(|split| split.tabs[1..].contains(tab));
-        let rows = |tabs: &[u64]| tabs.iter().copied().filter(|tab| !later(tab)).collect();
+        let today = self.today.iter().copied().filter(|&tab| !self.later(tab));
+        (self.pinned_rows(self.folders.pinned_shut).collect(), today.collect())
+    }
+
+    /// Its pinned rows, with them collapsed or not: what's in a closed folder has none, but the
+    /// tab shown's (Arc).
+    fn pinned_rows(&self, collapsed: bool) -> impl Iterator<Item = u64> + '_ {
         let shown = self.panes(self.shown)[0];
-        let rows_shown = |row: &u64| !self.shut(*row) || *row == shown;
-        let pinned = self.pinned.iter().copied().filter(|row| !later(row) && rows_shown(row));
-        (pinned.collect(), rows(&self.today))
+        let folded = move |row| collapsed || self.holders(row).any(|folder| !self.is_open(folder));
+        (self.pinned.iter().copied())
+            .filter(move |&row| !self.later(row) && (row == shown || !folded(row)))
+    }
+
+    /// Whether `tab` is in a split after its first, which stands for the split's row.
+    fn later(&self, tab: u64) -> bool {
+        self.splits.iter().any(|split| split.tabs[1..].contains(&tab))
+    }
+
+    /// Whether collapsing its pinned rows hides at least one now, which expanding shows again. The
+    /// tab shown keeps its row, so with only it pinned there's nothing to collapse (#1208).
+    fn collapsing_hides(&self) -> bool {
+        self.pinned_rows(true).count() < self.pinned_rows(false).count()
     }
 
     /// Whether `row`, one of its pinned rows, is in a closed folder or in pinned rows collapsed.
@@ -807,6 +832,9 @@ struct Drag {
     /// and since when, for paging to the Space on that side.
     space: u64,
     edge: Option<(bool, Instant)>,
+    /// Pressed with ⌥, whose click splits once it's let go without having moved, so that a drag
+    /// with ⌥ held can drop a copy instead (#690).
+    alt_click: bool,
 }
 
 /// How far a dragged tab has turned from its row into its tile as it crossed into or out of the
@@ -1015,8 +1043,15 @@ pub struct Shell {
     /// The plates the sidebar's buttons with a tooltip were last drawn in, by their command.
     button_frames: Rc<RefCell<HashMap<&'static str, Bounds<Pixels>>>>,
     /// The icon slots the Library's Space cards were last drawn with, by Space, for their
-    /// tooltips to hang from.
+    /// tooltips and the icon picker to hang from.
     slot_frames: Rc<RefCell<HashMap<u64, Bounds<Pixels>>>>,
+    /// The brushes the Library's Space cards were last drawn with, by Space, for the theme picker
+    /// to open beside.
+    brush_frames: Rc<RefCell<HashMap<u64, Bounds<Pixels>>>>,
+    /// Whether the press on a card's icon slot or brush came while its own picker showed, so the
+    /// click closes it rather than opening it again: the press outside the picker has closed it,
+    /// but the picker hears so only after the press.
+    card_press_closes: bool,
     /// Whether each Space card's field was last drawn with its plate, for its log lines.
     fields_drawn: Rc<RefCell<HashMap<u64, bool>>>,
     /// Where the Library's empty line was last laid out, for its log line.
@@ -1246,6 +1281,8 @@ pub struct Shell {
     url_field_drawn: RefCell<SharedString>,
     /// Whether the header last drew reload or stop, for its log line.
     reload_drawn: Cell<Option<Command>>,
+    /// Whether the header last drew back on or dimmed, for its log line.
+    back_drawn: Cell<Option<bool>>,
     /// The tab whose Developer Mode outline last drew, and where, for its log lines.
     developer_outline_drawn: Rc<Cell<Option<(u64, Bounds<Pixels>)>>>,
     /// The pinned actions the window shows, for its tab shown.
@@ -1281,6 +1318,9 @@ pub struct Shell {
     question_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// The tab whose question's card shows, and its moment on screen before Block and Allow work.
     question_settling: RefCell<Option<(u64, crate::settling::Settling)>>,
+    /// The Cast dialog the core reports for the tab it's for (cast.rs).
+    cast: Option<(u64, Cast)>,
+    cast_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// What an agent asks the user first, in every window (agent_question.rs).
     agent_question: Option<crate::agents::Question>,
     agent_question_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
@@ -1288,6 +1328,11 @@ pub struct Shell {
     /// (agent_bar.rs).
     agent_status: Vec<crate::agents::Status>,
     agent_bar_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
+    /// The tabs whose player × put away until their page plays again.
+    media_dismissed: HashSet<u64>,
+    /// The players last drawn, as the log has them, and where the bottom one is.
+    media_logged: RefCell<Vec<u64>>,
+    media_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// Whether a tooltip the agent bar asked for may be up, and whether its bar showed the agent
     /// at work, so it ends once that bar is gone (agent_bar.rs).
     agent_tip: Cell<Option<bool>>,
@@ -1346,6 +1391,12 @@ pub struct Shell {
     /// The Space with no icon the icon picker shows for, whose name row holds the icon's place
     /// with a placeholder until the picker closes, and the watch on the picker that tells it so.
     icon_placeholder: Option<(u64, Subscription)>,
+    /// The Space whose card in the Library a picker opened from, whose field stays lit while the
+    /// picker shows for it, as while its name is typed over; and the watch on the picker.
+    card_picker: Option<(u64, Subscription)>,
+    /// The watch on a picker that showed for another card when a card's slot or brush was
+    /// clicked, which opens it from that card once it has closed.
+    card_move: Option<Subscription>,
     /// A private window's: its one Space is its own, unsaved, in an off-the-record session.
     private: bool,
     /// A Little ilo window's (Arc's Little Arc): its one Space is its own, holding its page.
@@ -1409,6 +1460,8 @@ impl Shell {
             beside_frames: Rc::default(),
             button_frames: Rc::default(),
             slot_frames: Rc::default(),
+            brush_frames: Rc::default(),
+            card_press_closes: false,
             fields_drawn: Rc::default(),
             empty_drawn: Rc::default(),
             scrolled: false,
@@ -1521,6 +1574,7 @@ impl Shell {
             window_title: SharedString::default(),
             url_field_drawn: RefCell::default(),
             reload_drawn: Cell::default(),
+            back_drawn: Cell::default(),
             developer_outline_drawn: Rc::default(),
             extension_actions: Vec::new(),
             unpinned_actions: Vec::new(),
@@ -1537,11 +1591,16 @@ impl Shell {
             circle_exit: None,
             questions: HashMap::new(),
             question_drawn: Rc::default(),
+            cast: None,
+            cast_drawn: Rc::default(),
             question_settling: RefCell::default(),
             agent_question: None,
             agent_question_drawn: Rc::default(),
             agent_status: Vec::new(),
             agent_bar_drawn: Rc::default(),
+            media_dismissed: HashSet::new(),
+            media_logged: RefCell::default(),
+            media_drawn: Rc::default(),
             agent_tip: Cell::default(),
             drm_notes: HashMap::new(),
             keys: HashMap::new(),
@@ -1559,6 +1618,8 @@ impl Shell {
             tile_icons_drawn: Rc::default(),
             name_row_before: None,
             icon_placeholder: None,
+            card_picker: None,
+            card_move: None,
             switching: None,
             background_pressed: false,
             palette: Palette::default(),
@@ -2112,6 +2173,9 @@ impl Shell {
             let tiles = self.drawn();
             if self.end_drag(false) {
                 self.move_tiles(tiles, Curve::Slide);
+            } else if let Some(position) = self.drag_position() {
+                // A row carried over the new lists finds its place in them where the pointer is.
+                self.drag_to(position, cx);
             }
         }
         // A tab opened in the form's Space makes it a Space like the others, under the name it has.
@@ -2254,6 +2318,7 @@ impl Shell {
         }
         self.selected_for_picture(tab, cx);
         self.hid_for_cards(hidden, cx);
+        self.cast_for_shown(cx);
         // check.sh reads this line.
         let panes = self.panes(tab).iter().map(u64::to_string).collect::<Vec<_>>().join(" ");
         log!("browser: panes {panes}");
@@ -2422,6 +2487,39 @@ impl Shell {
             let (audible, muted) = (flag(page.audible), flag(page.muted));
             log!("browser: page {tab} audible {audible} muted {muted}");
         }
+        let capture = |page: &Page| [page.camera, page.microphone, page.sharing, page.shared];
+        if capture(&page) != capture(&entry.page) {
+            let [camera, microphone, sharing, shared] = capture(&page).map(flag);
+            // check.sh waits for these lines.
+            log!(
+                "browser: page {tab} camera {camera} microphone {microphone} sharing {sharing} \
+                 shared {shared}"
+            );
+        }
+        if page.share_instead != entry.page.share_instead {
+            // check.sh waits for this line.
+            log!("browser: page {tab} share instead {}", flag(page.share_instead));
+        }
+        let media = |page: &Page| {
+            let pip = page.media_picture_in_picture;
+            (page.media, page.media_playing, page.media_next, pip, page.media_title.clone())
+        };
+        let media_changed = media(&page) != media(&entry.page);
+        if media_changed {
+            // check.sh waits for this line.
+            log!(
+                "browser: page {tab} media {} playing {} next {} pip {} {}",
+                flag(page.media),
+                flag(page.media_playing),
+                flag(page.media_next),
+                flag(page.media_picture_in_picture),
+                page.media_title
+            );
+        }
+        // A player put away comes back once its page plays again.
+        if page.media_playing && !entry.page.media_playing {
+            self.media_dismissed.remove(&tab);
+        }
         if page.icon != entry.page.icon {
             let icon = if page.icon.is_empty() { "none" } else { &page.icon };
             log!("browser: page {tab} icon {icon}");
@@ -2437,6 +2535,10 @@ impl Shell {
             self.update_title(cx);
         }
         self.tab_changed(tab, changed, cx);
+        // A player is for a tab out of sight, whose row may not be drawn.
+        if media_changed && self.lists(tab) {
+            cx.notify();
+        }
         if let Some(trouble) = trouble {
             self.trouble_changed(tab, trouble, cx);
         }
@@ -2693,9 +2795,10 @@ impl Shell {
             self.run(Command::NewTab, "sidebar", cx);
         } else if self.empty_card_hit(at) {
             // The empty card is a button, not a title bar: its first click opened the command bar.
-        } else if cfg!(target_os = "linux") {
-            // The browser window is Chromium's, out of GPUI's reach, and every Linux desktop's
-            // double-click on a title bar maximizes or restores it, as its third button does.
+        } else if cfg!(any(target_os = "linux", target_os = "windows")) {
+            // The browser window is Chromium's, out of GPUI's reach, and on Windows and every
+            // Linux desktop a double-click on a title bar maximizes or restores it, as its third
+            // button does.
             self.browser.press_window_button(WindowButton::Zoom, cx);
         } else {
             window.titlebar_double_click();
@@ -2997,7 +3100,10 @@ impl Render for Shell {
             window.focus(&field, cx);
             // check.sh waits for these lines, which say the field has the keyboard.
             match renaming.naming {
-                Naming::Folder(folder) => log!("browser: rename folder {folder}"),
+                Naming::Folder(folder) => {
+                    log!("browser: rename folder {folder}");
+                    log!("browser: folder name field {}", renaming.name.read(cx).text());
+                }
                 Naming::Profile(profile) => log!("browser: rename profile {profile}"),
                 _ => {}
             }
@@ -3032,7 +3138,7 @@ impl Render for Shell {
         self.step_new_space(window);
         self.step_flight(window);
         self.step_picture(window);
-        self.step_recent_downloads(window);
+        self.step_recent_downloads(window, cx);
         if let Some((_, left)) = &self.leaving_form {
             if left.elapsed().as_secs_f32() < FORM_LEAVE_TITLE + FORM_LEAVE {
                 window.request_animation_frame();
@@ -3180,10 +3286,11 @@ impl Render for Shell {
                     // check.sh reads this line.
                     log!("browser: window move");
                     window.start_window_move();
-                    // GPUI's window is inside the browser window on Linux, so the core moves that.
-                    // GPUI's own still lets go of the X server's pointer grab its press took,
-                    // which would keep the window manager from taking the pointer.
-                    #[cfg(target_os = "linux")]
+                    // GPUI's window is inside the browser window on Linux and Windows, so the
+                    // browser moves that. On Linux GPUI's own still lets go of the X server's
+                    // pointer grab its press took, which would keep the window manager from taking
+                    // the pointer.
+                    #[cfg(any(target_os = "linux", target_os = "windows"))]
                     shell.browser.start_window_move(cx);
                 }
                 shell.pointer_at(event.position.x.into(), cx);
@@ -3292,7 +3399,9 @@ impl Shell {
                     .children(self.dragged_tile(cx))
                     .children(self.turning_drag())
                     .children(self.question_card(cx))
+                    .children(self.cast_card(cx))
                     .children(self.agent_question_card(cx))
+                    .children(self.media_player_cards(cx))
                     .children(self.agent_bar_card(cx))
                     .children(self.drm_note_card(cx))
             }
@@ -3358,7 +3467,7 @@ impl Shell {
             .top(px(self.pages_top()))
             .left_0()
             .w(px(self.width()))
-            .bottom(px(FOOTER_HEIGHT))
+            .bottom(px(self.list_bottom()))
             .overflow_hidden()
             .children(pages)
             .child(self.rest_press_listener(Self::press_at_rest, cx).absolute().size_full())
@@ -3646,7 +3755,10 @@ impl Shell {
     }
 
     /// The window's close, minimize and zoom buttons, drawn in the reveal's panel.
-    fn window_buttons(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    fn window_buttons(&self, cx: &mut Context<Self>) -> AnyElement {
+        if cfg!(target_os = "windows") {
+            return self.windows_buttons(cx);
+        }
         let zoom = if self.maximized { "icons/window-restore.svg" } else { ZOOM_GLYPH };
         let buttons = [
             (WindowButton::Close, "icons/window-close.svg"),
@@ -3686,6 +3798,69 @@ impl Shell {
                             }),
                     )
             }))
+            .into_any_element()
+    }
+
+    /// Windows' own buttons where the Mac's show, in Windows' order: minimize, maximize and close,
+    /// so a Windows user doesn't read the window as a Mac port's (#1244). The host offers Snap
+    /// layouts over maximize, the middle one (platform/windows/host.cc's FrameHit).
+    fn windows_buttons(&self, cx: &mut Context<Self>) -> AnyElement {
+        let maximize = match self.maximized {
+            true => "icons/window-windows-restore.svg",
+            false => "icons/window-windows-maximize.svg",
+        };
+        let buttons = [
+            (WindowButton::Minimize, "icons/window-windows-minimize.svg"),
+            (WindowButton::Zoom, maximize),
+            (WindowButton::Close, "icons/window-windows-close.svg"),
+        ];
+        let (first, _) = WINDOW_BUTTONS[0];
+        let (second, _) = WINDOW_BUTTONS[1];
+        let ink = Hsla::from(self.palette.glyph(NAV));
+        let plate = self.palette.plate(NAV_HOVERED);
+        div()
+            .absolute()
+            .left(px(first - WINDOWS_BUTTON_PLATE / 2.))
+            .top(px(WINDOW_BUTTON_Y - WINDOWS_BUTTON_PLATE / 2.))
+            .flex()
+            .gap(px(second - first - WINDOWS_BUTTON_PLATE))
+            .block_mouse_except_scroll()
+            .children(buttons.into_iter().map(|(button, glyph)| {
+                let close = matches!(button, WindowButton::Close);
+                div()
+                    .id(glyph)
+                    .size(px(WINDOWS_BUTTON_PLATE))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(NAV_RADIUS))
+                    .group(glyph)
+                    .map(|button| match close {
+                        true => button.hover(|style| style.bg(rgb(WINDOWS_CLOSE_HOVERED))),
+                        false => button.hover(move |style| style.bg(plate)),
+                    })
+                    .on_hover(move |hovered, _, _| {
+                        if *hovered {
+                            // check.sh waits for this line before it captures the plate.
+                            log!("browser: window button {button:?} hovered");
+                        }
+                    })
+                    .on_click(cx.listener(move |shell, _, _, cx| {
+                        // check.sh waits for this line.
+                        log!("browser: window button {button:?}");
+                        shell.browser.press_window_button(button, cx);
+                    }))
+                    .child(
+                        svg()
+                            .path(glyph)
+                            .size(px(WINDOWS_BUTTON_GLYPH))
+                            .text_color(ink)
+                            .when(close, |svg| {
+                                svg.group_hover(glyph, |style| style.text_color(gpui::white()))
+                            }),
+                    )
+            }))
+            .into_any_element()
     }
 }
 

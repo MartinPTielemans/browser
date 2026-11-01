@@ -75,13 +75,15 @@ cleanup() {
 trap cleanup EXIT
 
 # The session tells its children's environment, where the Wayland socket and Xwayland's display
-# are, through a file once it's up.
+# are, through a file once it's up. A window that asks to be activated gets the keyboard, as on
+# GNOME or KDE, where sway's own default only marks it urgent.
 cat >"$dir/config" <<EOF
 output HEADLESS-1 resolution $(awk "BEGIN { printf \"%dx%d\", 1280 * $scale, 800 * $scale }") scale $scale
 xwayland enable
 default_border none
 default_floating_border none
 for_window [all] floating enable
+focus_on_window_activation focus
 exec sh -c 'echo "\$WAYLAND_DISPLAY \$SWAYSOCK \${DISPLAY:-}" > $dir/env'
 EOF
 # The integrated GPU's, not NVIDIA's: Vulkan, which GPUI draws with, finds no adapter that can

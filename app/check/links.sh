@@ -1,7 +1,8 @@
 # Links from other apps, as `open` sends them on the Mac, the way a link clicked in Mail does, and
 # off it as a second launch with the link does, which `xdg-open` makes on Linux. With the app
 # running, one opens in a Little ilo window of its own for the Space the window in front shows, and
-# loads there, as Settings › Links sends everything else there until the user picks another. Sent
+# loads there, as Settings › Links sends everything else there until the user picks another, and
+# the same link again brings that window back to the front. Sent
 # instead to the Space in front, one opens as a new tab in the Space the window in front shows. With
 # an agent's Space shown, it goes in the user's Space the window showed before, which comes back;
 # with a private window in front, in the regular window, which comes to the front. Settings › Links
@@ -71,6 +72,16 @@ grep -q "^browser: link from another app .* of window " "$log" &&
   fail "the link from another app opened as a tab too"
 send window 2
 ../tools/window-screenshot.sh "$pid" "$out/links-little.png" all || fail "no window to capture"
+# The same link again, with the regular window in front, brings that Little ilo window back.
+send window 1
+expect "^browser: key window $window\$" "the regular window didn't come to the front"
+send_link "${site}?ext"
+expect_late "^browser: link from another app ${site}?ext: little window $little again\$" \
+  "the same link again didn't bring its Little ilo window back: $(grep '^browser: link' "$log" | tail -1)"
+expect "^browser: key window $little\$" "the link's Little ilo window didn't come to the front"
+[ "$(grep -c "$(little_line "?ext" "[0-9]*")" "$log")" = 1 ] ||
+  fail "the same link again opened a second Little ilo window"
+send window 2
 send key w cmd
 await "^browser: window closed $little\$" || fail "⌘W didn't close the link's Little ilo window"
 send window 1
@@ -80,6 +91,7 @@ if [ "$driven" = 1 ]; then
   # Settings says the browser isn't the default and offers to make it so.
   send key , cmd
   expect '^browser: settings shown General$' "⌘, didn't show Settings on its General tab"
+  settings_drew General
   expect '^browser: default browser no$' "Settings didn't read whether the browser is the default"
   ../tools/window-screenshot.sh "$pid" "$out/links-settings.png" || fail "no window to capture"
   # Settings › Links, its second tab, says what rules do while it has none, and that everything
@@ -88,19 +100,20 @@ if [ "$driven" = 1 ]; then
   # first's middle: the pop-up of its condition there at 142, its field at 305, its arrow at 407,
   # its Space's pop-up at 500 and − at 597. + sits 11 under the box, and the pop-up of where
   # everything else goes 20 under +, at 510.
-  drawn() {
+  rules_drawn() {
     echo "^browser: link rules drawn $1; everything else $2\$"
   }
   front=$(cased "The Space in Front")
-  send clickkey 162 60
+  send clickkey $(drawn "toolbar Links")
   expect '^browser: settings tab Links$' "a click on Links didn't show its tab"
-  expect "$(drawn none "Little ilo")" "the Links tab didn't draw its empty box, everything else to Little ilo"
+  settings_drew Links
+  expect "$(rules_drawn none "Little ilo")" "the Links tab didn't draw its empty box, everything else to Little ilo"
   ../tools/window-screenshot.sh "$pid" "$out/links-rules-empty.png" || fail "no window to capture"
   post clickkey 510 228
   expect "^browser: menu shown $front, [^,]*, Little ilo (checked)\$" \
     "everything else's pop-up didn't offer the Space in front, the user's Space and Little ilo"
   send choose "$front"
-  expect "$(drawn none "$front")" "everything else's pop-up didn't set the Space in front"
+  expect "$(rules_drawn none "$front")" "everything else's pop-up didn't set the Space in front"
   send key w cmd
   expect '^browser: settings hidden$' "⌘W didn't hide Settings"
   open_link "?ext" "$first" "$window"
@@ -134,21 +147,23 @@ if [ "$driven" = 1 ]; then
   # the second.
   send menu Settings…
   expect '^browser: settings shown Links$' "Settings… didn't show Settings on its Links tab"
+  settings_drew Links
   send clickkey 76 173
   expect '^browser: link rule 0 field has the keyboard$' "+ didn't give the new rule's field the keyboard"
   send type work
-  expect "$(drawn 'URL contains "work" → [^,;]*' "$front")" "the rule didn't take the text typed"
+  expect "$(rules_drawn 'URL contains "work" → [^,;]*' "$front")" "the rule didn't take the text typed"
   post clickkey 500 129
   expect '^browser: menu shown [^,]* (checked), work, Little ilo$' \
     "the rule's Space pop-up didn't list the user's Spaces and Little ilo"
   send choose work
-  expect "$(drawn 'URL contains "work" → work' "$front")" "the rule's pop-up didn't set its Space"
+  expect "$(rules_drawn 'URL contains "work" → work' "$front")" "the rule's pop-up didn't set its Space"
   # A link whose URL holds the text goes to the rule's Space, which the regular window switches to.
   open_link "?work" "$second" "$window"
   expect "^browser: link rule 0 sends ${site}?work to space $second\$" "the rule didn't send the link"
   # A second rule, for a URL exactly, to the first Space, which a URL longer than it doesn't meet.
   send menu Settings…
   expect '^browser: settings shown Links$' "Settings… didn't show Settings on its Links tab"
+  settings_drew Links
   send clickkey 76 173
   expect '^browser: link rule 1 field has the keyboard$' "+ didn't give the second rule's field the keyboard"
   send insert "${site}?exact"
@@ -157,7 +172,7 @@ if [ "$driven" = 1 ]; then
     "the rule's condition pop-up didn't offer contains and is equal to"
   send choose "URL is equal to"
   exact="URL is equal to \"${site}?exact\" → [^,;]*"
-  expect "$(drawn "URL contains \"work\" → work, $exact" "$front")" "the second rule didn't draw"
+  expect "$(rules_drawn "URL contains \"work\" → work, $exact" "$front")" "the second rule didn't draw"
   open_link "?exactly" "$second" "$window"
   none_since "^browser: link rule [0-9]" || fail "a URL longer than the rule's went by the rule"
   open_link "?exact" "$first" "$window"
@@ -165,28 +180,30 @@ if [ "$driven" = 1 ]; then
   # Dragged by its arrow onto the first row, the second rule goes first.
   send menu Settings…
   expect '^browser: settings shown Links$' "Settings… didn't show Settings on its Links tab"
+  settings_drew Links
   send dragkey 407 170 407 129
-  expect "$(drawn "$exact, URL contains \"work\" → work" "$front")" "the drag didn't put the second rule first"
+  expect "$(rules_drawn "$exact, URL contains \"work\" → work" "$front")" "the drag didn't put the second rule first"
   ../tools/window-screenshot.sh "$pid" "$out/links-rules.png" || fail "no window to capture"
   # Everything else, now to the second Space.
   post clickkey 510 269
   expect "^browser: menu shown $front (checked), [^,]*, work, Little ilo\$" \
     "everything else's pop-up didn't offer the Space in front, the user's Spaces and Little ilo"
   send choose work
-  expect "$(drawn "$exact, URL contains \"work\" → work" work)" "everything else's pop-up didn't set its Space"
+  expect "$(rules_drawn "$exact, URL contains \"work\" → work" work)" "everything else's pop-up didn't set its Space"
   open_link "?else" "$second" "$window"
   # − takes the first rule away.
   send menu Settings…
   expect '^browser: settings shown Links$' "Settings… didn't show Settings on its Links tab"
+  settings_drew Links
   send clickkey 597 129
-  expect "$(drawn 'URL contains "work" → work' work)" "− didn't take the rule away"
+  expect "$(rules_drawn 'URL contains "work" → work' work)" "− didn't take the rule away"
   # A rule to Little ilo opens its links in one, for the Space in front: the second, the last link
   # to the window having shown it.
   post clickkey 500 129
   expect '^browser: menu shown [^,]*, work (checked), Little ilo$' \
     "the rule's Space pop-up didn't offer Little ilo"
   send choose "Little ilo"
-  expect "$(drawn 'URL contains "work" → Little ilo' work)" "the rule's pop-up didn't pick Little ilo"
+  expect "$(rules_drawn 'URL contains "work" → Little ilo' work)" "the rule's pop-up didn't pick Little ilo"
   send key w cmd
   expect '^browser: settings hidden$' "⌘W didn't hide Settings"
   open_little_link "?work-little" "$second"
@@ -195,11 +212,12 @@ if [ "$driven" = 1 ]; then
   # Back to the second Space, for the launch after.
   send menu Settings…
   expect '^browser: settings shown Links$' "Settings… didn't show Settings on its Links tab"
+  settings_drew Links
   post clickkey 500 129
   expect '^browser: menu shown [^,]*, work, Little ilo (checked)$' \
     "the rule's Space pop-up didn't check Little ilo"
   send choose work
-  expect "$(drawn 'URL contains "work" → work' work)" "the rule's pop-up didn't set the second Space"
+  expect "$(rules_drawn 'URL contains "work" → work' work)" "the rule's pop-up didn't set the second Space"
   send key w cmd
   expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 else
@@ -300,7 +318,7 @@ grep -q '^browser: link from another app .* of window ' "$log" &&
 quit_launched
 
 if [ "$driven" = 1 ]; then
-  echo "ok: links from another app open in Little ilo by default, and sent to the Space in front as new tabs in the front window's Space and load there, in the user's Space when an agent's is shown, and in the regular window, brought to the front, over a private one; Settings says the browser isn't the default. Settings › Links' rules send a link whose URL holds a rule's text, or is it exactly, to the rule's Space or Little ilo, the first that matches winning, a drag reorders them, everything else goes to the Space picked, − takes a rule away, and the rules come back with the launch. Windows: $out/links-little.png, $out/links-settings.png, $out/links-rules-empty.png, $out/links-rules.png"
+  echo "ok: links from another app open in Little ilo by default, the same link again bringing its window back, and sent to the Space in front as new tabs in the front window's Space and load there, in the user's Space when an agent's is shown, and in the regular window, brought to the front, over a private one; Settings says the browser isn't the default. Settings › Links' rules send a link whose URL holds a rule's text, or is it exactly, to the rule's Space or Little ilo, the first that matches winning, a drag reorders them, everything else goes to the Space picked, − takes a rule away, and the rules come back with the launch. Windows: $out/links-little.png, $out/links-settings.png, $out/links-rules-empty.png, $out/links-rules.png"
 else
   echo "ok: a link from another app opens in Little ilo by default and loads there."
   echo "skip: the agent's Space, the private window, Settings and the link rules. Browser wasn't the active app, so the page ignored the click."

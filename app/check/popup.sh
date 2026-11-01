@@ -201,9 +201,9 @@ expect '^browser: menu shown Back' "the page didn't show its menu again after a 
 menu=$(grep '^browser: menu shown' "$log" | tail -1 | cut -d' ' -f4-)
 # No tab came before it, and none after.
 if windows || [ "$(uname)" = Linux ]; then
-  page_items="Back (disabled), Forward (disabled), Reload, Save as…, Print…, View page source, Inspect"
+  page_items="Back (disabled), Forward (disabled), Reload, Save as…, Print…, Cast…, View page source, Inspect"
 else
-  page_items="Back (disabled), Forward (disabled), Reload, Save As…, Print…, View Page Source, Inspect"
+  page_items="Back (disabled), Forward (disabled), Reload, Save As…, Print…, Cast…, View Page Source, Inspect"
 fi
 [ "$menu" = "$page_items" ] ||
   fail "the page's menu is $menu"
@@ -218,10 +218,12 @@ if [ "$(uname)" = Linux ]; then
 else
   send choose Print…
   print_preview "the page menu's Print…" print.png
-  # ⌘P, as File › Print, with the page's text field focused, as what's typed there shows.
+  # ⌘P, as File › Print, with the page's text field focused, as what's typed there shows. Its last
+  # word stays spelt right, where the field's menu below is opened: a misspelt word's has no Select
+  # All, Language Settings or Writing Direction (Chrome), and Windows checks the spelling.
   send click 300 250
-  send type z
-  expect "^browser: title $opener .*z\$" "typing in the page's text field didn't reach it"
+  send type s
+  expect "^browser: title $opener .*notes\$" "typing in the page's text field didn't reach it"
   ../tools/window-screenshot.sh "$pid" "$out/before-print.png" || fail "no window to capture"
   page_shortcut p print
   print_preview ⌘P print-key.png xy

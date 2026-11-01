@@ -73,7 +73,7 @@ class Space {
   // Deletes the Space, which windows no longer show.
   static void Delete(bc_id id);
   static Space* FromId(bc_id id);
-  // Every Space but the windows' own, in the order they were made.
+  // Every Space but the windows' own, in the switcher's order, which sync's places set.
   static std::vector<Space*> All();
   // The Space holding |tab|, pinned or in Today, if any.
   static Space* Holding(bc_id tab);
@@ -93,6 +93,12 @@ class Space {
   // The emoji the user gave it to show in place of its dot and before its name, or empty.
   const std::string& icon() const { return icon_; }
   const std::string& theme() const { return theme_; }
+  // Whether it was ever given a name or icon other than those it was made with, which keeps a
+  // device's only Space when sync first brings the account's (space_default.h). A colour or theme,
+  // as onboarding gives the first Space, is setup and doesn't count.
+  bool touched() const { return touched_; }
+  // Puts back what the session saved of touched().
+  void SetTouched(bool touched) { touched_ = touched; }
   // The directory of the profile its tabs open in, which its favorites are in (decision 5).
   const std::string& profile() const { return profile_; }
   // The agent it belongs to, or none for the user's own.
@@ -274,6 +280,7 @@ class Space {
   std::string icon_;
   std::string theme_;
   std::string profile_;
+  bool touched_ = false;
   std::optional<Own> own_;
   Node node_;
   // Pinned tabs and folders.

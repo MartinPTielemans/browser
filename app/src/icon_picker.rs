@@ -296,6 +296,14 @@ pub fn entity(cx: &App) -> Option<Entity<IconPicker>> {
 }
 
 /// The user left the picker without picking, such as with a click outside it.
+/// The Space it edits is going from under it, as a swipe turns the page: it closes as Esc closes
+/// it, where `dismissed` hears of a close the host has made.
+pub fn leave(cx: &mut App) {
+    if let Some(window) = cx.try_global::<IconPickerWindow>().map(|picker| picker.0) {
+        window.update(cx, |picker, window, cx| picker.dismiss(&Dismiss, window, cx)).ok();
+    }
+}
+
 pub fn dismissed(cx: &mut App) {
     if let Some(window) = cx.try_global::<IconPickerWindow>().map(|picker| picker.0) {
         window
@@ -310,9 +318,13 @@ pub fn dismissed(cx: &mut App) {
 /// Whether the picker shows, for a click on the icon it points at to close it rather than open it
 /// again.
 pub fn is_open(cx: &App) -> bool {
-    cx.try_global::<IconPickerWindow>()
-        .and_then(|picker| picker.0.read(cx).ok())
-        .is_some_and(|picker| picker.picking.is_some())
+    open_for(cx).is_some()
+}
+
+/// What the picker shows for, if it shows.
+pub fn open_for(cx: &App) -> Option<Subject> {
+    let picker = cx.try_global::<IconPickerWindow>()?.0.read(cx).ok()?;
+    picker.picking.as_ref().map(|picking| picking.subject)
 }
 
 /// How far right the old tab's content and the new one's are, `progress` (0 to 1) into a switch

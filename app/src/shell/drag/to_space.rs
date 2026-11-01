@@ -2,7 +2,7 @@
 
 use gpui::{AppContext, TestAppContext};
 
-use super::EDGE_WAIT;
+use super::{EDGE_WAIT, SPLIT_REST};
 use super::detents::{X, drag_to, press, row_y};
 use crate::shell::{Folders, Place, Shell, Slot, recorder::Recorder};
 
@@ -55,6 +55,30 @@ fn a_row_held_at_the_edge_pages_to_the_next_space_and_drops_there(cx: &mut TestA
     shell.update(cx, |shell, cx| shell.drop_row(cx));
     assert_eq!(host.take_edits(), ["space 4 2"]);
     assert!(shell.read_with(cx, |shell, _| shell.drag.is_none()));
+}
+
+/// Held at the edge over another row's middle, it pages and never joins that row in a split, whose
+/// wait is the shorter, even where it rested before it got there (#1089).
+#[gpui::test]
+fn a_row_held_at_the_edge_over_another_rests_on_no_split(cx: &mut TestAppContext) {
+    let (shell, host) = shell(cx);
+    let y = press(&shell, cx, 4);
+    let width = shell.read_with(cx, |shell, _| shell.width());
+    let three = shell.read_with(cx, |shell, _| row_y(shell, 3));
+    let onto = |cx: &mut TestAppContext| {
+        shell.read_with(cx, |shell, _| shell.drag.as_ref().and_then(|drag| drag.onto))
+    };
+    drag_to(&shell, cx, X, y + 10.);
+    // Resting on 3's middle for part of the split's wait, then on to the edge, still on it.
+    drag_to(&shell, cx, X, three);
+    cx.executor().advance_clock(SPLIT_REST / 2);
+    drag_to(&shell, cx, width - 10., three);
+    cx.executor().advance_clock(SPLIT_REST);
+    cx.run_until_parked();
+    assert_eq!(onto(cx), None, "joined 3 at the edge");
+    wait(cx);
+    assert_eq!(host.shown.take(), [2]);
+    assert_eq!(onto(cx), None, "joined 3 as it paged");
 }
 
 /// Over another Space's pinned tabs it pins the tab there, under them; at the left edge it pages

@@ -1736,6 +1736,20 @@ void host_watch_active(void (*became_active)(void)) {
                                               }];
 }
 
+bool host_reduce_motion(void) {
+  return NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
+}
+
+void host_watch_reduce_motion(void (*changed)(void)) {
+  [NSWorkspace.sharedWorkspace.notificationCenter
+      addObserverForName:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification
+                  object:nil
+                   queue:NSOperationQueue.mainQueue
+              usingBlock:^(NSNotification*) {
+                changed();
+              }];
+}
+
 bool host_is_default_browser(void) {
   NSString* mine = NSBundle.mainBundle.bundleIdentifier;
   for (NSString* link in @[ @"http://", @"https://" ]) {
@@ -2956,12 +2970,10 @@ void host_hide_capture(void) {
 
 namespace {
 
-// host_copy's pasteboard: the clipboard, or in a driven run one of its own, so checks never touch
-// the user's clipboard.
+// host_copy's pasteboard: the clipboard, which in a driven run is the driver's own (drive.mm), so
+// checks never touch the user's clipboard, and the driver's pasteboard command reads what's copied.
 NSPasteboard* CopyPasteboard() {
-  static NSPasteboard* driven =
-      getenv("BROWSER_DRIVE") ? [NSPasteboard pasteboardWithUniqueName] : nil;
-  return driven ?: NSPasteboard.generalPasteboard;
+  return NSPasteboard.generalPasteboard;
 }
 
 // A capture's name, for when it was taken, as macOS names a screenshot.
@@ -2987,7 +2999,7 @@ void host_copy_png(const uint8_t* png, size_t size) {
   // check.sh reads this line: what the pasteboard holds now, and which one it is.
   fprintf(stderr, "browser: pasteboard png %lu bytes, %s\n",
           (unsigned long)[pasteboard dataForType:NSPasteboardTypePNG].length,
-          pasteboard == NSPasteboard.generalPasteboard ? "general" : "private");
+          [pasteboard.name isEqualToString:NSPasteboardNameGeneral] ? "general" : "private");
 }
 
 void host_save_png(void* ui_view, const uint8_t* png, size_t size) {
@@ -3818,6 +3830,53 @@ void host_copy(const char* text) {
   [pasteboard setString:@(text) forType:NSPasteboardTypeString];
 }
 
+// The pasteboard's change count once it held the secret, which anything copied since changes; -1
+// with none.
+static NSInteger g_secret_count = -1;
+
+bool host_copy_secret(const char* text, uint32_t seconds) {
+  NSPasteboard* pasteboard = CopyPasteboard();
+  // Kept from Universal Clipboard, which would send it to the user's other devices.
+  const NSInteger count =
+      [pasteboard prepareForNewContentsWithOptions:NSPasteboardContentsCurrentHostOnly];
+  g_secret_count = count;
+  [pasteboard setString:@(text) forType:NSPasteboardTypeString];
+  // nspasteboard.org's markers, which clipboard managers honour by not recording what they mark,
+  // as 1Password marks a password it copies.
+  [pasteboard setData:[NSData data] forType:@"org.nspasteboard.ConcealedType"];
+  [pasteboard setData:[NSData data] forType:@"org.nspasteboard.TransientType"];
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)seconds * NSEC_PER_SEC),
+                 dispatch_get_main_queue(), ^{
+                   // Only if it's still the words: anything copied since changed the count.
+                   if (pasteboard.changeCount == count) {
+                     [pasteboard clearContents];
+                   }
+                 });
+  return true;
+}
+
+void host_forget_secret(void) {
+  NSPasteboard* pasteboard = CopyPasteboard();
+  if (g_secret_count >= 0 && pasteboard.changeCount == g_secret_count) {
+    [pasteboard clearContents];
+  }
+  g_secret_count = -1;
+}
+
+bool host_key_repeated(void) {
+  // A page's key reaches the core while AppKit dispatches it.
+  NSEvent* event = NSApp.currentEvent;
+  return event.type == NSEventTypeKeyDown && event.ARepeat;
+}
+
+size_t host_paste(char* text, size_t capacity) {
+  const char* held = [CopyPasteboard() stringForType:NSPasteboardTypeString].UTF8String ?: "";
+  if (capacity) {
+    strlcpy(text, held, capacity);
+  }
+  return strlen(held);
+}
+
 void host_open_full_disk_access(void) {
   // check.sh reads this line.
   fprintf(stderr, "browser: open full disk access\n");
@@ -4136,12 +4195,16 @@ bool host_close_other_window(void) {
   return true;
 }
 
-int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count) {
+int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count,
+             bool returns) {
   NSAlert* alert = [[NSAlert alloc] init];
   alert.messageText = @(message);
   alert.informativeText = @(detail);
   for (size_t i = 0; i < count; ++i) {
     [alert addButtonWithTitle:@(buttons[i])];
+  }
+  if (!returns && count > 0) {
+    alert.buttons.firstObject.keyEquivalent = @"";
   }
   g_alert = alert;
   fprintf(stderr, "browser: alert shown %s\n", message);

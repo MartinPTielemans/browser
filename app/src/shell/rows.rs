@@ -8,18 +8,18 @@ use std::{
 };
 
 use gpui::{
-    AnyElement, App, Bounds, ClickEvent, Context, MouseButton, MouseDownEvent, Pixels, Radians,
+    AnyElement, App, Bounds, ClickEvent, Context, Div, MouseButton, MouseDownEvent, Pixels, Radians,
     Role, SharedString, Transformation, Window, canvas, div, prelude::*, px, rgb, svg,
 };
 
 use super::{
     CLEAR, CLEAR_ARROW, CLEAR_HOVERED, CLOSE_GLYPH, CLOSE_HOVERED, CLOSE_RIGHT, CLOSE_SIZE, Pending,
     CancelName, Closing, Command, DIVIDER, EMOJI_SIZE, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X,
-    FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, HOVERED, KeepName, LOADING_ROW_MIN, LOADING_SIZE,
+    FOLDER_INDENT, FORM_TEXT, HOVERED, KeepName, LOADING_ROW_MIN, LOADING_SIZE,
     STATUS_AGENT, STATUS_DOT, STATUS_LOADING, STATUS_RING, STATUS_RING_COLOR,
     BREATH, BREATH_LOW, NAME_HEIGHT, NAV, NAV_HOVERED, NAV_RADIUS, Naming, CHOSEN, PINNED_CARET,
     PINNED_CARET_GAP, PINNED_CARET_PLATE, PLATE_HEIGHT, PLATE_INSET, PLATE_RADIUS, SPACE_NAME,
-    SPACE_NAME_SHUT,
+    SPACE_NAME_SHUT, Page,
     ROW_HEIGHT, ROW_PITCH, Row, SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP,
     SELECTED_UNHOVER, SLEEPING_FAVICON, SPACE_ICON_PLATE, SPEAKER_DRAWN, SPEAKER_GAP, SPEAKER_SIZE,
     Shell, Slot, Swapped, TITLE_END_INSET, URL_BUTTON_GLYPH, URL_BUTTON_SIZE, clear_label, cubic_bezier, divider_box, favicon,
@@ -73,7 +73,9 @@ impl Shell {
 
     /// Collapses the pinned rows of the Space shown or expands them, on a folder's fold.
     pub(super) fn set_pinned_open(&mut self, open: bool, cx: &mut Context<Self>) {
-        let shown = self.shown_space().filter(|space| space.folders.pinned_shut == open);
+        // The key and the menu bar's item act only as the caret is offered.
+        let command = if open { Command::ExpandPinned } else { Command::CollapsePinned };
+        let shown = self.shown_space().filter(|_| self.offers(command));
         let Some(space) = shown.map(|space| space.id) else {
             return;
         };
@@ -82,11 +84,11 @@ impl Shell {
     }
 
     /// The chevron after the Space's name that collapses its pinned rows or expands them. It fades
-    /// in with Clear while the Space has pinned rows and stays while they're collapsed, so the way
-    /// back shows. It acts as it's pressed, as a folder does.
+    /// in with Clear while collapsing would hide a row, and stays while they're collapsed and a row
+    /// is hidden, so the way back shows. It acts as it's pressed, as a folder does.
     fn pinned_caret(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
         let shut = self.shown_space()?.folders.pinned_shut;
-        let shown = shut || self.offers(Command::CollapsePinned);
+        let shown = self.offers(Command::CollapsePinned) || self.offers(Command::ExpandPinned);
         let drawn = self.caret_drawn.clone();
         if !shown {
             if drawn.take().is_some() {
@@ -511,6 +513,27 @@ impl Shell {
         })
     }
 
+    /// What `tab`'s page captures or shares, after its favicon and before its speaker, as Chrome's
+    /// tab strip marks it (Arc animates it; ours is still, as a call would draw every frame).
+    fn capture_mark(&self, tab: u64) -> Option<Div> {
+        let glyph = capture_glyph(&self.page(tab))?;
+        Some(
+            div()
+                .flex_none()
+                .mr(px(SPEAKER_GAP))
+                .size(px(SPEAKER_SIZE))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    svg()
+                        .path(glyph)
+                        .size(px(SPEAKER_DRAWN))
+                        .text_color(self.palette.text(SECONDARY)),
+                ),
+        )
+    }
+
     /// Mutes `tab`, or unmutes it.
     pub(super) fn toggle_mute(&mut self, tab: u64, cx: &mut Context<Self>) {
         if tab != 0 {
@@ -535,7 +558,7 @@ impl Shell {
     /// Shows `tab` for a press on its row, or its segment of a split view's, at once, as Arc's
     /// does, even if the press becomes a drag. Its page takes the keyboard, as a tab clicked in
     /// Chrome's tab strip does, so the keys that follow, ⌘D or Space, are the page's.
-    fn show_row(&mut self, tab: u64, cx: &mut Context<Self>) {
+    pub(super) fn show_row(&mut self, tab: u64, cx: &mut Context<Self>) {
         log!("browser: command select via sidebar");
         self.select(tab, cx);
         self.browser.focus_page(cx)
@@ -557,7 +580,7 @@ impl Shell {
         }
         let at = in_sidebar(event.position, self.sidebar_origin.get());
         let width = self.width();
-        let rows = self.drawn_list_top()..f32::from(self.viewport.height) - FOOTER_HEIGHT;
+        let rows = self.drawn_list_top()..f32::from(self.viewport.height) - self.list_bottom();
         if !(0. ..width).contains(&at.x) || !rows.contains(&at.y) {
             return false;
         }
@@ -602,7 +625,9 @@ impl Shell {
                 self.rename_folder(tab, cx)
             }
             MouseButton::Left if event.click_count == 2 => self.rename_tab(tab, cx),
-            MouseButton::Left if event.modifiers.alt && self.alt_press_row(tab, cx) => {}
+            MouseButton::Left if event.modifiers.alt && !self.is_folder(tab) => {
+                self.alt_press_list_row(tab, event.position, cx)
+            }
             MouseButton::Left if !self.is_folder(tab) && self.choose_by_press(tab, event, cx) => {}
             MouseButton::Left => {
                 self.end_hovers(cx);
@@ -847,8 +872,10 @@ impl Shell {
                 .when(!(hovered && closable), |label| label.pr(px(TITLE_END_INSET)))
                 // The mark takes the speaker's place while the page has died or hung.
                 .children(match self.trouble_mark(tab) {
-                    Some(mark) => Some(mark.into_any_element()),
-                    None => self.speaker(tab, cx).map(IntoElement::into_any_element),
+                    Some(mark) => vec![mark.into_any_element()],
+                    None => (self.capture_mark(tab).map(IntoElement::into_any_element).into_iter())
+                        .chain(self.speaker(tab, cx).map(IntoElement::into_any_element))
+                        .collect(),
                 })
                 .child(title)
                 .when(hovered && closable, |label| label.child(close))
@@ -910,9 +937,10 @@ impl Shell {
                     if event.click_count == 2 {
                         return shell.rename_tab(tab, cx);
                     }
-                    if (event.modifiers.alt && shell.alt_press_row(tab, cx))
-                        || shell.choose_by_press(tab, event, cx)
-                    {
+                    if event.modifiers.alt {
+                        return shell.alt_press_list_row(tab, event.position, cx);
+                    }
+                    if shell.choose_by_press(tab, event, cx) {
                         return;
                     }
                     // On the way back to the pinned URL, the favicon's click shows the tab.
@@ -1274,6 +1302,20 @@ pub(super) fn emoji(icon: SharedString) -> AnyElement {
         .into_any_element()
 }
 
+/// The glyph for what `page` captures or shares: sharing a screen, a window or a tab, or being
+/// shared, then the camera, then the microphone alone.
+pub(super) fn capture_glyph(page: &Page) -> Option<&'static str> {
+    if page.sharing || page.shared {
+        Some("icons/screen-share.svg")
+    } else if page.camera {
+        Some("icons/video.svg")
+    } else if page.microphone {
+        Some("icons/mic.svg")
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -1281,13 +1323,16 @@ mod tests {
         time::{Duration, Instant},
     };
 
-    use gpui::{Entity, Modifiers, MouseButton, TestAppContext, VisualTestContext, point, px};
+    use gpui::{
+        Entity, Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, TestAppContext,
+        VisualTestContext, point, px,
+    };
 
     use super::{
         super::{
             CLOSE_RIGHT, CLOSE_SIZE, FAVICON_SIZE, FAVICON_X, Folders, NAME_HEIGHT, PLATE_INSET,
             PRESS_SCALE, PRESS_TIME, Page, ROW_HEIGHT, ROW_PITCH, Row, SELECTED_UNHOVER,
-            SPACE_ICON_PLATE, Shell, Slot, Swapped,
+            SPACE_ICON_PLATE, Shell, Slot, Swapped, URL_BUTTON_SIZE,
             commands::{Command, bind_keys},
             drag::detents::shell_with,
             recorder::Recorder,
@@ -1373,6 +1418,76 @@ mod tests {
         assert!(press(cx, middle + point(px(edge), px(0.))), "on the plate, past the glyph");
         let above = (SPACE_ICON_PLATE / 2. + NAME_HEIGHT / 2.) / 2.;
         assert!(!press(cx, middle - point(px(0.), px(above))), "above the plate");
+    }
+
+    /// The … at the end of the Space's name row, under the pointer, opens the Space's menu where
+    /// it's pressed, as a right-click on the name does (#1090), with the pinned rows' caret beside
+    /// it or without.
+    #[gpui::test]
+    fn the_name_rows_edit_button_shows_the_spaces_menu(cx: &mut TestAppContext) {
+        for (pinned, a11y) in [(&[][..], false), (&[5][..], false), (&[5][..], true)] {
+            let host = Rc::new(Recorder::default());
+            let browser = host.clone();
+            let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+            if a11y {
+                cx.simulate_a11y_activation();
+            }
+            shell.update(cx, |shell, cx| {
+                let space = (1, "Space".into(), None, 1, "".into(), "".into(), "".into());
+                shell.set_spaces(vec![space], cx);
+                shell.set_space(1, cx);
+                shell.set_tabs(1, pinned.to_vec(), vec![2], Vec::new(), Folders::default(), cx);
+                shell.set_selected(2, cx);
+            });
+            cx.run_until_parked();
+            let row = shell.read_with(cx, |shell, _| shell.name_row_drawn.get()).expect("a row");
+            let at = point(row.right() - px(FAVICON_X + URL_BUTTON_SIZE / 2.), row.center().y);
+            cx.simulate_mouse_move(at, None, Modifiers::none());
+            cx.run_until_parked();
+            host.menus.take();
+            cx.simulate_mouse_down(at, MouseButton::Left, Modifiers::none());
+            cx.simulate_mouse_up(at, MouseButton::Left, Modifiers::none());
+            cx.run_until_parked();
+            let menus = host.menus.take();
+            let first = menus.last().and_then(|menu| menu.first()).map(|(title, _)| title.clone());
+            assert_eq!(first.as_deref(), Some("Rename Space"), "pinned {pinned:?}, a11y {a11y}");
+            assert_eq!(host.menu_at.get(), Some(at), "pinned {pinned:?}, a11y {a11y}");
+        }
+    }
+
+    /// The click that makes the window active, which GPUI on the Mac takes as its first mouse,
+    /// shows the Space's menu from the … as it selects a tab from its row (#1090).
+    #[gpui::test]
+    fn the_click_that_activates_the_window_reaches_the_edit_button_as_a_row(
+        cx: &mut TestAppContext,
+    ) {
+        let (shell, cx, host) = window(cx, vec![2, 3], vec![4], 4);
+        let first_click = |cx: &mut VisualTestContext, position| {
+            cx.simulate_mouse_move(position, None, Modifiers::none());
+            cx.deactivate_window();
+            let (button, modifiers) = (MouseButton::Left, Modifiers::none());
+            cx.simulate_event(MouseDownEvent {
+                position,
+                button,
+                modifiers,
+                click_count: 1,
+                first_mouse: true,
+            });
+            cx.simulate_event(MouseUpEvent { position, button, modifiers, click_count: 1 });
+            cx.run_until_parked();
+        };
+        let (x, y) = close_button(&shell, cx, 2);
+        host.take();
+        first_click(cx, point(px(x - 100.), px(y)));
+        assert!(host.take().contains(&"select 2".into()), "the first click on a row");
+
+        let row = shell.read_with(cx, |shell, _| shell.name_row_drawn.get()).expect("a name row");
+        let at = point(row.right() - px(FAVICON_X + URL_BUTTON_SIZE / 2.), row.center().y);
+        host.menus.take();
+        first_click(cx, at);
+        let menus = host.menus.take();
+        let first = menus.last().and_then(|menu| menu.first()).map(|(title, _)| title.clone());
+        assert_eq!(first.as_deref(), Some("Rename Space"), "the first click on the …");
     }
 
     /// Change Icon… on a tab asks for the icon picker under that tab's row, which draws where the
@@ -1928,6 +2043,69 @@ mod tests {
         shell.update(cx, |shell, cx| shell.run(Command::ExpandPinned, "ui", cx));
         assert!(host.take().contains(&"pinned open 1 true".to_owned()));
         assert_eq!(shell.read_with(cx, |shell, _| shell.folding), Some(true));
+    }
+
+    /// Collapse and Expand Pinned Tabs are offered only while they'd hide or show a row now
+    /// (#1208): the tab shown keeps its row, so with it the only pinned tab there's no caret, no
+    /// command bar row and a dimmed View item, and the key does nothing. A Today tab shown leaves
+    /// the pinned row to hide, and once it's hidden Expand brings it back; the pinned tab shown
+    /// again from the command bar is its row. A tab shown in a folder with another collapses them.
+    #[gpui::test]
+    fn the_pinned_rows_collapse_only_when_that_hides_one(cx: &mut TestAppContext) {
+        use crate::shell::commands::{ShellHandle, bar_commands};
+        let (shell, cx, host) = window_with(cx, vec![1], vec![4], 1, Folders::default());
+        cx.update(|_, cx| cx.set_global(ShellHandle(shell.downgrade())));
+        let caret = |cx: &mut VisualTestContext| {
+            cx.run_until_parked();
+            shell.read_with(cx, |shell, _| shell.caret_drawn.get().map(|(shut, _)| shut))
+        };
+        let bar = |cx: &mut VisualTestContext| {
+            let rows = cx.update(|_, cx| bar_commands("pinned", cx));
+            let pinned = [Command::CollapsePinned, Command::ExpandPinned];
+            let commands = rows.into_iter().map(|row| row.command);
+            commands.filter(|command| pinned.contains(command)).collect::<Vec<_>>()
+        };
+        let menu = || {
+            let bar = host.menu_bar.borrow();
+            bar.pinned_offered.then(|| bar.pinned_item().1)
+        };
+        assert_eq!(caret(cx), None, "a caret with only the tab shown pinned");
+        assert_eq!(bar(cx), []);
+        assert_eq!(menu(), None);
+        host.take();
+        shell.update(cx, |shell, cx| shell.run(Command::CollapsePinned, "ui", cx));
+        assert!(!host.take().iter().any(|call| call.starts_with("pinned open")));
+
+        shell.update(cx, |shell, cx| shell.set_selected(4, cx));
+        assert_eq!(caret(cx), Some(false), "no caret with the pinned row to hide");
+        assert_eq!(bar(cx), [Command::CollapsePinned]);
+        assert_eq!(menu(), Some(Command::CollapsePinned));
+        shell.update(cx, |shell, cx| shell.run(Command::CollapsePinned, "ui", cx));
+        assert!(host.take().contains(&"pinned open 1 false".to_owned()));
+        let shut = Folders { pinned_shut: true, ..Folders::default() };
+        shell.update(cx, |shell, cx| shell.set_tabs(1, vec![1], vec![4], Vec::new(), shut, cx));
+        assert_eq!(shell.read_with(cx, |shell, _| shell.rows().0), Vec::<u64>::new());
+        assert_eq!(caret(cx), Some(true), "no caret for the way back");
+        assert_eq!(bar(cx), [Command::ExpandPinned]);
+        assert_eq!(menu(), Some(Command::ExpandPinned));
+
+        // As the core answers the command bar's row for the pinned tab.
+        shell.update(cx, |shell, cx| shell.set_selected(1, cx));
+        assert_eq!(shell.read_with(cx, |shell, _| shell.rows().0), [1]);
+        assert_eq!(caret(cx), None, "a caret with nothing hidden");
+        assert_eq!(bar(cx), []);
+
+        let docs = Folders {
+            folders: [(20, ("Docs".into(), true))].into(),
+            parents: [(21, 20), (22, 20)].into(),
+            ..Folders::default()
+        };
+        shell.update(cx, |shell, cx| {
+            shell.set_tabs(1, vec![20, 21, 22], vec![4], Vec::new(), docs, cx);
+            shell.set_selected(21, cx);
+        });
+        assert_eq!(caret(cx), Some(false), "no caret with the folder's other tab to hide");
+        assert_eq!(bar(cx), [Command::CollapsePinned]);
     }
 
     /// Presses in the first frames after ⌃2, while the second Space's rows still slide in from the

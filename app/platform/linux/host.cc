@@ -441,6 +441,17 @@ void host_release_held_keys(void) {}
 // (platform/linux/system.rs).
 void host_copy(const char* text) {}
 
+bool host_key_repeated(void) {
+  return false;
+}
+
+size_t host_paste(char* text, size_t capacity) {
+  if (capacity) {
+    text[0] = 0;
+  }
+  return 0;
+}
+
 void host_copy_png(const uint8_t* png, size_t size) {}
 
 void host_save_png(void* ui_view, const uint8_t* png, size_t size) {}
@@ -488,7 +499,8 @@ void host_focus(void* view) {}
 
 // Nothing asks: Chromium's loop can't wait here for an answer, so Settings asks in a dialog of its
 // own (settings.rs).
-int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count) {
+int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count,
+             bool returns) {
   return -1;
 }
 
@@ -535,6 +547,16 @@ bool host_video_frame(void*, uint8_t*) {
 }
 
 void host_video_close(void*) {}
+
+// Linux's clipboard is GPUI's, so the app copies a secret through GPUI, with KDE's password manager
+// hint (account.rs, copy_for).
+bool host_copy_secret(const char* text, uint32_t seconds) {
+  return false;
+}
+
+// The app's copy leaves with it: X11's selection and Wayland's go as their owner quits, and GPUI
+// hands a secret to no clipboard manager.
+void host_forget_secret(void) {}
 
 void host_open_in_safari(const char* url) {}
 
