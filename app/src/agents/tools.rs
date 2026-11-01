@@ -1,7 +1,6 @@
 //! The tools an agent calls, as MCP lists them, and what they answer. Each works only in the
-//! agent's own Space (decision 8), with prototypes/arcish/agent.js as the reference: it reads and
-//! acts on pages through the core, never through script of its own, and never sees a password, a
-//! cookie or autofill.
+//! agent's own Space (decision 8): it reads and acts on pages through the core, never through
+//! script of its own, and never sees a password, a cookie or autofill.
 
 use serde_json::{Value, json};
 
