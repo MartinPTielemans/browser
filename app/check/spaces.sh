@@ -707,10 +707,19 @@ for where in second-window full-screen; do
   fi
   send move $page_point
   send move $edit_point
+  ../tools/window-screenshot.sh "$pid" "$out/space-edit-$where-before.png" || fail "no window to capture"
   send click $edit_point
-  expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, \
-Export as Markdown…, Delete Space")\$" \
-    "a click on the … didn't show the Space's menu in the $where"
+  shown="^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, \
+Export as Markdown…, Delete Space")\$"
+  for _ in $(seq 100); do logged "$shown" && break; sleep 0.1; done
+  # The issue asks whether a second click works when the first does nothing.
+  if ! logged "$shown"; then
+    first=$step
+    send click $edit_point
+    for _ in $(seq 100); do logged "$shown" && break; sleep 0.1; done
+    if logged "$shown" "$first"; then again=did; else again="didn't"; fi
+    fail "a click on the … didn't show the Space's menu in the $where, and a second click $again"
+  fi
   expect '^browser: menu drawn ' "the Space's menu from the … didn't come on screen in the $where"
   ../tools/window-screenshot.sh "$pid" "$out/space-edit-$where.png" || fail "no window to capture"
   none_since '^browser: menu c' || fail "the Space's menu from the … closed in the $where"
