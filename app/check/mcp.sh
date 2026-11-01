@@ -278,8 +278,9 @@ painted(() => document.title = "fields");
   # one of another, which Chromium puts in a process of its own, and the agent acts in both. A
   # password field in a frame is as off limits as one in the page. The page names itself once the
   # other site's frame has painted: until then Chromium hasn't the frame's drawing to find what's
-  # under a click in, and gives the click to the page around it. Before that it names the frame's
-  # size and visibility as it loaded, and its own, which say why a frame never painted.
+  # under a click in, and gives the click to the page around it. Before that it names what the
+  # frame saw 3 s after it loaded, and its own size and visibility, which say why a frame never
+  # painted: whether it was drawn at all, and in view.
   printf '%s' '<p>Inner text</p><button>Inner button</button><input aria-label="Inner field">' \
     > "$out/site/inner.html"
   printf '%s' '<p>Cross text</p>
@@ -287,12 +288,17 @@ painted(() => document.title = "fields");
 <input aria-label="Cross field" oninput="document.body.append(&quot;cross typed&quot;)">
 <input type=password aria-label="Cross password"><script src="painted.js"></script>
 <script>painted(() => parent.postMessage("painted", "*"));
-addEventListener("load", () => parent.postMessage(`cross at ${innerWidth}x${innerHeight} ${document.visibilityState}`, "*"));</script>' > "$out/site/cross.html"
+let ticks = 0, seen = "never";
+const tick = () => { ticks++; requestAnimationFrame(tick); };
+requestAnimationFrame(tick);
+new IntersectionObserver(([entry]) => seen = entry.isIntersecting ? "in view" : "out of view")
+  .observe(document.body);
+addEventListener("load", () => setTimeout(() => parent.postMessage(`cross after 3 s: ${innerWidth}x${innerHeight} ${document.visibilityState}, ${ticks} animation frames, ${seen}, ${performance.getEntriesByType("paint").length} paints`, "*"), 3000));</script>' > "$out/site/cross.html"
   printf '%s' "<title>loading</title><p>Top text</p><iframe src=inner.html></iframe>
 <iframe src=http://127.0.0.1:$port/cross.html></iframe>
 <script>let painted = false;
 addEventListener('message', (event) => {
-  if (String(event.data).startsWith('cross at ') && !painted)
+  if (String(event.data).startsWith('cross after ') && !painted)
     document.title = \`\${event.data}, page at \${innerWidth}x\${innerHeight} \${document.visibilityState}\`;
   if (event.data === 'painted') { painted = true; document.title = 'frames'; }
   if (event.data === 'extension frame') document.title = 'frames with extension';
@@ -305,8 +311,8 @@ addEventListener('message', (event) => {
   esac
   frames_tab=$(printf '%s\n' "$outline" | sed -n '1s/^Opened tab \([0-9]*\)\..*/\1/p')
   await "^browser: title $frames_tab frames\$" || fail "the other site's frame didn't paint: $(
-    grep "^browser: title $frames_tab cross at " "$log" | tail -1 | cut -d' ' -f4- | grep . ||
-      echo "it never loaded")"
+    grep "^browser: title $frames_tab cross after " "$log" | tail -1 | cut -d' ' -f4- | grep . ||
+      echo "it never said what it saw")"
   inner=$(ref_of button "Inner button")
   cross=$(ref_of button "Cross button")
   [ -n "$inner" ] && [ -n "$cross" ] && [ "$inner" != "$cross" ] ||
