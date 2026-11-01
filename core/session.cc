@@ -31,6 +31,7 @@
 #include "browser_core/favorites.h"
 #include "browser_core/profiles.h"
 #include "browser_core/space.h"
+#include "browser_core/sync_spaces.h"
 #include "browser_core/tab.h"
 #include "browser_core/window.h"
 #include "chrome/browser/lifetime/application_lifetime_desktop.h"
@@ -211,6 +212,7 @@ SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today)
   to.color = space.color();
   to.icon = space.icon();
   to.theme = space.theme();
+  to.touched = space.touched();
   to.profile = space.profile();
   to.agent = space.agent();
   to.pinned_open = space.pinned_open();
@@ -434,6 +436,9 @@ std::optional<std::string> ToJson(const Saved& saved) {
     if (!space.pinned_open) {
       dict.Set("pinned_open", false);
     }
+    if (!space.touched) {
+      dict.Set("untouched", true);
+    }
     if (!space.profile.empty()) {
       dict.Set("profile", space.profile);
     }
@@ -584,6 +589,7 @@ std::optional<Saved> Read(const base::FilePath& path) {
       to.theme = *theme;
     }
     to.pinned_open = space->FindBool("pinned_open").value_or(true);
+    to.touched = !space->FindBool("untouched").value_or(false);
     if (const std::string* profile = space->FindString("profile")) {
       to.profile = *profile;
     }
@@ -860,6 +866,7 @@ void SessionChanged() {
   if (g_saver) {
     g_saver->Changed();
   }
+  sync_spaces::Changed();
 }
 
 void KeepSession() {
@@ -930,6 +937,7 @@ Space* RestoreSpace(Window& window,
   space->SetIcon(saved_space.icon);
   space->SetTheme(saved_space.theme);
   space->SetPinnedOpen(saved_space.pinned_open);
+  space->SetTouched(saved_space.touched);
   space->SetProfile(DirOf(profile));
   // Else the Space comes back as a new window shows it: its pinned tabs, none shown, and no Today
   // tabs, which go in the archive.
