@@ -626,6 +626,11 @@ username-size = 11.0
 rule-condition = 135.0
 rule-gap = 8.0
 field-padding = 6.0
+# Ours, for the Sync tab: the recovery words down 4 columns, each after its number in the
+# detail grey, in a column as wide as "24" and a gap, with 6 between the rows.
+words-columns = 4
+word-number = 24.0
+word-gap = 6.0
 bar = 0x282a2a
 bar-line = 0x303131
 background = 0x202222
