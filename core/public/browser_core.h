@@ -881,6 +881,9 @@ typedef struct bc_host {
   // On Linux under X11: ⌥ was pressed and let go alone, with no other key or click while it was
   // down, as the page in |window| had the keyboard. GPUI hears only the UI's keys there.
   void (*window_option_tapped)(void* context, bc_id window);
+  // bc_profile_add_addresses added |added| addresses to |profile|'s, once for each call that
+  // returned true, in order.
+  void (*addresses_added)(void* context, bc_id profile, size_t added);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -1298,6 +1301,27 @@ typedef struct bc_history_page {
 // already there with a visit as late is skipped, so importing the same history again adds
 // nothing. Then history_added, with how many it added. The core copies what it needs.
 BC_EXPORT bool bc_profile_add_history(bc_id profile, const bc_history_page* pages, size_t count);
+
+// A field of another browser's saved address, for bc_profile_add_addresses, as a Chromium-based
+// browser's Web Data keeps it: Chromium's FieldType and VerificationStatus numbers, and the value,
+// UTF-8.
+typedef struct bc_address_field {
+  int32_t type;
+  const char* value;
+  int32_t status;
+} bc_address_field;
+
+typedef struct bc_address {
+  const bc_address_field* fields;
+  size_t count;
+} bc_address;
+
+// Adds |count| of another browser's saved addresses to the loaded profile's, once they've loaded,
+// and returns whether it will: not to a private profile, one that hasn't loaded or one whose user
+// turned addresses off. A field of a type or status Chromium doesn't keep is left out, and an
+// address the profile has, or one with nothing in it, is skipped, so importing the same addresses
+// again adds nothing. Then addresses_added, with how many it added. The core copies what it needs.
+BC_EXPORT bool bc_profile_add_addresses(bc_id profile, const bc_address* addresses, size_t count);
 
 // Copies up to |capacity| of the Spaces into |spaces|, in order, and returns how many there are.
 BC_EXPORT size_t bc_spaces(bc_id* spaces, size_t capacity);
