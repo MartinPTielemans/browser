@@ -207,7 +207,8 @@ quit
 # Launched again, each Space is in its profile, and each tab loads in its own.
 log="$out/profiles-restored.log"
 step=0
-work_downloads="$PWD/$out/work-downloads"
+# The folder as the app names it, D:/a/... on Windows, which is how Git Bash hands the app a path.
+work_downloads="$(app_path "$PWD/$out/work-downloads")"
 mkdir -p "$work_downloads"
 rm -f "$work_downloads/profile.txt"
 BROWSER_DOWNLOAD_FOLDER="$work_downloads" BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
