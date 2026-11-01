@@ -41,6 +41,10 @@
 // The app's (platform/windows/fade.rs): fades GPUI's window |hwnd| from |from|, or from where it
 // shows now if that's below 0, to |to| over |seconds|.
 extern "C" void browser_fade(void* hwnd, double from, double to, double seconds);
+// The preview has no fade.rs, so there the linker takes this instead, as Linux's weak symbols do:
+// the window shows unfaded, and the host still hides it once its fade would have ended.
+extern "C" void browser_fade_none(void*, double, double, double) {}
+#pragma comment(linker, "/alternatename:browser_fade=browser_fade_none")
 
 namespace {
 
