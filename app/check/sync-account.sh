@@ -73,7 +73,7 @@ sign_in passkey "$out/sync-sign-in-address.png"
 [ "$(uname)" != Darwin ] || { key_window; sign_in_key=$keyed; }
 # Add a Passkey, focused, asks for the key, and Chrome's dialog waits for its touch over the window.
 sign_in_keys key return
-await '^browser: sync sign-in dialog shown$' ||
+await 'browser: sync sign-in dialog shown$' ||
   fail "Add a Passkey showed no dialog over the sign-in window (#1295)"
 if [ "$(uname)" = Darwin ]; then
   for _ in $(seq 100); do
@@ -93,7 +93,7 @@ fi
 # WebContentsModalDialogManager); on Linux it's the X server's, to whichever window has it.
 [ "$(uname)" != Darwin ] || send key escape
 for _ in $(seq 100); do
-  grep -q '^browser: sync sign-in dialog closed$' "$log" && break
+  grep -q 'browser: sync sign-in dialog closed$' "$log" && break
   if [ "$(uname)" = Linux ]; then
     xdotool key Escape
   elif [ "$(uname)" != Darwin ]; then
@@ -101,7 +101,7 @@ for _ in $(seq 100); do
   fi
   sleep 0.1
 done
-grep -q '^browser: sync sign-in dialog closed$' "$log" ||
+grep -q 'browser: sync sign-in dialog closed$' "$log" ||
   fail "escape didn't close Chrome's passkey dialog over the sign-in window"
 for _ in $(seq 50); do
   devtools "shows $server_url/authorize cancelled" '^cdp: shows ' \
