@@ -859,7 +859,13 @@ fn open(cx: &mut App) {
     });
     match window {
         Ok(window) => {
-            if let Ok(view) = window.update(cx, |_, window, _| ns_view(window)) {
+            if let Ok(view) = window.update(cx, |_, window, cx| {
+                let view = ns_view(window);
+                // The link preview over a browser window closes as Settings takes the keyboard.
+                #[cfg(target_os = "linux")]
+                crate::system::watch_settings_activation(window, view, cx);
+                view
+            }) {
                 unsafe { platform::host_add_settings(view) };
                 cx.set_global(SettingsWindow(window));
             }
