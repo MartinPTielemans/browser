@@ -626,6 +626,11 @@ username-size = 11.0
 rule-condition = 135.0
 rule-gap = 8.0
 field-padding = 6.0
+# Ours, for the Sync tab: the recovery words down 4 columns, each after its number in the
+# detail grey, in a column as wide as "24" and a gap, with 6 between the rows.
+words-columns = 4
+word-number = 24.0
+word-gap = 6.0
 bar = 0x282a2a
 bar-line = 0x303131
 background = 0x202222
@@ -942,6 +947,13 @@ window-button-glyph = 0x00000080
 window-button-close = 0xe0604f
 window-button-minimize = 0xf3bf12
 window-button-zoom = 0x58bb18
+# On Windows they're Windows' own (ours, #1244): minimize, maximize and close in Windows' order, in
+# the same three places, as glyphs in the header buttons' ink (nav) on a plate under the pointer
+# (nav-hovered, at nav-radius), close's plate Windows' red with a white glyph. Settings' close is
+# the same, in its title bar's top right corner.
+windows-button-plate = 22.0
+windows-button-glyph = 10.0
+windows-close-hovered = 0xc42b1c
 
 [shell.agent-pointer]
 # Ours (#365), as Arc and Dia have no agents in pages: while an agent clicks or types in the page

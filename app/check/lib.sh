@@ -88,6 +88,10 @@ cleanup() {
 fail() {
   echo "FAIL: $1" >&2
   grep -v '^$' "$log" | tail -5 >&2
+  # What the window showed, for a failure the log doesn't explain, as on CI.
+  if [ -n "${pid:-}" ] && [ -n "${out:-}" ] && kill -0 "$pid" 2>/dev/null; then
+    ../tools/window-screenshot.sh "$pid" "$out/failed.png" > /dev/null 2>&1 || true
+  fi
   exit 1
 }
 # The app ended by itself.
@@ -534,9 +538,54 @@ with open(sys.argv[1], "w") as f:
 ' "$prefs" || fail "the profile's sites for Safari's engine couldn't be reset"
 }
 
+# Starts the app on the page $1 with the profile $2, and check/cdp.py attached to the page whose
+# address ends in $3, logging to $log and $cdp_log, with the driver on fd 3 and cdp.py's commands
+# on fd 5, through fifos in $scratch. Sets $pid and $helper.
+start_with_cdp() {
+  mkfifo "$scratch/cdp"
+  if windows; then
+    # Chrome on Windows takes its DevTools pipe as handles, which Git Bash can't give it, so
+    # DevTools listens on a loopback port instead, which the browser says on its standard error. A
+    # native program can't read Git Bash's fifo, so cat passes cdp.py its commands, and the page is
+    # named without its slash, which Git Bash would make a path of Git's own.
+    BROWSER_DRIVE=1 BROWSER_URL="$1" BROWSER_PROFILE_DIR="$2" \
+      "$browser" --remote-debugging-port=0 < "$out/drive" > "$log" 2>&1 &
+    pid=$!
+    exec 3> "$out/drive"
+    await '^DevTools listening on ws://' || fail "DevTools didn't say where it listens"
+    socket=$(grep -m1 '^DevTools listening on ws://' "$log" | cut -d' ' -f4 | tr -d '\r')
+    cat "$scratch/cdp" | python3 -I -u check/cdp.py --socket "$socket" "${3#/}" \
+      > "$cdp_log" 2>&1 &
+  else
+    mkfifo "$scratch/to-browser" "$scratch/from-browser"
+    # Each end of a pipe waits for the other to open, in this order: the driver's, the browser's
+    # DevTools pipe, then cdp.py's input.
+    BROWSER_DRIVE=1 BROWSER_URL="$1" BROWSER_PROFILE_DIR="$2" \
+      "$browser" --remote-debugging-pipe < "$out/drive" 3< "$scratch/to-browser" \
+      4> "$scratch/from-browser" > "$log" 2>&1 &
+    pid=$!
+    python3 -I -u check/cdp.py "$scratch/to-browser" "$scratch/from-browser" "$3" \
+      < "$scratch/cdp" > "$cdp_log" 2>&1 &
+    exec 3> "$out/drive"
+  fi
+  helper=$!
+  exec 5> "$scratch/cdp"
+}
 # Starts the check's web server, in site.sh, unless a run before has. Its pages are at $site.
 serve() {
   [ -n "${site:-}" ] || . check/site.sh
+}
+# Of the addresses on stdin, one a line, those of Google's servers, with ungoogled-chromium's
+# substitutes for its domains, but the security components' updates that engine/README.md › What
+# reaches Google lets through and every user's browser makes, the first a minute after launch: the
+# update check, and CRLSet's, PKI Metadata's and the SSL error assistant's downloads, over https,
+# from the hosts it names.
+google_asked() {
+  hosts='\(dl\.google\.com\|[a-z0-9.-]*\.gvt1\.com\|www\.google\.com/dl\)'
+  grep -i '^[a-z]*://[^/]*\(google\|gstatic\|gvt1\|9oo91e\|qjz9zk\)' |
+    grep -v -e '^https://update\.googleapis\.com/service/update2/json\(?[^/]*\)\{0,1\}$' \
+      -e "^https://$hosts/.*/\(hfnkpimlhhgieaddgfemjhofmfblmnib\|efniojlnjndmcbiieegkicadnoecjjef\)_[0-9.]*_[a-z0-9_]*\.crx3\$" \
+      -e "^https://$hosts/.*/[0-9.]*_all_sslErrorAssistant\.crx3\$" || true
 }
 # Waits up to 3 s for the clipboard to hold the text $1, off the Mac, where a run's clipboard is its
 # headless session's, which wl-paste reads, Xwayland's too, as sway hands it over. The Mac's

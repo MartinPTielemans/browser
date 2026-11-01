@@ -661,7 +661,7 @@ send key , cmd
 expect '^browser: settings shown General$' "⌘, didn't show Settings on its General tab"
 # The run's first ⌘, opens the window, which takes no click until it has drawn (#1101).
 expect '^browser: settings drew General$' "Settings didn't draw General"
-send clickkey 519 60
+send clickkey $(drawn "toolbar Advanced")
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
 settings_drew Advanced
 # Copy All Links' toast is mostly still up, and the click lands all the same (#1134): a toast lets
