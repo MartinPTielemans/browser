@@ -40,8 +40,7 @@ jobs:
         working-directory: app
     env:
       # The runs to start with, whose parts the trial found working. A run joins once it passes here.
-      # keys and quit stay out: on the hosted Mac the quit Apple Event never arrives and keys' ⌘T bar wait fails (#905).
-      MAC_RUNS: load tabs
+      MAC_RUNS: load keys tabs quit
     steps:
       # With the history, where fetch.sh looks for the engine's commit.
       - uses: actions/checkout@v4
