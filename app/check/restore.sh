@@ -61,8 +61,17 @@ if [ "$active" != 1 ]; then
 fi
 # The page's downloads go in the check's folder, and ⇧⌘J from the page opens the Library on
 # Downloads, which lists them. The slow one runs until the quit.
+in_browser RenderWidgetHostViewCocoa "after a click on the page, before \"d\" downloads"
 send type d
-expect '^browser: download [0-9]* done notes.txt$' "the page's download didn't finish"
+# Run after store, the download didn't start on the Mac VM, and nothing said why.
+for _ in $(seq 100); do
+  logged '^browser: download [0-9]* done notes.txt$' && break
+  sleep 0.1
+done
+logged '^browser: download [0-9]* done notes.txt$' ||
+  fail "the page's download didn't finish. Its lines: \
+$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -i 'download' | tr '\n' ';'). \
+The folder: $(ls -A "$out/downloads" | tr '\n' ' ')"
 [ -f "$out/downloads/notes.txt" ] || fail "the download isn't in the check's folder"
 # On the Mac it carries macOS's quarantine flag, naming the app that downloaded it, so Gatekeeper
 # checks it the first time it opens (#685). Chromium's quarantine service sets it.

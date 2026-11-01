@@ -220,10 +220,10 @@ expect '^browser: onboarding picked color f0eae5$' "dark: → and Return didn't 
 expect '^browser: onboarding left color via return$' "dark: Return didn't leave the colour step"
 expect '^browser: onboarding step opt-ins settled$' "dark: the opt-ins step didn't come"
 capture_step dark-opt-ins
-# The agents' row, the one switch a build without a crash collector offers, is a click anywhere
-# along it. The column is centred, so the row's middle is (title + line - 24) / 2 under the
-# window's, 18, whatever its sentence wraps to.
-send click $((width / 2)) $((height / 2 + 18))
+# The agents' row takes a click on its switch, where the app says it's drawn once the step has
+# come, the second row of two with a crash collector and the only one without (#1286).
+expect '^browser: onboarding agents at ' "dark: the opt-ins step didn't draw the agents' switch"
+send click $(grep '^browser: onboarding agents at ' "$log" | tail -1 | cut -d' ' -f5-6)
 expect '^browser: onboarding agents on$' "dark: a click on the agents' row didn't turn them on"
 expect '^browser: agents server on ' "dark: the agents' switch didn't start their server"
 send key escape
