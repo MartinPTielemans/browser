@@ -2146,7 +2146,12 @@ void host_show_offer(void* ui_view) {
 
 void host_hide_offer(void* ui_view) {
   if (auto it = g_offers.find(ui_view); it != g_offers.end()) {
+    const bool shown = IsWindowVisible(it->second.floating.hwnd);
     Hide(it->second.floating);
+    // check.sh reads this line, as the Mac's and Linux's hosts write it.
+    if (shown) {
+      fprintf(stderr, "browser: offer hidden\n");
+    }
   }
 }
 
@@ -2231,8 +2236,13 @@ void host_release_site_controls(void) {
 }
 
 void host_hide_site_controls(void) {
+  const bool shown = g_site_controls.hwnd && IsWindowVisible(g_site_controls.hwnd);
   Hide(g_site_controls);
   g_site_controls.mouse_through = false;
+  // check.sh reads this line, as the Mac's and Linux's hosts write it.
+  if (shown) {
+    fprintf(stderr, "browser: site controls hidden\n");
+  }
 }
 
 void* host_add_link_preview(void* view, void (*)(void)) {
