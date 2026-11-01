@@ -9,9 +9,9 @@
 # Chrome's password importer: the view says how many came in, deletes the file when asked, and a
 # second file with a login's password changed says it conflicted and kept the saved one. Settings'
 # Passwords tab lists what came in, and the app menu's Import from Other Browsers… shows Import
-# again. With the sidebar hidden, Arc's Spaces say so in a toast. Each step is captured. Arc has no
-# Linux build, so off the Mac the fixture's Arc isn't found, its steps are left out, and Chrome and
-# Firefox are where Linux and Windows keep them.
+# again. With the sidebar hidden, Arc's Spaces say so in a toast. Each step is captured. The
+# fixture's Arc is laid out as the Mac's, so elsewhere it isn't found, its steps are left out, and
+# Chrome and Firefox are where Linux and Windows keep them.
 
 serve
 printf '%s' '<title>import ready</title>' > "$out/site/import.html"
@@ -306,7 +306,7 @@ if [ -n "$arc" ]; then
   ../tools/window-screenshot.sh "$pid" "$out/import-personal.png" || fail "no window to capture"
 fi
 quit
-[ -n "$arc" ] || echo "skip: import's Arc steps. Arc has no Linux build, so it's never found there."
+[ -n "$arc" ] || echo "skip: import's Arc steps. The fixture's Arc is the Mac's, so it's found there alone."
 echo "ok: Settings › Import finds the fixture's Arc, Chrome and Firefox. From Arc come its Spaces,"
 echo "  one in a new profile, their pinned tabs and folders, and its favorites; from Chrome and"
 echo "  Firefox their bookmarks as a Space and their history; and a second import of each adds nothing."
