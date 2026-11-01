@@ -574,6 +574,10 @@ void host_video_close(void* video);
 // never touch the user's clipboard.
 void host_copy(const char* text);
 
+// Whether the key event being handled now is the key repeating as it's held, not a press. False
+// where the host can't tell.
+bool host_key_repeated(void);
+
 // Opens |url| in Safari, which plays the protected video the engine can't. A driven run only logs it,
 // so checks never launch Safari.
 void host_open_in_safari(const char* url);

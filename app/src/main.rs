@@ -291,6 +291,7 @@ mod platform {
         pub fn host_video_close(video: *mut c_void);
         #[cfg(not(target_os = "linux"))]
         pub fn host_copy(text: *const c_char);
+        pub fn host_key_repeated() -> bool;
         pub fn host_open_in_safari(url: *const c_char);
         pub fn host_open_full_disk_access();
         pub fn host_share(
@@ -3387,6 +3388,11 @@ fn run_page_shortcut(tab: bc::bc_id, key: *const bc::bc_key, reserved: bool) -> 
     update_tab_window(tab, |shell, cx| shell.run_for_page(command, cx)).unwrap_or(false)
 }
 
+thread_local! {
+    /// The shortcut a page got first last, which a second press runs ilo's of if the page kept it.
+    static SECOND_PRESS: RefCell<shell::SecondPress> = RefCell::default();
+}
+
 unsafe extern "C" fn tab_key_before_page(
     _: *mut c_void,
     tab: bc::bc_id,
@@ -3417,8 +3423,20 @@ unsafe extern "C" fn tab_key_before_page(
     {
         return true;
     }
-    // The keys typed after ⌘L would reach the page before it hands ⌘L back to open the bar.
     let cx = CX.with_borrow(Clone::clone);
+    // A shortcut the page gets first that it kept, pressed again at once, runs ilo's (Arc's).
+    let shortcut = cx.as_ref().and_then(|cx| {
+        cx.try_read_global(|keys: &shell::UserKeys, _| keys.command_for(&keystroke, false))
+    });
+    let repeat = unsafe { platform::host_key_repeated() };
+    let now = Instant::now();
+    let shortcut = shortcut.flatten().is_some();
+    if SECOND_PRESS.with_borrow_mut(|second| second.press(tab, &keystroke, shortcut, repeat, now)) {
+        // check.sh reads this line.
+        log!("browser: second press {keystroke}");
+        return run_page_shortcut(tab, key, false);
+    }
+    // The keys typed after ⌘L would reach the page before it hands ⌘L back to open the bar.
     let holds = cx.and_then(|cx| {
         cx.try_read_global(|keys: &shell::UserKeys, _| keys.holds_keys(&keystroke))
     });
@@ -3504,6 +3522,7 @@ unsafe extern "C" fn tab_key_unhandled(
     tab: bc::bc_id,
     key: *const bc::bc_key,
 ) -> bool {
+    SECOND_PRESS.with_borrow_mut(|second| second.declined(&keystroke(unsafe { &*key })));
     link_preview_key(tab, key, false).unwrap_or_else(|| run_page_shortcut(tab, key, false))
 }
 

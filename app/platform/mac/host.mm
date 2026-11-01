@@ -3810,6 +3810,12 @@ void host_copy(const char* text) {
   [pasteboard setString:@(text) forType:NSPasteboardTypeString];
 }
 
+bool host_key_repeated(void) {
+  // A page's key reaches the core while AppKit dispatches it.
+  NSEvent* event = NSApp.currentEvent;
+  return event.type == NSEventTypeKeyDown && event.ARepeat;
+}
+
 void host_open_full_disk_access(void) {
   // check.sh reads this line.
   fprintf(stderr, "browser: open full disk access\n");

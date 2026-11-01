@@ -436,6 +436,10 @@ void host_release_held_keys(void) {}
 // (platform/linux/system.rs).
 void host_copy(const char* text) {}
 
+bool host_key_repeated(void) {
+  return false;
+}
+
 void host_copy_png(const uint8_t* png, size_t size) {}
 
 void host_save_png(void* ui_view, const uint8_t* png, size_t size) {}

@@ -2908,6 +2908,10 @@ void host_copy(const char* text) {
   CloseClipboard();
 }
 
+bool host_key_repeated(void) {
+  return false;
+}
+
 void host_open_full_disk_access(void) {}
 
 // There's no Safari: Windows plays protected video with Chromium's own PlayReady (decision 1).
