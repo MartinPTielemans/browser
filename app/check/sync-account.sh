@@ -159,7 +159,22 @@ def fields(b):
         out.append((number, kind, value))
     return out
 
-NIGORI, DEVICE_INFO, PRIORITY_PREFERENCE, ILO_SPACE = 47745, 154522, 163425, 500000001
+NIGORI, PASSWORD, DEVICE_INFO, PRIORITY_PREFERENCE, ILO_SPACE = (
+    47745, 45873, 154522, 163425, 500000001)
+
+# EncryptedData: its key's name and the blob, nothing readable.
+def sealed(b):
+    try:
+        return all(n in (1, 2) and k == 2 for n, k, v in fields(b))
+    except (IndexError, ValueError):
+        return False
+
+# Passwords encrypt into their own specifics (PasswordSpecifics.encrypted), beside an encrypted
+# backup of their notes (field 5), as the core's commit guard has them (sync_guard.cc).
+def password_sealed(b):
+    parts = fields(b)
+    return any(n == 1 for n, k, v in parts) and all(
+        n in (1, 5) and k == 2 and sealed(v) for n, k, v in parts)
 db = sqlite3.connect(sys.argv[1])
 rows = db.execute("SELECT data_type, deleted, server_tag, entity FROM sync_entities").fetchall()
 spaces, labels, plain = 0, [], []
@@ -176,8 +191,12 @@ for data_type, deleted, server_tag, entity in rows:
     if data_type in (NIGORI, PRIORITY_PREFERENCE):
         continue
     names = [v for n, k, v in item if n == 7]
-    ciphertext = any(n == 1 for n, k, v in specifics) and all(
-        n == 1 or (k == 2 and not v) for n, k, v in specifics)
+    if data_type == PASSWORD:
+        ciphertext = any(n == PASSWORD for n, k, v in specifics) and all(
+            n == PASSWORD and password_sealed(v) for n, k, v in specifics)
+    else:
+        ciphertext = any(n == 1 and sealed(v) for n, k, v in specifics) and all(
+            (n == 1 and sealed(v)) or (k == 2 and not v) for n, k, v in specifics)
     if not ciphertext or any(name not in (b"", b"encrypted") for name in names):
         plain.append(f"type {data_type} named {names[0].decode(errors='replace') if names else ''}")
     if data_type == ILO_SPACE:
