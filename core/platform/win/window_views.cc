@@ -740,22 +740,30 @@ std::optional<gfx::Rect> FocusRingFrame(views::Widget* widget) {
   return std::nullopt;
 }
 
-std::optional<gfx::Rect> DialogFrame(views::Widget* widget) {
+views::Widget* PageDialog(views::Widget* widget) {
   // A tab's dialog is a window of its own that the browser window owns (PageDialogsInOwnWindow),
   // as the panes' widgets aren't, and the only one that's modal.
   for (views::Widget* dialog : views::Widget::GetAllOwnedWidgets(widget->GetNativeView())) {
     if (dialog->IsVisible() && dialog->IsModal()) {
-      // Inside the border and shadow views draws in its window: what Chromium puts at the page's
-      // top (UpdateWidgetModalDialogPosition), as a Mac's sheet's frame is.
-      gfx::Rect frame = dialog->GetWindowBoundsInScreen();
-      frame.Offset(-widget->GetClientAreaBoundsInScreen().OffsetFromOrigin());
-      if (dialog->non_client_view() && dialog->non_client_view()->frame_view()) {
-        frame.Inset(dialog->non_client_view()->frame_view()->GetInsets());
-      }
-      return frame;
+      return dialog;
     }
   }
-  return std::nullopt;
+  return nullptr;
+}
+
+std::optional<gfx::Rect> DialogFrame(views::Widget* widget) {
+  views::Widget* dialog = PageDialog(widget);
+  if (!dialog) {
+    return std::nullopt;
+  }
+  // Inside the border and shadow views draws in its window: what Chromium puts at the page's top
+  // (UpdateWidgetModalDialogPosition), as a Mac's sheet's frame is.
+  gfx::Rect frame = dialog->GetWindowBoundsInScreen();
+  frame.Offset(-widget->GetClientAreaBoundsInScreen().OffsetFromOrigin());
+  if (dialog->non_client_view() && dialog->non_client_view()->frame_view()) {
+    frame.Inset(dialog->non_client_view()->frame_view()->GetInsets());
+  }
+  return frame;
 }
 
 bool PageDialogsInOwnWindow() {
