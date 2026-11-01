@@ -4,7 +4,7 @@ What's new in each version of ilo, newest first. Each section is that version's 
 
 ## 0.1.0 (draft)
 
-The first public beta of ilo, Arc's successor: an open-source browser on Chromium, free and GPL-licensed.
+The first public beta of ilo, an open-source browser on Chromium, free and GPL-licensed.
 
 - **Your tabs in a sidebar, in Spaces.** Each Space keeps its own pinned tabs, folders and today's tabs. Today's tabs you leave alone move to the archive, where you can find them again.
 - **A command bar** opens pages, tabs and commands from one place.

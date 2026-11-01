@@ -8,7 +8,7 @@ a good tool.
   <img alt="ilo: a window with the sidebar of Spaces and tabs on the left and a web page on the right" src="docs/images/ilo-light.webp">
 </picture>
 
-ilo is an open-source web browser, and Arc's successor. Your tabs live in a sidebar, in Spaces: each Space keeps its own pinned tabs and today's tabs, and today's tabs you leave alone move to the archive. A command bar opens pages, tabs and commands, and two pages can share a window side by side. Underneath is Chromium, by way of ungoogled-chromium, so websites and Chrome extensions work as they do in Chrome.
+ilo is an open-source web browser. Your tabs live in a sidebar, in Spaces: each Space keeps its own pinned tabs and today's tabs, and today's tabs you leave alone move to the archive. A command bar opens pages, tabs and commands, and two pages can share a window side by side. Underneath is Chromium, by way of ungoogled-chromium, so websites and Chrome extensions work as they do in Chrome.
 
 ilo is also the browser AI agents work in. Claude Code, Codex or any MCP client can work in your logged-in sessions, in a Space of its own, with only the permissions you give it, and it never reads your passwords or cookies. Agents are off until you turn them on.
 
@@ -58,7 +58,7 @@ Contributions are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) says what's likely
 
 - [Decisions](docs/decisions.md): why the stack is what it is, and what would change it.
 - [Roadmap](docs/roadmap.md): each phase, where it stands and the check that ends it.
-- [UX principles](docs/ux-principles.md): why Arc's design works, and how ilo builds on it.
+- [UX principles](docs/ux-principles.md): the principles behind ilo's design.
 - [UX spec](docs/ux-spec.md): every surface, how it looks, moves and behaves, measured.
 - [UX parity](docs/ux-parity.md): the checklist built from the spec.
 - [Releasing](docs/releasing.md): how a release is made, and what it needs.

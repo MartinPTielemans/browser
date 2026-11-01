@@ -6,7 +6,7 @@ Each phase ends with a check. Work that depends on a phase waits for its check.
 
 | Phase | What | State |
 |---|---|---|
-| 0 | UX spec: Arc structure + Dia polish, measured | in progress: Dia values imported; Arc's layout, sidebar and Spaces motion, command bar, find, split view, Library and Little Arc measured; Peek, extensions, passwords, themes and drags left |
+| 0 | UX spec, measured | in progress: the imported spec's values in; layout, sidebar and Spaces motion, command bar, find, split view, Library and Little ilo measured; Peek, extensions, passwords, themes and drags left |
 | 1 | Architecture spike: GPUI + Chromium in one Mac process | done: go for GPUI |
 | 2 | Engine: ungoogled-chromium + patch series, prebuilt framework | done: the prebuilt engine downloads into the spike, passwords and autofill are on, Manifest V2 works, CI compiles the core on Linux |
 | 3 | Daily-driver MVP on Mac | in progress: sidebar, Spaces, pinned tabs and folders, favorites, command bar, split view, archive, downloads, find, DevTools, extensions and the password prompts; import, updates, password fill and sign-in popups left |
