@@ -69,7 +69,7 @@ if grep -q '^browser: download [0-9]* failed notes.txt$' "$log"; then
   # Proof for #872: Chrome's downloads page says why it failed.
   go_from_bar chrome://downloads
   await '^browser: loaded [0-9]* chrome://downloads' || true
-  settled
+  await "^browser: title [0-9]* Downloads$" || true
   ../tools/window-screenshot.sh "$pid" "$out/chrome-downloads.png" || true
   exec 3>&-
   quit
