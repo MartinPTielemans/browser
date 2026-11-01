@@ -100,9 +100,46 @@ quit
 # step's → and Return give the first Space the first swatch. The key goes in as soon as the intro
 # settles, with no capture first, as the intro goes on by itself after 3.4 s; the light pass
 # captures it.
+# With the system's animations off the app reduces its motion, read at launch, and follows them
+# back on. Only on a CI VM, as the setting is the desk's: on Windows "Show animations in Windows",
+# and on Linux GTK's settings file, the last word where, as in the CI session, no portal answers.
+# Nothing but System Settings changes the Mac's.
+reduced=
+if windows && [ -n "${GITHUB_ACTIONS:-}" ]; then
+  windows_animations 0 || fail "PowerShell didn't turn Windows' animations off"
+  reduced=windows
+elif [ "$(uname)" = Linux ] && [ -n "${GITHUB_ACTIONS:-}" ]; then
+  gtk="${XDG_CONFIG_HOME:-$HOME/.config}/gtk-4.0/settings.ini"
+  rm -f "$out/gtk-settings.ini"
+  [ ! -f "$gtk" ] || cp "$gtk" "$out/gtk-settings.ini"
+  mkdir -p "$(dirname "$gtk")"
+  printf '[Settings]\ngtk-enable-animations=0\n' > "$gtk"
+  reduced=linux
+fi
 launch_new dark
+case $reduced in
+  windows)
+    await '^browser: reduce motion on$' ||
+      fail "dark: with Windows' animations off, the app didn't reduce its motion"
+    ;;
+  linux)
+    await '^browser: reduce motion on$' ||
+      fail "dark: with GTK's animations off, the app didn't reduce its motion"
+    if [ -f "$out/gtk-settings.ini" ]; then
+      mv "$out/gtk-settings.ini" "$gtk"
+    else
+      rm -f "$gtk"
+    fi
+    ;;
+esac
 send key a
 expect '^browser: onboarding left intro via key$' "dark: a key didn't skip the intro"
+# Back on once the still intro, which goes on by itself at 2 s, is left.
+if [ "$reduced" = windows ]; then
+  windows_animations 1 || fail "PowerShell didn't turn Windows' animations back on"
+  expect '^browser: reduce motion off$' \
+    "dark: Windows' animations turned back on didn't bring the app's motion back"
+fi
 expect '^browser: onboarding step import settled$' "dark: the import step didn't come"
 capture_step dark-import
 # Its words and chip end 24 in from the window's right and bottom, 20 tall.
