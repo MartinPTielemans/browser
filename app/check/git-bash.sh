@@ -32,6 +32,9 @@ pkill() {
 # in a run's data: URL for one, so the page the app opened never ran its script (#872). The URLs a
 # run opens are never paths.
 export MSYS2_ENV_CONV_EXCL=BROWSER_URL
+# It rewrites a switch's value that starts with a slash too, and took adblock's filter /check-ad.js
+# for a path under its own folder, so the ad script loaded (#872). The filters are never paths.
+export MSYS2_ARG_CONV_EXCL=--ad-block-filters=
 # Runs the app. A native program can't read Git Bash's fifo, so cat passes the driver's commands on
 # through a pipe, and exec keeps $! the app's, whose Windows id is in /proc/$!/winpid. chrome_elf
 # starts Crashpad before the app adds its profile, in the folder chrome.exe's own --user-data-dir
