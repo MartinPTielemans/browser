@@ -750,7 +750,7 @@ expect "^browser: today [0-9][0-9]* $rest\$" "the back page's tab didn't open at
 h=$(today | cut -d' ' -f1)
 # A page has drawn, so takes clicks, once its title is its name, and its favicon is in the profile's
 # favicons once the tab has it.
-drawn() {
+page_drawn() {
   expect "^browser: title $h $1\$" "the $1 page didn't draw"
   expect "^browser: favicon $h [0-9]* bytes\$" "the $1 page's tab didn't get its favicon"
 }
@@ -767,9 +767,9 @@ go_on() {
   done
   fail "the header didn't draw back on once the page had gone on to $1"
 }
-drawn back
+page_drawn back
 go_on next.html
-drawn next
+page_drawn next
 go_on notes.txt
 post rightclick $back_button
 expect "^browser: history $h back 2\$" "a right-click on back didn't ask for the pages back"
@@ -782,7 +782,7 @@ expect "^browser: page $h back 0 forward 1 loading 0 ${site}back.html\$" "choosi
 # The page comes back from the back-forward cache, which logs no title or load again.
 expect "^browser: favicon $h [0-9]* bytes\$" "the back page's tab didn't get its favicon"
 go_on next.html
-drawn next
+page_drawn next
 send press $back_button
 expect '^browser: nav back pressed drawn$' "back held didn't draw itself shrunk"
 expect "^browser: history $h back 1\$" "holding back didn't ask for the pages back"
@@ -813,7 +813,7 @@ send release 40 64
 expect '^browser: nav reload at rest drawn$' "reload let go didn't grow back"
 none_since '^browser: command reload via sidebar$' || fail "reload let go off it reloaded"
 go_on next.html
-drawn next
+page_drawn next
 send click $back_button cmd
 expect '^browser: command back in the background via sidebar$' "⌘-click on back didn't reach the UI"
 expect "^browser: today $h [0-9][0-9]* $rest\$" "⌘-click on back didn't add a row under the tab"
