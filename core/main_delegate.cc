@@ -82,6 +82,7 @@
 #include "base/strings/utf_string_conversions.h"
 #endif
 #if BUILDFLAG(IS_LINUX)
+#include "browser_core/platform/linux/wayland.h"
 #include "ui/ozone/public/ozone_switches.h"
 #endif
 #if !BUILDFLAG(IS_WIN) && !BUILDFLAG(IS_LINUX)
@@ -186,6 +187,9 @@ class ExtraParts : public ChromeBrowserMainExtraParts,
   }
 
   void PostBrowserStart() override {
+#if BUILDFLAG(IS_LINUX)
+    platform::FloatPictureInPictureBubbles();
+#endif
     if (Profile* profile = StartProfile()) {
       UseProfile(profile);
     }
