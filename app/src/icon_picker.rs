@@ -296,6 +296,14 @@ pub fn entity(cx: &App) -> Option<Entity<IconPicker>> {
 }
 
 /// The user left the picker without picking, such as with a click outside it.
+/// The Space it edits is going from under it, as a swipe turns the page: it closes as Esc closes
+/// it, where `dismissed` hears of a close the host has made.
+pub fn leave(cx: &mut App) {
+    if let Some(window) = cx.try_global::<IconPickerWindow>().map(|picker| picker.0) {
+        window.update(cx, |picker, window, cx| picker.dismiss(&Dismiss, window, cx)).ok();
+    }
+}
+
 pub fn dismissed(cx: &mut App) {
     if let Some(window) = cx.try_global::<IconPickerWindow>().map(|picker| picker.0) {
         window

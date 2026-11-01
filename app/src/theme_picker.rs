@@ -307,6 +307,14 @@ pub fn dismissed(cx: &mut App) {
     }
 }
 
+/// The Space it edits is going from under it, as a swipe turns the page: it closes as Esc closes
+/// it, where `dismissed` hears of a close the host has made.
+pub fn leave(cx: &mut App) {
+    if let Some(window) = cx.try_global::<ThemePickerWindow>().map(|picker| picker.0) {
+        window.update(cx, |picker, window, cx| picker.dismiss(&Dismiss, window, cx)).ok();
+    }
+}
+
 /// Whether the picker shows, for a click on what opened it to close it rather than open it again.
 pub fn is_open(cx: &App) -> bool {
     open_for(cx).is_some()

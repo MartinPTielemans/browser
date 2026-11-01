@@ -449,12 +449,13 @@ use crate::tokens::shell::REVEAL_BORDER;
 // show while the pointer is over any of them, as AppKit's do.
 pub const WINDOW_BUTTONS: [(f32, u32); 3] =
     [(20., WINDOW_BUTTON_CLOSE), (43., WINDOW_BUTTON_MINIMIZE), (66., WINDOW_BUTTON_ZOOM)];
-// On Linux the browser window is Chromium's without a frame, so nothing else draws its buttons: the
-// UI draws them where AppKit's show.
-const DRAWS_WINDOW_BUTTONS: bool = cfg!(target_os = "linux");
-// The third button maximizes on Linux, as on every Linux desktop, where on the Mac it goes full
-// screen.
-const ZOOM_GLYPH: &str = match cfg!(target_os = "linux") {
+// On Linux the browser window is Chromium's without a frame, and on Windows the host takes its
+// title bar away (platform/windows/host.cc), so nothing else draws its buttons: the UI draws them
+// where AppKit's show.
+const DRAWS_WINDOW_BUTTONS: bool = cfg!(any(target_os = "linux", target_os = "windows"));
+// The third button maximizes on Linux and Windows, as their title bars' does, where on the Mac it
+// goes full screen.
+const ZOOM_GLYPH: &str = match cfg!(any(target_os = "linux", target_os = "windows")) {
     true => "icons/window-maximize.svg",
     false => "icons/window-full-screen.svg",
 };
@@ -808,6 +809,9 @@ struct Drag {
     /// and since when, for paging to the Space on that side.
     space: u64,
     edge: Option<(bool, Instant)>,
+    /// Pressed with ⌥, whose click splits once it's let go without having moved, so that a drag
+    /// with ⌥ held can drop a copy instead (#690).
+    alt_click: bool,
 }
 
 /// How far a dragged tab has turned from its row into its tile as it crossed into or out of the
@@ -2468,7 +2472,8 @@ impl Shell {
             let pip = page.media_picture_in_picture;
             (page.media, page.media_playing, page.media_next, pip, page.media_title.clone())
         };
-        if media(&page) != media(&entry.page) {
+        let media_changed = media(&page) != media(&entry.page);
+        if media_changed {
             // check.sh waits for this line.
             log!(
                 "browser: page {tab} media {} playing {} next {} pip {} {}",
@@ -2498,6 +2503,10 @@ impl Shell {
             self.update_title(cx);
         }
         self.tab_changed(tab, changed, cx);
+        // A player is for a tab out of sight, whose row may not be drawn.
+        if media_changed && self.lists(tab) {
+            cx.notify();
+        }
         if let Some(trouble) = trouble {
             self.trouble_changed(tab, trouble, cx);
         }
@@ -2754,9 +2763,10 @@ impl Shell {
             self.run(Command::NewTab, "sidebar", cx);
         } else if self.empty_card_hit(at) {
             // The empty card is a button, not a title bar: its first click opened the command bar.
-        } else if cfg!(target_os = "linux") {
-            // The browser window is Chromium's, out of GPUI's reach, and every Linux desktop's
-            // double-click on a title bar maximizes or restores it, as its third button does.
+        } else if cfg!(any(target_os = "linux", target_os = "windows")) {
+            // The browser window is Chromium's, out of GPUI's reach, and on Windows and every
+            // Linux desktop a double-click on a title bar maximizes or restores it, as its third
+            // button does.
             self.browser.press_window_button(WindowButton::Zoom, cx);
         } else {
             window.titlebar_double_click();
@@ -3244,10 +3254,11 @@ impl Render for Shell {
                     // check.sh reads this line.
                     log!("browser: window move");
                     window.start_window_move();
-                    // GPUI's window is inside the browser window on Linux, so the core moves that.
-                    // GPUI's own still lets go of the X server's pointer grab its press took,
-                    // which would keep the window manager from taking the pointer.
-                    #[cfg(target_os = "linux")]
+                    // GPUI's window is inside the browser window on Linux and Windows, so the
+                    // browser moves that. On Linux GPUI's own still lets go of the X server's
+                    // pointer grab its press took, which would keep the window manager from taking
+                    // the pointer.
+                    #[cfg(any(target_os = "linux", target_os = "windows"))]
                     shell.browser.start_window_move(cx);
                 }
                 shell.pointer_at(event.position.x.into(), cx);
