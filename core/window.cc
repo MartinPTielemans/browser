@@ -572,6 +572,19 @@ void Window::UpdateDevTools(BrowserWindowInterface* browser, content::WebContent
 }
 
 // static
+void Window::ShowDevTools(BrowserWindowInterface* browser, content::WebContents* inspected) {
+  Window* window = ForBrowser(browser);
+  content::WebContents* devtools = DevToolsWindow::GetInTabWebContents(inspected, nullptr);
+  if (!window || !devtools) {
+    return;
+  }
+  // The keyboard stays where it is until LayOutPage has them past the page, so a key typed while
+  // the frontend's first bounds are on their way goes to the page.
+  window->devtools_to_show_ = devtools->GetWeakPtr();
+  UpdateDevTools(browser, inspected);
+}
+
+// static
 void Window::TrimPageMenu(BrowserWindowInterface* browser, ui::SimpleMenuModel& menu) {
   if (!ForBrowser(browser)) {
     return;
@@ -1286,6 +1299,11 @@ void Window::LayOutPage() {
       const bool covered = !docked.page_under && docked.page_frame == gfx::Rect(pane.frame.size());
       if (!toolbox || !covered) {
         pane.devtools = docked;
+      }
+      if (!covered && devtools == devtools_to_show_.get()) {
+        devtools_to_show_ = nullptr;
+        devtools_to_focus_ = devtools->GetWeakPtr();
+        FocusPageSoon();
       }
     }
   }
@@ -2458,6 +2476,12 @@ void Window::FocusPageSoon() {
 
 void Window::FocusPage() {
   if (!shown_ || !widget_->IsActive()) {
+    return;
+  }
+  if (content::WebContents* devtools = devtools_to_focus_.get()) {
+    devtools_to_focus_ = nullptr;
+    page_had_keyboard_ = false;
+    devtools->SetInitialFocus();
     return;
   }
   if (std::exchange(page_had_keyboard_, false) || platform::KeyboardForPage(widget_.get())) {
