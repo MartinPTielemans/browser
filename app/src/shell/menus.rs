@@ -1479,6 +1479,31 @@ mod tests {
         assert!(host.take().contains(&markdown), "{markdown}");
     }
 
+    /// Move to › lists another Space of the profile with folders as a submenu of its Today and its
+    /// folders, and the folder moves the tab into it.
+    #[gpui::test]
+    fn move_to_lists_another_spaces_folders(cx: &mut TestAppContext) {
+        let (shell, host) = shell_with(cx, &[], &[10], Folders::default());
+        shell.update(cx, |shell, cx| {
+            let work = (1, "Work".into(), None, 0, "".into(), "".into(), "".into());
+            let reading = (2, "Reading".into(), None, 0, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![work, reading], cx);
+            let mut folders = Folders::default();
+            folders.folders.insert(20, ("Shelf".into(), false));
+            shell.set_tabs(2, vec![20], vec![21], Vec::new(), folders, cx);
+        });
+        tab_menu(&shell, &host, cx, 10);
+        // As check.sh reads it, each submenu's items after its path.
+        let shown = crate::menu::described(&host.entries.borrow());
+        let moves = "Move to › Work (checked), Move to › Reading › Today, \
+                     Move to › Reading › Shelf, Move to › New Space…";
+        assert!(shown.contains(moves), "{shown}");
+        host.take();
+        cx.update(|cx| host.choose("Shelf", cx));
+        let (calls, edits) = (host.take(), host.take_edits());
+        assert!(edits.iter().any(|edit| edit.starts_with("move 10 ")), "{calls:?} {edits:?}");
+    }
+
     /// A split's menu offers Mute under each of its tabs' names, and its Duplicate copies the whole
     /// split, joined again in its order and orientation, as Arc's does.
     #[gpui::test]
