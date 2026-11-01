@@ -2136,17 +2136,27 @@ void host_add_find_bar(void* ui_view, void* find_bar_view, double right, double 
 
 void host_show_find_bar(void* ui_view, bool keyboard) {
   if (auto it = g_find_bars.find(ui_view); it != g_find_bars.end()) {
+    HWND hwnd = it->second.floating.hwnd;
+    const bool was_shown = hwnd && IsWindowVisible(hwnd);
     ShowCorner(it->second, ui_view, keyboard);
     if (keyboard) {
       // It has the keyboard, so the keys held since the shortcut go to it.
-      ReleaseKeys(it->second.floating.hwnd);
+      ReleaseKeys(hwnd);
+    }
+    // check.sh reads this line, as the Mac's and Linux's hosts log it.
+    if (!was_shown && hwnd && IsWindowVisible(hwnd)) {
+      fprintf(stderr, "browser: find bar shown\n");
     }
   }
 }
 
 void host_hide_find_bar(void* ui_view) {
   if (auto it = g_find_bars.find(ui_view); it != g_find_bars.end()) {
-    Hide(it->second.floating);
+    HWND hwnd = it->second.floating.hwnd;
+    if (hwnd && IsWindowVisible(hwnd)) {
+      Hide(it->second.floating);
+      fprintf(stderr, "browser: find bar hidden\n");
+    }
   }
 }
 
