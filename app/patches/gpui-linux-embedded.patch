@@ -152,10 +152,10 @@ index 0000000000..846d17431f
 +}
 diff --git a/crates/gpui_linux/src/linux/overlay.rs b/crates/gpui_linux/src/linux/overlay.rs
 new file mode 100644
-index 0000000000..9a92478ec3
+index 0000000000..6ed92cb4a2
 --- /dev/null
 +++ b/crates/gpui_linux/src/linux/overlay.rs
-@@ -0,0 +1,1003 @@
+@@ -0,0 +1,1017 @@
 +//! An embedder's overlays: windows GPUI opened with `show: false` that the embedder shows over its
 +//! own window, as a browser shows its command bar over its pages. Under Wayland one is a subsurface
 +//! of the embedder's surface, on X11 a window of its own over the embedder's. One shown
@@ -194,6 +194,9 @@ index 0000000000..9a92478ec3
 +    ready: bool,
 +    /// Told once the user leaves the overlay; the embedder hides it then.
 +    left: Option<fn(*mut c_void)>,
++    /// Which time it shows, so leaving it is never told to its next showing: a right-click
++    /// elsewhere hides a menu and shows the next under the same view before it's told.
++    showing: u64,
 +}
 +
 +#[allow(dead_code)]
@@ -215,7 +218,8 @@ index 0000000000..9a92478ec3
 +        keyboard: bool,
 +        hidden: Box<dyn FnOnce()>,
 +    },
-+    Left(usize),
++    /// The user left the overlay, as it showed then.
++    Left(usize, u64),
 +    /// An overlay that shows takes the keys, or gives them back.
 +    Keyboard {
 +        view: usize,
@@ -244,6 +248,7 @@ index 0000000000..9a92478ec3
 +
 +thread_local! {
 +    static SHOWN: RefCell<Vec<Shown>> = const { RefCell::new(Vec::new()) };
++    static SHOWINGS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 +    static OPS: RefCell<VecDeque<Op>> = const { RefCell::new(VecDeque::new()) };
 +    static PING: RefCell<Option<Ping>> = const { RefCell::new(None) };
 +    /// On X11, the window that had the input focus before each overlay with the keyboard took it.
@@ -506,12 +511,15 @@ index 0000000000..9a92478ec3
 +        });
 +        return;
 +    }
++    let showing = SHOWINGS.get() + 1;
++    SHOWINGS.set(showing);
 +    SHOWN.with_borrow_mut(|all| {
 +        all.push(Shown {
 +            view,
 +            keyboard,
 +            ready: false,
 +            left: Some(left),
++            showing,
 +        })
 +    });
 +    later(Op::Show {
@@ -697,8 +705,11 @@ index 0000000000..9a92478ec3
 +
 +/// The user left the overlay `view`.
 +pub(crate) fn left(view: usize) {
-+    if is_shown(view) {
-+        later(Op::Left(view));
++    let showing = SHOWN.with_borrow(|all| {
++        all.iter().find(|shown| shown.view == view).map(|shown| shown.showing)
++    });
++    if let Some(showing) = showing {
++        later(Op::Left(view, showing));
 +    }
 +}
 +
@@ -891,9 +902,12 @@ index 0000000000..9a92478ec3
 +            pressed(None);
 +            false
 +        }
-+        Op::Left(view) => {
++        Op::Left(view, showing) => {
 +            let left = SHOWN.with_borrow_mut(|all| {
 +                let shown = all.iter_mut().find(|shown| shown.view == view)?;
++                if shown.showing != showing {
++                    return None;
++                }
 +                shown.left.take()
 +            });
 +            if let Some(left) = left {
@@ -1063,7 +1077,7 @@ index 0000000000..9a92478ec3
 +                super::wayland::show_window(view as _).log_err();
 +            }
 +            Op::HideWindow(view) => super::wayland::hide_window(view as _),
-+            Op::Left(_) | Op::Pressed(_) | Op::KeyboardLeft => {}
++            Op::Left(..) | Op::Pressed(_) | Op::KeyboardLeft => {}
 +        },
 +        #[cfg(feature = "x11")]
 +        DisplayConnection::X11(x11) => {
@@ -1152,7 +1166,7 @@ index 0000000000..9a92478ec3
 +                Op::HideWindow(view) => {
 +                    x11.hide_window(view as _).log_err();
 +                }
-+                Op::Left(_) | Op::Pressed(_) | Op::KeyboardLeft => {}
++                Op::Left(..) | Op::Pressed(_) | Op::KeyboardLeft => {}
 +            }
 +        }
 +        #[allow(unreachable_patterns)]
