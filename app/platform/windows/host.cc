@@ -2367,7 +2367,10 @@ void host_copy_png(const uint8_t* png, size_t size) {
   if (HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, size)) {
     memcpy(GlobalLock(memory), png, size);
     GlobalUnlock(memory);
-    if (!SetClipboardData(png_format, memory)) {
+    if (SetClipboardData(png_format, memory)) {
+      // check.sh reads this line, as Linux's host logs it.
+      fprintf(stderr, "browser: clipboard png %zu bytes\n", size);
+    } else {
       GlobalFree(memory);
     }
   }

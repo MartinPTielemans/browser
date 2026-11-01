@@ -9,9 +9,12 @@
 
 # The line saying the PNG was copied to the run's own pasteboard, and the toast's buttons after it.
 # On Linux check.sh runs in a display of its own, whose clipboard is the run's, and there's no share
-# menu, so the toast has no Share.
+# menu, so the toast has no Share. Windows has its share sheet, and CI's runner a desktop of its own.
 if [ "$(uname)" = Darwin ]; then
   copied='^browser: pasteboard png [0-9]* bytes, private$'
+  buttons='save, share'
+elif windows; then
+  copied='^browser: clipboard png [0-9]* bytes$'
   buttons='save, share'
 else
   copied='^browser: clipboard png [0-9]* bytes$'
