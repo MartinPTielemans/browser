@@ -57,6 +57,7 @@ mod empty;
 mod export;
 mod extensions;
 mod favorites;
+mod files;
 mod fly_in;
 mod footer;
 mod keys;

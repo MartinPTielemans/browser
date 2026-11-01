@@ -490,6 +490,15 @@ expect_lists() {
   expect "^browser: pinned $1\$" "$3: the pinned tabs are \"$(pinned)\", not \"$1\""
   expect "^browser: today $2\$" "$3: Today is \"$(today)\", not \"$2\""
 }
+# What the footer's + menu ends with to add from the desktop: one item where the system's open
+# panel picks files and folders together, the Mac's, else one for each.
+plus_adds() {
+  if [ "$(uname)" = Darwin ]; then
+    echo 'Add File or Folder…'
+  else
+    echo 'Add Files…, Add Folder…'
+  fi
+}
 # The centre of pinned row $1, counting from 0, under the Space's name, and of the ✕ it shows
 # under the pointer.
 pinned_row() {
