@@ -1798,7 +1798,10 @@ bool Run(const std::string& line, void (^done)(void)) {
   if (action == "type") {
     std::string text = line.substr(std::min(line.size(), action.size() + 1));
     for (char character : text) {
-      if (!Key(key_window, std::string(1, character), 0)) {
+      // A capital is its letter with shift, as the keyboard types it.
+      const bool capital = character >= 'A' && character <= 'Z';
+      const std::string key(1, capital ? character - 'A' + 'a' : character);
+      if (!Key(key_window, key, capital ? NSEventModifierFlagShift : 0)) {
         return false;
       }
     }
