@@ -68,6 +68,14 @@ expect "^browser: hover card shown $a " "resting on the hidden tab's row again d
 send scroll $(row 1) -5 1
 expect '^browser: hover card hidden$' "a scroll over the rows didn't hide the card"
 send move $page_point
+# The margin round its plate, where its shadow draws, is the page's: the pointer there has left the
+# rows and isn't on the card, so the card goes.
+send move $(row 1)
+expect "^browser: hover card shown $a " "resting on the hidden tab's row again didn't show its card"
+expect '^browser: hover card settled$' "the hidden tab's card didn't come to rest before the margin"
+send move $(echo "$asked" | awk '{ printf "%d %d", $5 + $7 + 20, $6 + $8 / 2 }')
+expect '^browser: hover card hidden$' "the pointer in the margin round its plate kept the card"
+send move $page_point
 # A key ends it too, as in Dia, here one the page has.
 send move $(row 1)
 expect "^browser: hover card shown $a " "resting on the hidden tab's row a third time didn't show its card"

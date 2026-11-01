@@ -126,6 +126,9 @@ struct Floating {
   HWND hwnd = nullptr;
   // Clicks go through it to the browser window under it.
   bool mouse_through = false;
+  // While it takes clicks, only this part of it does, in pixels from its top left, if set: the
+  // margin round a plate, where its shadow draws, lets them through.
+  std::optional<RECT> plate;
   // Called after the event, when the user leaves it for a window that isn't its own.
   void (*dismissed)(void) = nullptr;
   // Set while the host hides it, so that isn't the user leaving it.
@@ -170,6 +173,23 @@ Menu g_menu;
 HHOOK g_menu_mouse_hook = nullptr;
 HHOOK g_menu_key_hook = nullptr;
 
+// Whether |point| on screen is on |floating|'s plate, or anywhere on it if it has none.
+bool OnPlate(const Floating& floating, POINT point) {
+  if (!floating.plate) {
+    return true;
+  }
+  ScreenToClient(floating.hwnd, &point);
+  return PtInRect(&*floating.plate, point);
+}
+
+// |x|, |y|, |width| by |height| points in |hwnd|, in its pixels.
+RECT PixelRect(HWND hwnd, double x, double y, double width, double height) {
+  const double scale = Scale(hwnd);
+  return RECT{static_cast<LONG>(std::lround(x * scale)), static_cast<LONG>(std::lround(y * scale)),
+              static_cast<LONG>(std::lround((x + width) * scale)),
+              static_cast<LONG>(std::lround((y + height) * scale))};
+}
+
 LRESULT CALLBACK FloatingProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam,
                               UINT_PTR, DWORD_PTR data) {
   auto* floating = reinterpret_cast<Floating*>(data);
@@ -183,7 +203,8 @@ LRESULT CALLBACK FloatingProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpa
       break;
     case WM_NCHITTEST:
       // To the browser window under it, which is on this thread.
-      if (floating->mouse_through) {
+      if (floating->mouse_through ||
+          !OnPlate(*floating, POINT{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)})) {
         return HTTRANSPARENT;
       }
       break;
@@ -576,6 +597,8 @@ LRESULT CALLBACK HolderProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
 
 // Closes ilo's menu, or takes its keyboard back, as the front window changes (defined below).
 void MenuForegroundChanged(HWND root, bool ours);
+// Ends the hover card as another window comes to the front (defined below).
+void CardForegroundChanged(HWND root);
 
 // The watchers, which Windows tells of each window that comes to the front.
 void (*g_key_window_changed)(void*) = nullptr;
@@ -595,6 +618,7 @@ void CALLBACK ForegroundChanged(HWINEVENTHOOK, DWORD, HWND hwnd, LONG, LONG, DWO
     g_resigning_active();
   }
   MenuForegroundChanged(GetAncestor(hwnd, GA_ROOT), ours);
+  CardForegroundChanged(GetAncestor(hwnd, GA_ROOT));
   g_active = ours;
   if (ours && g_key_window_changed) {
     if (void* ui_view = UiViewOf(GetAncestor(hwnd, GA_ROOT))) {
@@ -746,6 +770,9 @@ Floating g_tooltip;
 double g_tooltip_margin = 0;
 Floating g_card;
 double g_card_margin = 0;
+// The browser window the hover card shows over, and what the UI hears when the user leaves it.
+HWND g_card_root = nullptr;
+void (*g_card_away)(void) = nullptr;
 Floating g_link_target;
 double g_link_margin = 0;
 void (*g_link_pointer)(double, double) = nullptr;
@@ -788,9 +815,46 @@ void PointerMoved(POINT point) {
   }
 }
 
+void CardAway() {
+  // The UI ends it after the event, which goes on where it was aimed.
+  if (g_card_away && IsWindowVisible(g_card.hwnd)) {
+    g_card_away();
+  }
+}
+
+// A press or a scroll at |point| on screen anywhere but the hover card's plate ends the card.
+void CardHears(WPARAM message, POINT point) {
+  switch (message) {
+    case WM_LBUTTONDOWN:
+    case WM_NCLBUTTONDOWN:
+    case WM_RBUTTONDOWN:
+    case WM_NCRBUTTONDOWN:
+    case WM_MBUTTONDOWN:
+    case WM_NCMBUTTONDOWN:
+    case WM_XBUTTONDOWN:
+    case WM_NCXBUTTONDOWN:
+    case WM_MOUSEWHEEL:
+    case WM_MOUSEHWHEEL:
+      if (!g_card.plate || !OnPlate(g_card, point)) {
+        CardAway();
+      }
+      break;
+  }
+}
+
+void CardForegroundChanged(HWND root) {
+  if (root != g_card_root) {
+    CardAway();
+  }
+}
+
 LRESULT CALLBACK MouseMoved(int code, WPARAM wparam, LPARAM lparam) {
-  if (code == HC_ACTION && wparam == WM_MOUSEMOVE && DesktopPointerHeard()) {
-    PointerMoved(reinterpret_cast<MOUSEHOOKSTRUCT*>(lparam)->pt);
+  if (code == HC_ACTION && DesktopPointerHeard()) {
+    const POINT point = reinterpret_cast<MOUSEHOOKSTRUCT*>(lparam)->pt;
+    if (wparam == WM_MOUSEMOVE) {
+      PointerMoved(point);
+    }
+    CardHears(wparam, point);
   }
   return CallNextHookEx(nullptr, code, wparam, lparam);
 }
@@ -803,7 +867,8 @@ void WatchPointer() {
 
 // The pointer stops being watched once nothing needs it, so an idle browser isn't woken by it.
 void MaybeStopWatchingPointer() {
-  bool needed = g_link_target.hwnd && IsWindowVisible(g_link_target.hwnd);
+  bool needed = (g_link_target.hwnd && IsWindowVisible(g_link_target.hwnd)) ||
+                (g_card.hwnd && IsWindowVisible(g_card.hwnd));
   for (auto& [ui_view, reveal] : g_reveals) {
     needed = needed || IsWindowVisible(reveal.floating.hwnd);
   }
@@ -2448,8 +2513,9 @@ void host_toast_takes_clicks(bool takes) {
   g_toast.mouse_through = !takes;
 }
 
-// shortcut: while it takes clicks, its whole window does, the margin round the plate included.
-void host_set_toast_plate(double, double, double, double) {}
+void host_set_toast_plate(double x, double y, double width, double height) {
+  g_toast.plate = PixelRect(g_toast.hwnd, x, y, width, height);
+}
 
 void host_show_toast(void* ui_view) {
   double content_width, content_height, width, height;
@@ -2479,22 +2545,40 @@ void host_hide_tooltip(double) {
   Hide(g_tooltip);
 }
 
-// shortcut: the card takes clicks over its whole window, the margin round the plate included, and
-// ends only as the pointer leaves it or the UI ends it, as a key does.
-void host_add_hover_card(void* card_view, double margin, void (*)(void)) {
+// The pointer is watched while it shows, for a press or a scroll elsewhere, as the link target's
+// is, through the thread's mouse hook.
+void host_add_hover_card(void* card_view, double margin, void (*away)(void)) {
   Adopt(g_card, card_view, false, nullptr);
+  g_card_away = away;
   // A click on its buttons leaves the keyboard where it was.
   SetWindowLongPtrW(g_card.hwnd, GWL_EXSTYLE,
                     GetWindowLongPtrW(g_card.hwnd, GWL_EXSTYLE) | WS_EX_NOACTIVATE);
   g_card_margin = margin;
 }
 
-void host_show_hover_card(void* ui_view, double left, double top, double, double) {
+void host_show_hover_card(void* ui_view, double left, double top, double width, double height) {
   Show(g_card, ui_view, left - g_card_margin, top - g_card_margin, -1, -1, false);
+  // Measured once it's placed, in the pixels of the display it's on.
+  g_card.plate = PixelRect(g_card.hwnd, g_card_margin, g_card_margin, width, height);
+  g_card_root = Root(ui_view);
+  WatchPointer();
+  if (g_card_root && IsWindowVisible(g_card.hwnd)) {
+    POINT corner{0, 0};
+    ClientToScreen(g_card.hwnd, &corner);
+    ScreenToClient(g_card_root, &corner);
+    const double scale = Scale(g_card_root);
+    // check.sh reads these: where its plate is, to compare with where the UI asked, and that it
+    // shows, as on the Mac and Linux.
+    fprintf(stderr, "browser: hover card window at %g %g\n", corner.x / scale + g_card_margin,
+            corner.y / scale + g_card_margin);
+    LogShown(g_card, "hover card");
+  }
 }
 
 void host_hide_hover_card(void) {
   Hide(g_card);
+  g_card_root = nullptr;
+  MaybeStopWatchingPointer();
 }
 
 // shortcut: the pictures stay until their tabs unload or close.
@@ -3129,6 +3213,9 @@ bool host_drive_pointer(unsigned message, long x, long y) {
   const POINT point{x, y};
   if (message == WM_MOUSEMOVE && g_mouse_hook) {
     PointerMoved(point);
+  }
+  if (g_mouse_hook) {
+    CardHears(message, point);
   }
   return g_menu_mouse_hook && MenuTakesPointer(message, point);
 }
