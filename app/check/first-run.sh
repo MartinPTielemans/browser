@@ -38,7 +38,8 @@ serve
 launch_installed() {
   log="$out/$1.log"
   step=0
-  env -u BROWSER_ONBOARDING BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
+  # In a subshell, which the app's exec replaces, so $! is the app's.
+  (unset BROWSER_ONBOARDING; BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1) &
   pid=$!
   exec 3> "$out/drive"
 }
