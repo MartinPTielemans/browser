@@ -125,8 +125,10 @@ fi
 passwords_row=$((bookmarks_row + 62))
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
+settings_drew
 send clickkey 342 60
 expect '^browser: settings tab Import$' "a click on Import didn't show its tab"
+settings_drew Import
 expect "^browser: import found $found\$" \
   "the import didn't find the fixture's $found, and only them: $(grep 'import found' "$log")"
 expect '^browser: import drawn list$' "Settings › Import didn't draw its list"
@@ -274,10 +276,12 @@ rm -f "$passwords"
 # Passwords, the fourth of Settings' tabs, lists the three logins, not their passwords.
 send clickkey 280 60
 expect '^browser: settings tab Passwords$' "a click on Passwords didn't show its tab"
+settings_drew Passwords
 await '^browser: passwords [0-9]*: login\.example\.test check@example\.test, mail\.example\.test check@example\.test, new\.example\.test new@example\.test$' ||
   fail "Settings didn't list the imported logins: $(grep '^browser: passwords [0-9]*:' "$log" | tail -1)"
 send menu Import from Other Browsers…
 expect '^browser: settings tab Import$' "Import from Other Browsers… didn't show Settings' Import tab"
+settings_drew Import
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 if [ -n "$arc" ]; then
