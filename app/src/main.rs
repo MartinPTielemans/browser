@@ -2002,6 +2002,13 @@ impl Browser for Engine {
         first
     }
 
+    fn open_behind(&self, urls: &[String], pinned: bool, folder: u64, index: usize, _: &mut App) {
+        let tabs = urls.iter().map(|url| open_tab_behind(self.window, url, true));
+        for (at, tab) in tabs.filter(|&tab| tab != 0).enumerate() {
+            unsafe { bc::bc_tab_move(tab, pinned, folder, index + at) };
+        }
+    }
+
     fn create_folder(&self, space: u64, name: &str, folder: u64, index: usize, _: &mut App) -> u64 {
         let name = CString::new(name).unwrap_or_default();
         unsafe { bc::bc_folder_create(space, name.as_ptr(), folder, index) }
