@@ -3843,6 +3843,12 @@ void host_forget_secret(void) {
   g_secret_count = -1;
 }
 
+bool host_key_repeated(void) {
+  // A page's key reaches the core while AppKit dispatches it.
+  NSEvent* event = NSApp.currentEvent;
+  return event.type == NSEventTypeKeyDown && event.ARepeat;
+}
+
 size_t host_paste(char* text, size_t capacity) {
   const char* held = [CopyPasteboard() stringForType:NSPasteboardTypeString].UTF8String ?: "";
   if (capacity) {
