@@ -41,8 +41,10 @@
 // The app's (platform/windows/fade.rs): fades GPUI's window |hwnd| from |from|, or from where it
 // shows now if that's below 0, to |to| over |seconds|.
 extern "C" void browser_fade(void* hwnd, double from, double to, double seconds);
-// drive.cc's: the driver's steps run while the system drag's modal loop holds the UI thread.
-extern "C" void drive_system_drag(bool started);
+// The driver's (drive.cc), told as the system drag's modal loop starts and ends, so its steps run
+// meanwhile; null without one. Set, not called by name, so the preview, which has no driver,
+// doesn't link it.
+void (*g_drive_system_drag)(bool started) = nullptr;
 // The preview has no fade.rs, so there the linker takes this instead, as Linux's weak symbols do:
 // the window shows unfaded, and the host still hides it once its fade would have ended.
 extern "C" void browser_fade_none(void*, double, double, double) {}
@@ -3059,6 +3061,10 @@ bool host_trash(const char* path) {
          GetFileAttributesW(Wide(path).c_str()) == INVALID_FILE_ATTRIBUTES;
 }
 
+void host_drive_watch_system_drag(void (*watch)(bool started)) {
+  g_drive_system_drag = watch;
+}
+
 bool host_drag_file(const char* path, void (*ended)(bool)) {
   std::wstring wide = Wide(path);
   if (GetFileAttributesW(wide.c_str()) == INVALID_FILE_ATTRIBUTES) {
@@ -3076,9 +3082,13 @@ bool host_drag_file(const char* path, void (*ended)(bool)) {
     source.Attach(new FileDropSource());
     // On the UI thread GPUI has made an OLE apartment, as Explorer's drag is.
     DWORD effect = DROPEFFECT_NONE;
-    drive_system_drag(true);
+    if (g_drive_system_drag) {
+      g_drive_system_drag(true);
+    }
     const HRESULT dropped = DoDragDrop(data.Get(), source.Get(), DROPEFFECT_COPY, &effect);
-    drive_system_drag(false);
+    if (g_drive_system_drag) {
+      g_drive_system_drag(false);
+    }
     if (ended) {
       ended(dropped == DRAGDROP_S_DROP && effect != DROPEFFECT_NONE);
     }

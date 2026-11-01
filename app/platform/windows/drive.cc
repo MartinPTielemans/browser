@@ -59,6 +59,7 @@ bool host_menu_window_choose(const char* title);
 bool host_menu_window_dismiss(void);
 bool host_drive_pointer(unsigned message, long x, long y);
 bool host_drive_key(unsigned vk, long lparam);
+void host_drive_watch_system_drag(void (*watch)(bool started));
 uint64_t host_browser_window_id(size_t index);
 // The app's (src/main.rs), on GPUI's window |hwnd|, for the scripted input method.
 bool browser_drive_compose(void* hwnd, const char* text, size_t start, size_t end, bool selected);
@@ -1384,10 +1385,10 @@ void Next() {
 
 // While Windows' system drag runs (host_drag_file), OLE's modal loop reads only the input and the
 // messages other threads send, so the driver's commands, steps and step timer would wait in the
-// queue until the drag ends, and only the driver's release ends it. A thread sends the window kPump meanwhile,
-// which runs the waiting step once OLE has read the input the step before posted, so each step's
-// input reaches the drag before the next. It's the drag's generation, so a thread stops with its
-// drag.
+// queue until the drag ends, and only the driver's release ends it. A thread sends the window
+// kPump meanwhile, which runs the next command or step once OLE has read the input the step before
+// posted, so each step's input reaches the drag before the next. It's the drag's generation, so a
+// thread stops with its drag.
 std::atomic<int> g_system_drag{0};
 bool g_drag_held_said = false;
 
@@ -1409,6 +1410,28 @@ void Pump(HWND hwnd) {
       PeekMessageW(&message, hwnd, WM_TIMER, WM_TIMER, PM_REMOVE)) {
     DispatchMessageW(&message);
   }
+}
+
+// What host.cc tells the driver as the system drag's modal loop starts and ends.
+void SystemDrag(bool started) {
+  if (!g_driver) {
+    return;
+  }
+  if (!started) {
+    g_system_drag = 0;
+    return;
+  }
+  static int generation = 0;
+  const int drag = ++generation;
+  g_system_drag = drag;
+  g_drag_held_said = false;
+  HWND driver = g_driver;
+  std::thread([driver, drag] {
+    while (g_system_drag.load() == drag) {
+      Sleep(30);
+      SendMessageTimeoutW(driver, kPump, drag, 0, SMTO_NORMAL, 1000, nullptr);
+    }
+  }).detach();
 }
 
 LRESULT CALLBACK DriverProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
@@ -1473,28 +1496,6 @@ LRESULT CALLBACK DropRealPointer(int code, WPARAM wparam, LPARAM lparam) {
 
 extern "C" {
 
-// host.cc's, around the system drag's modal loop.
-void drive_system_drag(bool started) {
-  if (!g_driver) {
-    return;
-  }
-  if (!started) {
-    g_system_drag = 0;
-    return;
-  }
-  static int generation = 0;
-  const int drag = ++generation;
-  g_system_drag = drag;
-  g_drag_held_said = false;
-  HWND driver = g_driver;
-  std::thread([driver, drag] {
-    while (g_system_drag.load() == drag) {
-      Sleep(30);
-      SendMessageTimeoutW(driver, kPump, drag, 0, SMTO_NORMAL, 1000, nullptr);
-    }
-  }).detach();
-}
-
 void drive_watch_menus(bool (*menus)(void* ui_view, const char* title, bool bar)) {
   g_menus = menus;
 }
@@ -1508,6 +1509,7 @@ void drive_start(void) {
   g_driver = CreateWindowExW(0, window_class.lpszClassName, L"", 0, 0, 0, 0, 0, HWND_MESSAGE,
                              nullptr, window_class.hInstance, nullptr);
   SetWindowsHookExW(WH_GETMESSAGE, DropRealPointer, nullptr, GetCurrentThreadId());
+  host_drive_watch_system_drag(SystemDrag);
   HWND driver = g_driver;
   std::thread([driver] {
     HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
