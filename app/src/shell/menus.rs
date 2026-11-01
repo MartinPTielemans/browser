@@ -26,7 +26,9 @@ const PROPER_NOUNS: [&str; 4] = ["Space", "Spaces", "Library", "Markdown"];
 fn sentence_case(title: &str) -> String {
     let word = |(i, word): (usize, &str)| {
         let noun = word.trim_end_matches('…');
-        let acronym = noun.len() > 1 && noun.chars().all(|c| c.is_ascii_uppercase());
+        // An acronym's plural too, as Copy URLs.
+        let stem = noun.strip_suffix('s').unwrap_or(noun);
+        let acronym = stem.len() > 1 && stem.chars().all(|c| c.is_ascii_uppercase());
         match i == 0 || acronym || PROPER_NOUNS.contains(&noun) {
             true => word.to_string(),
             false => word.to_lowercase(),
@@ -1360,6 +1362,8 @@ mod tests {
             ("In Each Profile's Spaces", "In each profile's Spaces"),
             ("Duplicate", "Duplicate"),
             ("Show in Folder", "Show in folder"),
+            ("Copy URLs", "Copy URLs"),
+            ("Close Tabs", "Close tabs"),
         ];
         for (title, sentence) in cases {
             assert_eq!(sentence_case(title), sentence);
@@ -1473,6 +1477,31 @@ mod tests {
         let title = shell.read_with(cx, |shell, _| shell.title(10));
         let markdown = format!("copy [{title}](https://example.com/)");
         assert!(host.take().contains(&markdown), "{markdown}");
+    }
+
+    /// Move to › lists another Space of the profile with folders as a submenu of its Today and its
+    /// folders, and the folder moves the tab into it.
+    #[gpui::test]
+    fn move_to_lists_another_spaces_folders(cx: &mut TestAppContext) {
+        let (shell, host) = shell_with(cx, &[], &[10], Folders::default());
+        shell.update(cx, |shell, cx| {
+            let work = (1, "Work".into(), None, 0, "".into(), "".into(), "".into());
+            let reading = (2, "Reading".into(), None, 0, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![work, reading], cx);
+            let mut folders = Folders::default();
+            folders.folders.insert(20, ("Shelf".into(), false));
+            shell.set_tabs(2, vec![20], vec![21], Vec::new(), folders, cx);
+        });
+        tab_menu(&shell, &host, cx, 10);
+        // As check.sh reads it, each submenu's items after its path.
+        let shown = crate::menu::described(&host.entries.borrow());
+        let moves = "Move to › Work (checked), Move to › Reading › Today, \
+                     Move to › Reading › Shelf, Move to › New Space…";
+        assert!(shown.contains(moves), "{shown}");
+        host.take();
+        cx.update(|cx| host.choose("Shelf", cx));
+        let (calls, edits) = (host.take(), host.take_edits());
+        assert!(edits.iter().any(|edit| edit.starts_with("move 10 ")), "{calls:?} {edits:?}");
     }
 
     /// A split's menu offers Mute under each of its tabs' names, and its Duplicate copies the whole
