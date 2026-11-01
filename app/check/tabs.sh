@@ -32,7 +32,8 @@
 # back in a tab behind. Tabs › Reset all tabs in this Space takes the loaded pinned tabs away from
 # their pinned URLs back there, and leaves an unloaded one. ⌘-click and ⇧-click choose rows,
 # whose menu and ⇧⌘C copy their links, one a line, and ⌘D, New Folder and ⌘W pin, folder and
-# close them all, each one step for ⌘Z. Reports how long switches take.
+# close them all, each one step for ⌘Z. Chromium's battery saver turning on, as below 20 % on
+# battery, and off again from Settings' switch, each shows a toast. Reports how long switches take.
 
 # A Space's Today tabs. The page opens a tab of its own from its button, the way a link to a new tab
 # does, p in it plays a quiet tone until x, and u has it ask before it's left, or stop asking. The
@@ -485,6 +486,19 @@ expect '^browser: settings shown General$' "Settings… didn't bring Settings ba
 send clickkey $unload_switch
 expect '^browser: unload idle tabs on$' "a click on Unload tabs' switch didn't turn it on"
 expect "browser: tab $c without its page\$" "turning the switch on didn't unload the tab unseen 2 hours"
+# The driver turns the battery saver on as a low battery would, and its switch turns it off, each
+# with a toast. On again, it waits for a low battery, which the runner hasn't.
+await '^browser: settings switch battery saver at ' || fail "Settings didn't draw Battery saver's switch"
+battery_switch=$(sed -n 's/^browser: settings switch battery saver at //p' "$log" | tail -1)
+send batterysaver
+expect '^browser: battery saver turned on$' "the battery saver didn't turn on"
+expect '^browser: toast shown Battery saver on below 20%$' "no toast said the battery saver was on"
+send clickkey $battery_switch
+expect '^browser: battery saver off$' "a click on Battery saver's switch didn't turn it off"
+expect '^browser: battery saver turned off$' "the switch left the battery saver on"
+expect '^browser: toast shown Battery saver off$' "no toast said the battery saver was off"
+send clickkey $battery_switch
+expect '^browser: battery saver on$' "a click on Battery saver's switch didn't turn it on"
 settings_close
 post clickkey $close
 expect '^browser: settings hidden$' "the close button didn't hide Settings"

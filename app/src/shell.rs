@@ -46,6 +46,7 @@ mod undo_tests;
 #[cfg(test)]
 mod help_tests;
 mod assets;
+mod battery_saver;
 mod browser;
 mod chosen;
 mod clean_link;
@@ -132,6 +133,7 @@ pub use permission::{Answer, Question};
 pub use cast::{Cast, CastDevice, CastState};
 pub use trouble::{NOT_RESPONDING, RELOAD, WAIT};
 pub use trace::{RECORDING, STOP, recorded as trace_recorded};
+pub use battery_saver::changed as battery_saver_changed;
 pub use picture::{PagePicture, picture_answered};
 pub(crate) use picture::next_request;
 pub use recent_downloads::{FilePreview, HOVER_ALL};

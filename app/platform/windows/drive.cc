@@ -11,17 +11,17 @@
 // clickkey, doubleclickkey, rightclickkey, drag, press, dragto, release, rightpress, rightdragto,
 // rightrelease, move, key, keydown, keyup, flags, type, insert, scroll, swipe, wheel, resize,
 // place, minimize, window, order, layout, state, title, front, menu, menubar, choose, dismiss,
-// agentspace, agentmayact, agentrelease, agentdisconnect, takeback and age. The Mac's modifiers are
-// pressed as the app reads them off the Mac (keys.rs): cmd with Ctrl, ctrl with Alt, but Ctrl for
-// ⌃Tab, and alt with both. A trackpad's scrolls and swipes are wheel messages with the pixels in
-// their deltas, as a precision touchpad sends them. choose and dismiss work on ilo's menu and the
-// alerts host_ask shows. dragover, dragdrop and dragleave hand a drag from another app, a shell
-// data object carrying what Explorer or a browser would, straight to the drop target Windows would
-// pick, the UI's; one over a page or an overlay, whose targets are Chromium's and GPUI's, logs as
-// unsupported. ime on types as drive.mm's scripted input method does, in the UI's fields alone, as
-// Linux's driver does. fullscreen puts the window full screen or takes it out through the core, as
-// Linux's driver does. The others, pageswipe, displays, hide, backdrop and openmenu, Windows has
-// nothing the driver can stand in for yet: each logs "browser: drive: unsupported
+// agentspace, agentmayact, agentrelease, agentdisconnect, takeback, age and batterysaver. The Mac's
+// modifiers are pressed as the app reads them off the Mac (keys.rs): cmd with Ctrl, ctrl with Alt,
+// but Ctrl for ⌃Tab, and alt with both. A trackpad's scrolls and swipes are wheel messages with the
+// pixels in their deltas, as a precision touchpad sends them. choose and dismiss work on ilo's menu
+// and the alerts host_ask shows. dragover, dragdrop and dragleave hand a drag from another app, a
+// shell data object carrying what Explorer or a browser would, straight to the drop target Windows
+// would pick, the UI's; one over a page or an overlay, whose targets are Chromium's and GPUI's,
+// logs as unsupported. ime on types as drive.mm's scripted input method does, in the UI's fields
+// alone, as Linux's driver does. fullscreen puts the window full screen or takes it out through the
+// core, as Linux's driver does. The others, pageswipe, displays, hide, backdrop and openmenu,
+// Windows has nothing the driver can stand in for yet: each logs "browser: drive: unsupported
 // <command>" before drive.mm's "can't do that", so a run fails at once.
 //
 // It logs as drive.mm does: "browser: drive <n>: <command>" as command n arrives, and "browser:
@@ -1254,6 +1254,10 @@ bool Run(const std::string& line) {
       return false;
     }
     bc_age_tabs_for_testing(seconds);
+    return true;
+  }
+  if (action == "batterysaver") {
+    bc_battery_saver_on_for_testing();
     return true;
   }
   if (action == "keydown" || action == "keyup") {

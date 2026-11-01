@@ -6188,6 +6188,13 @@ unsafe extern "C" fn widevine_changed(_: *mut c_void, state: c_int) {
     });
 }
 
+/// Chromium's battery saver turned on, below 20 % on battery, or off again: the toast says so.
+unsafe extern "C" fn battery_saver_changed(_: *mut c_void, on: bool) {
+    // check.sh waits for this line.
+    log!("browser: battery saver turned {}", if on { "on" } else { "off" });
+    update_app_later(move |cx| shell::battery_saver_changed(on, cx));
+}
+
 unsafe extern "C" fn window_suggestions(
     _: *mut c_void,
     window: bc::bc_id,
@@ -6403,6 +6410,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         held_keys_unclaimed: Some(held_keys_unclaimed),
         tab_media_unsupported: Some(tab_media_unsupported),
         widevine_changed: Some(widevine_changed),
+        battery_saver_changed: Some(battery_saver_changed),
         tab_page_menu: Some(tab_page_menu),
         tab_offer_changed: Some(tab_offer_changed),
         tab_passwords_changed: Some(tab_passwords_changed),

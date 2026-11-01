@@ -21,6 +21,7 @@
 #include "browser_core/archive.h"
 #include "browser_core/auto_archive.h"
 #include "browser_core/autofill_data.h"
+#include "browser_core/battery_saver.h"
 #include "browser_core/capture.h"
 #include "browser_core/cast_dialog.h"
 #include "browser_core/clear_site.h"
@@ -1349,6 +1350,18 @@ void bc_set_unload_idle_tabs(bool unload) {
   browser_core::UserSettings().unload_idle_tabs = unload;
   browser_core::SessionChanged();
   browser_core::UnloadIdleTabsSoon();
+}
+
+bool bc_battery_saver(void) {
+  return browser_core::battery_saver::Allowed();
+}
+
+void bc_set_battery_saver(bool on) {
+  browser_core::battery_saver::SetAllowed(on);
+}
+
+void bc_battery_saver_on_for_testing(void) {
+  browser_core::battery_saver::TurnOnForTesting();
 }
 
 void bc_age_tabs_for_testing(double seconds) {

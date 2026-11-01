@@ -881,6 +881,9 @@ typedef struct bc_host {
   // On Linux under X11: ⌥ was pressed and let go alone, with no other key or click while it was
   // down, as the page in |window| had the keyboard. GPUI hears only the UI's keys there.
   void (*window_option_tapped)(void* context, bc_id window);
+  // Chromium's battery saver turned on, |on|, or off again, as the computer was plugged in or the
+  // user turned it off (bc_battery_saver).
+  void (*battery_saver_changed)(void* context, bool on);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -1697,6 +1700,14 @@ BC_EXPORT void bc_set_warn_moving_profiles(bool warn);
 // at once. The core keeps it with the Spaces.
 BC_EXPORT bool bc_unload_idle_tabs(void);
 BC_EXPORT void bc_set_unload_idle_tabs(bool unload);
+// Whether Chromium's battery saver may turn on, as it does by itself while the computer runs on a
+// battery below 20 %, holding pages to 30 frames a second and slowing their background work, or
+// never does: on unless the user turned it off. Chrome keeps it in its local state, and
+// battery_saver_changed says when it turns on and off. The user's: agents get none.
+BC_EXPORT bool bc_battery_saver(void);
+BC_EXPORT void bc_set_battery_saver(bool on);
+// For check.sh: turns the battery saver on as if the battery were low, until bc_set_battery_saver.
+BC_EXPORT void bc_battery_saver_on_for_testing(void);
 // For check.sh: makes every tab look |seconds| longer unseen, so the check needn't wait 2 hours.
 // The next tab shown checks which to unload, as it would then, and from now each check logs
 // "browser: idle tabs checked" once it's done.

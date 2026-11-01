@@ -1019,6 +1019,8 @@ impl Settings {
         let unload = self.toggle("unload idle tabs", unload, set_unload_idle_tabs, accent, cx);
         let ad_blocking = unsafe { bc::bc_ad_blocking() };
         let ad_blocking = self.toggle("ad blocking", ad_blocking, set_ad_blocking, accent, cx);
+        let battery = unsafe { bc::bc_battery_saver() };
+        let battery = self.toggle("battery saver", battery, set_battery_saver, accent, cx);
         div()
             .flex()
             .flex_col()
@@ -1032,6 +1034,7 @@ impl Settings {
                 row(None, "Favorites", favorites.into_any_element()),
                 // Last, so the checks find the pop-ups where they were.
                 row(None, "Block ads and trackers", ad_blocking),
+                row(None, "Battery saver below 20%", battery),
             ]))
             .children(self.off_sites(off_sites, cx))
             .child(group(&RowLook::settings(), [self.default_browser_row(cx)]))
@@ -2384,6 +2387,11 @@ fn set_warn_before_quitting(warn: bool, _: &mut App) {
 
 fn set_unload_idle_tabs(unload: bool, _: &mut App) {
     unsafe { bc::bc_set_unload_idle_tabs(unload) };
+}
+
+/// Off, Chromium's battery saver never turns on, and on, it does below 20 % on battery again.
+fn set_battery_saver(on: bool, _: &mut App) {
+    unsafe { bc::bc_set_battery_saver(on) };
 }
 
 /// In every profile; a site's own stays as the user set it in the Site Controls.

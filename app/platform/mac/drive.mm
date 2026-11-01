@@ -158,6 +158,8 @@
 //                                         later, for the next tab shown to unload those
 //                                         bc_unload_idle_tabs lets go. From then each check logs
 //                                         "browser: idle tabs checked" once it's done
+//   batterysaver                          turns Chromium's battery saver on as if the battery
+//                                         were low, until Settings' switch sets it
 //
 // Clicks, drags and moves go to the app's window on top at that point of the browser window
 // driven, such as the sidebar reveal over its edge, scrolls and layout to the browser window
@@ -1596,6 +1598,11 @@ bool Run(const std::string& line, void (^done)(void)) {
       return false;
     }
     bc_age_tabs_for_testing(seconds);
+    done();
+    return true;
+  }
+  if (action == "batterysaver") {
+    bc_battery_saver_on_for_testing();
     done();
     return true;
   }

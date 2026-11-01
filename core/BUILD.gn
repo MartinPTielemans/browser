@@ -80,6 +80,8 @@ source_set("browser_core") {
     "archive.h",
     "auto_archive.cc",
     "auto_archive.h",
+    "battery_saver.cc",
+    "battery_saver.h",
     "autofill_data.cc",
     "autofill_data.h",
     "browser_window_stand_in.cc",

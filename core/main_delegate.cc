@@ -23,6 +23,7 @@
 #include "browser_core/ad_block.h"
 #include "browser_core/agent_autofill.h"
 #include "browser_core/auto_archive.h"
+#include "browser_core/battery_saver.h"
 #include "browser_core/cast_dialog.h"
 #include "browser_core/crash_reports.h"
 #include "browser_core/downloads.h"
@@ -168,6 +169,8 @@ class ExtraParts : public ChromeBrowserMainExtraParts,
     developer_mode::RegisterProfilePrefs();
     notes::RegisterProfilePrefs();
     widevine::Start();
+    // Chrome made its battery saver's manager as its threads started.
+    battery_saver::Start();
   }
 
   void PostProfileInit(Profile* profile, bool is_initial_profile) override {
