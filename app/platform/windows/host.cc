@@ -38,6 +38,14 @@
 // UrlCreateFromPathW, for the files dragged onto the UI.
 #pragma comment(lib, "shlwapi.lib")
 
+// The app's (platform/windows/fade.rs): fades GPUI's window |hwnd| from |from|, or from where it
+// shows now if that's below 0, to |to| over |seconds|.
+extern "C" void browser_fade(void* hwnd, double from, double to, double seconds);
+// The preview has no fade.rs, so there the linker takes this instead, as Linux's weak symbols do:
+// the window shows unfaded, and the host still hides it once its fade would have ended.
+extern "C" void browser_fade_none(void*, double, double, double) {}
+#pragma comment(linker, "/alternatename:browser_fade=browser_fade_none")
+
 namespace {
 
 std::wstring Wide(const char* utf8) {
@@ -120,6 +128,29 @@ void Later(std::function<void()> task) {
   PostMessageW(tasks, kRunTask, 0, reinterpret_cast<LPARAM>(new std::function<void()>(task)));
 }
 
+// The tasks After runs, by their timers.
+std::map<UINT_PTR, std::function<void()>>& Timed() {
+  static std::map<UINT_PTR, std::function<void()>> all;
+  return all;
+}
+
+void CALLBACK TimedOut(HWND, UINT, UINT_PTR id, DWORD) {
+  KillTimer(nullptr, id);
+  auto timed = Timed().extract(id);
+  if (!timed.empty()) {
+    timed.mapped()();
+  }
+}
+
+// Runs |task| once |seconds| have gone by, as a fade ends.
+void After(double seconds, std::function<void()> task) {
+  const UINT ms = static_cast<UINT>(std::lround(seconds * 1000));
+  const UINT_PTR id = SetTimer(nullptr, 0, ms, TimedOut);
+  if (id) {
+    Timed()[id] = std::move(task);
+  }
+}
+
 // A GPUI window floating over a browser window: owned by it, so it stays in front of it and goes
 // with it when it's minimized, and placed in points from its content's top-left.
 struct Floating {
@@ -130,6 +161,8 @@ struct Floating {
   void (*dismissed)(void) = nullptr;
   // Set while the host hides it, so that isn't the user leaving it.
   bool hiding = false;
+  // Counts its fades, so one that ends after it showed or hid again leaves it be.
+  int fades = 0;
 };
 
 std::map<HWND, Floating*>& FloatingByHwnd() {
@@ -331,6 +364,46 @@ void Hide(Floating& floating) {
   if (had_keyboard && owner && IsWindowVisible(owner)) {
     SetForegroundWindow(owner);
   }
+}
+
+// Shows |floating| over |ui_view|'s window at |left|, |top|, fading in over |fade| seconds: from
+// where it is if it shows there already, as one fading out does. Logs |what| as the fade ends.
+void FadeIn(Floating& floating, void* ui_view, double left, double top, double fade,
+            const char* what) {
+  const bool there = floating.hwnd && IsWindowVisible(floating.hwnd) &&
+                     GetWindow(floating.hwnd, GW_OWNER) == Root(ui_view);
+  browser_fade(floating.hwnd, there ? -1 : 0, 1, fade);
+  Show(floating, ui_view, left, top, -1, -1, false);
+  const int fades = ++floating.fades;
+  if (fade <= 0) {
+    LogShown(floating, what);
+    return;
+  }
+  Floating* faded = &floating;
+  After(fade, [faded, fades, what] {
+    if (faded->fades == fades) {
+      LogShown(*faded, what);
+    }
+  });
+}
+
+// Hides |floating|, fading out over |fade| seconds, then calls |hidden|; with none, at once, which
+// also ends a fade out.
+void FadeOut(Floating& floating, double fade, std::function<void()> hidden) {
+  const int fades = ++floating.fades;
+  if (fade <= 0 || !floating.hwnd || !IsWindowVisible(floating.hwnd)) {
+    Hide(floating);
+    hidden();
+    return;
+  }
+  browser_fade(floating.hwnd, -1, 0, fade);
+  Floating* faded = &floating;
+  After(fade, [faded, fades, hidden] {
+    if (faded->fades == fades) {
+      Hide(*faded);
+      hidden();
+    }
+  });
 }
 
 void Resize(Floating& floating, double height) {
@@ -576,29 +649,62 @@ LRESULT CALLBACK HolderProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
 
 // Closes ilo's menu, or takes its keyboard back, as the front window changes (defined below).
 void MenuForegroundChanged(HWND root, bool ours);
+// Has the link preview leave as another of the app's windows comes to the front (defined below).
+void LinkPreviewForegroundChanged(HWND front);
 
 // The watchers, which Windows tells of each window that comes to the front.
 void (*g_key_window_changed)(void*) = nullptr;
 void (*g_resigning_active)(void) = nullptr;
 void (*g_became_active)(void) = nullptr;
+void (*g_reduce_motion_changed)(void) = nullptr;
 bool g_active = true;
 
 void CALLBACK ForegroundChanged(HWINEVENTHOOK, DWORD, HWND hwnd, LONG, LONG, DWORD, DWORD) {
   DWORD process = 0;
   GetWindowThreadProcessId(hwnd, &process);
   const bool ours = process == GetCurrentProcessId();
+  // Once a browser window has heard of the change (AppActivating), these have already run.
   if (ours && !g_active && g_became_active) {
     g_became_active();
   } else if (!ours && g_active && g_resigning_active) {
-    // shortcut: Windows says so once another app is in front, where AppKit says so just before;
-    // what's shown over the window hides a moment late.
     g_resigning_active();
   }
   MenuForegroundChanged(GetAncestor(hwnd, GA_ROOT), ours);
+  if (ours) {
+    LinkPreviewForegroundChanged(hwnd);
+  }
   g_active = ours;
   if (ours && g_key_window_changed) {
     if (void* ui_view = UiViewOf(GetAncestor(hwnd, GA_ROOT))) {
       g_key_window_changed(ui_view);
+    }
+  }
+}
+
+// Whether |thread| is one of this process's, such as Chromium's file dialogs' own.
+bool OurThread(DWORD thread) {
+  HANDLE handle = OpenThread(THREAD_QUERY_LIMITED_INFORMATION, FALSE, thread);
+  if (!handle) {
+    return false;
+  }
+  const bool ours = GetProcessIdOfThread(handle) == GetCurrentProcessId();
+  CloseHandle(handle);
+  return ours;
+}
+
+// A browser window's WM_ACTIVATEAPP: Windows sends it as another app's window, on |thread|, is
+// about to come to the front, or as one of ours is, before the foreground event, as AppKit's
+// will-resign-active comes before the other app is in front.
+void AppActivating(bool active, DWORD thread) {
+  if (active && !g_active) {
+    g_active = true;
+    if (g_became_active) {
+      g_became_active();
+    }
+  } else if (!active && g_active && !OurThread(thread)) {
+    g_active = false;
+    if (g_resigning_active) {
+      g_resigning_active();
     }
   }
 }
@@ -646,10 +752,13 @@ Floating g_site_controls;
 // shows and takes clicks through. Its keys are the page's, and the core hands the preview the ones
 // it acts on.
 //
-// shortcut: the page doesn't scale with the card's motion, as the Mac's does, and the preview stays
-// when the user goes to another window, where the Mac's closes, both as on Linux.
+// Another of the app's windows coming to the front, such as another browser window or Settings, is
+// the user leaving the preview, as another window becoming key is on the Mac. Another app isn't.
+//
+// shortcut: the page doesn't scale with the card's motion, as the Mac's does, as on Linux.
 struct LinkPreview {
   Floating floating;
+  void (*dismissed)(void) = nullptr;
   // The browser window it covers, while it shows.
   HWND root = nullptr;
   // Where the page shows, device pixels from the content's top left, and its corners' diameter.
@@ -1344,6 +1453,9 @@ namespace {
 // starts: the window's frame, the sidebar's picture and the sidebar's colour past it.
 struct LaunchWindow {
   HWND hwnd = nullptr;
+  // Never shown: owned by it, the launch window has no taskbar button of its own, which wouldn't
+  // carry the app ID the core gives the browser window, whose button comes as it shows.
+  HWND owner = nullptr;
   HBITMAP picture = nullptr;
   SIZE picture_size{};
   HBRUSH background = nullptr;
@@ -1619,8 +1731,17 @@ LRESULT CALLBACK FrameProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
         return 0;
       }
       break;
+    case WM_ACTIVATEAPP:
+      AppActivating(wparam, static_cast<DWORD>(lparam));
+      break;
     case WM_NCDESTROY:
       WindowButtonsShown().erase(hwnd);
+      break;
+    // Windows tells every top-level window that "Show animations in Windows" changed.
+    case WM_SETTINGCHANGE:
+      if (wparam == SPI_SETCLIENTAREAANIMATION && g_reduce_motion_changed) {
+        g_reduce_motion_changed();
+      }
       break;
   }
   return DefSubclassProc(hwnd, message, wparam, lparam);
@@ -1645,6 +1766,39 @@ void TakeTitleBar(void* ui_view) {
                    SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
     }
   });
+}
+
+// Windows' memory resource notifications, which it keeps signaled while the system is short of
+// memory, and while it has plenty. The host waits for the low one on the thread pool, tells the
+// UI, then waits for the high one before the low one again, so the UI hears once a spell, as the
+// Mac's warning comes once.
+struct MemoryWatch {
+  HANDLE low = nullptr;
+  HANDLE high = nullptr;
+  HANDLE wait = nullptr;
+  void (*pressed)(void) = nullptr;
+};
+MemoryWatch g_memory;
+
+void WaitForMemory(bool low);
+
+void CALLBACK MemoryChanged(PVOID low, BOOLEAN) {
+  // On the pool's thread: the rest is the UI thread's.
+  Later([low = low != nullptr] {
+    if (low) {
+      g_memory.pressed();
+    }
+    WaitForMemory(!low);
+  });
+}
+
+void WaitForMemory(bool low) {
+  if (g_memory.wait) {
+    UnregisterWaitEx(g_memory.wait, nullptr);
+    g_memory.wait = nullptr;
+  }
+  RegisterWaitForSingleObject(&g_memory.wait, low ? g_memory.low : g_memory.high, MemoryChanged,
+                              low ? &g_memory : nullptr, INFINITE, WT_EXECUTEONLYONCE);
 }
 
 }  // namespace
@@ -1674,6 +1828,8 @@ void host_show_launch_window(const char* profile_dir, double x, double y, double
     return window_class.lpszClassName;
   }();
   const double scale = GetDpiForSystem() / 96.0;
+  g_launch.owner = CreateWindowExW(0, launch_class, L"", WS_POPUP, 0, 0, 0, 0, nullptr, nullptr,
+                                   GetModuleHandleW(nullptr), nullptr);
   // The browser window's frame, as Windows draws it. Clicks go through it, as they do through the
   // Mac's, and Chromium's occlusion tracker passes over a window they go through, so it can stay
   // over the browser window, whose pages still paint, until the UI has drawn under it.
@@ -1681,8 +1837,9 @@ void host_show_launch_window(const char* profile_dir, double x, double y, double
       WS_EX_LAYERED | WS_EX_TRANSPARENT, launch_class, L"", WS_OVERLAPPEDWINDOW,
       static_cast<int>(std::lround(x * scale)), static_cast<int>(std::lround(y * scale)),
       static_cast<int>(std::lround(width * scale)), static_cast<int>(std::lround(height * scale)),
-      nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+      g_launch.owner, nullptr, GetModuleHandleW(nullptr), nullptr);
   if (!window) {
+    host_close_launch_window();
     return;
   }
   SetLayeredWindowAttributes(window, 0, 255, LWA_ALPHA);
@@ -1701,8 +1858,6 @@ void host_show_launch_window(const char* profile_dir, double x, double y, double
     // check.sh reads this line.
     fprintf(stderr, "browser: launch picture shown\n");
   }
-  // shortcut: it has a taskbar button of its own for that moment, without the app ID the core
-  // gives the browser window.
   ShowWindow(window, SW_SHOW);
   // On screen now, as Chromium's startup holds the main thread for a while before its loop.
   UpdateWindow(window);
@@ -1711,6 +1866,9 @@ void host_show_launch_window(const char* profile_dir, double x, double y, double
 void host_close_launch_window(void) {
   if (g_launch.hwnd) {
     DestroyWindow(g_launch.hwnd);
+  }
+  if (g_launch.owner) {
+    DestroyWindow(g_launch.owner);
   }
   if (g_launch.picture) {
     DeleteObject(g_launch.picture);
@@ -1981,6 +2139,16 @@ bool ChoiceIsOurs(const wchar_t* scheme) {
   return read == ERROR_SUCCESS && type == REG_SZ && lstrcmpiW(progid, kProgId) == 0;
 }
 
+bool host_reduce_motion(void) {
+  BOOL animations = TRUE;
+  return SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animations, 0) && !animations;
+}
+
+// FrameProc calls it as the browser windows hear of the change.
+void host_watch_reduce_motion(void (*changed)(void)) {
+  g_reduce_motion_changed = changed;
+}
+
 bool host_is_default_browser(void) {
   return ChoiceIsOurs(L"http") && ChoiceIsOurs(L"https");
 }
@@ -2089,11 +2257,7 @@ void host_set_overlay_height(int overlay, double height) {
   fprintf(stderr, "browser: %s height %g\n", kOverlayNames[overlay], height);
 }
 
-// shortcut: Segoe UI Emoji is taken to draw every emoji; check with DirectWrite's glyphs when an
-// older Windows shows blanks in the icon picker.
-bool host_can_draw_emoji(const char*) {
-  return true;
-}
+// host_can_draw_emoji is the app's, from GPUI's text system (platform/linux/emoji.rs).
 
 void host_hide_overlay(int overlay) {
   HideOverlay(overlay);
@@ -2129,17 +2293,27 @@ void host_add_find_bar(void* ui_view, void* find_bar_view, double right, double 
 
 void host_show_find_bar(void* ui_view, bool keyboard) {
   if (auto it = g_find_bars.find(ui_view); it != g_find_bars.end()) {
+    HWND hwnd = it->second.floating.hwnd;
+    const bool was_shown = hwnd && IsWindowVisible(hwnd);
     ShowCorner(it->second, ui_view, keyboard);
     if (keyboard) {
       // It has the keyboard, so the keys held since the shortcut go to it.
-      ReleaseKeys(it->second.floating.hwnd);
+      ReleaseKeys(hwnd);
+    }
+    // check.sh reads this line, as the Mac's and Linux's hosts log it.
+    if (!was_shown && hwnd && IsWindowVisible(hwnd)) {
+      fprintf(stderr, "browser: find bar shown\n");
     }
   }
 }
 
 void host_hide_find_bar(void* ui_view) {
   if (auto it = g_find_bars.find(ui_view); it != g_find_bars.end()) {
-    Hide(it->second.floating);
+    HWND hwnd = it->second.floating.hwnd;
+    if (hwnd && IsWindowVisible(hwnd)) {
+      Hide(it->second.floating);
+      fprintf(stderr, "browser: find bar hidden\n");
+    }
   }
 }
 
@@ -2248,9 +2422,10 @@ void host_hide_site_controls(void) {
   g_site_controls.mouse_through = false;
 }
 
-void* host_add_link_preview(void* view, void (*)(void)) {
+void* host_add_link_preview(void* view, void (*dismissed)(void)) {
   // It never has the keyboard, which stays with the page.
   Adopt(g_link_preview.floating, view, false, nullptr);
+  g_link_preview.dismissed = dismissed;
   SetWindowLongPtrW(g_link_preview.floating.hwnd, GWL_EXSTYLE,
                     GetWindowLongPtrW(g_link_preview.floating.hwnd, GWL_EXSTYLE) |
                         WS_EX_NOACTIVATE);
@@ -2339,6 +2514,10 @@ void host_add_capture(void* view, void (*dismissed)(void)) {
 
 void host_show_capture(void* ui_view, double left, double top, double width, double height) {
   Show(g_capture, ui_view, left, top, width, height, true);
+  if (g_capture.hwnd && IsWindowVisible(g_capture.hwnd)) {
+    // check.sh reads this line, as the Mac's and Linux's hosts log it.
+    fprintf(stderr, "browser: capture shown at %g %g %g %g\n", left, top, width, height);
+  }
 }
 
 void host_capture_camera(bool camera) {
@@ -2346,7 +2525,12 @@ void host_capture_camera(bool camera) {
 }
 
 void host_hide_capture(void) {
+  if (!g_capture.hwnd || !IsWindowVisible(g_capture.hwnd)) {
+    return;
+  }
   Hide(g_capture);
+  // check.sh reads this line.
+  fprintf(stderr, "browser: capture hidden\n");
 }
 
 void host_copy_png(const uint8_t* png, size_t size) {
@@ -2358,7 +2542,10 @@ void host_copy_png(const uint8_t* png, size_t size) {
   if (HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, size)) {
     memcpy(GlobalLock(memory), png, size);
     GlobalUnlock(memory);
-    if (!SetClipboardData(png_format, memory)) {
+    if (SetClipboardData(png_format, memory)) {
+      // check.sh reads this line, as Linux's host logs it.
+      fprintf(stderr, "browser: clipboard png %zu bytes\n", size);
+    } else {
       GlobalFree(memory);
     }
   }
@@ -2469,14 +2656,12 @@ void host_add_tooltip(void* tooltip_view, double margin, void (*)(void)) {
   g_tooltip_margin = margin;
 }
 
-// shortcut: tooltips and the link target show and hide at once, without their fade.
-void host_show_tooltip(void* ui_view, double left, double top, double) {
-  Show(g_tooltip, ui_view, left - g_tooltip_margin, top - g_tooltip_margin, -1, -1, false);
-  LogShown(g_tooltip, "tooltip");
+void host_show_tooltip(void* ui_view, double left, double top, double fade) {
+  FadeIn(g_tooltip, ui_view, left - g_tooltip_margin, top - g_tooltip_margin, fade, "tooltip");
 }
 
-void host_hide_tooltip(double) {
-  Hide(g_tooltip);
+void host_hide_tooltip(double fade) {
+  FadeOut(g_tooltip, fade, [] {});
 }
 
 // shortcut: the card takes clicks over its whole window, the margin round the plate included, and
@@ -2497,8 +2682,20 @@ void host_hide_hover_card(void) {
   Hide(g_card);
 }
 
-// shortcut: the pictures stay until their tabs unload or close.
-void host_watch_memory_pressure(void (*)(void)) {}
+void host_watch_memory_pressure(void (*pressed)(void)) {
+  if (g_memory.pressed) {
+    return;
+  }
+  g_memory.low = CreateMemoryResourceNotification(LowMemoryResourceNotification);
+  g_memory.high = CreateMemoryResourceNotification(HighMemoryResourceNotification);
+  if (!g_memory.low || !g_memory.high) {
+    return;
+  }
+  g_memory.pressed = pressed;
+  // Later's window is made here, on the UI thread, before the pool's thread posts to it.
+  Later([] {});
+  WaitForMemory(true);
+}
 
 void host_add_link_target(void* link_view, double margin, void (*pointer)(double x, double y)) {
   Adopt(g_link_target, link_view, true, nullptr);
@@ -2506,16 +2703,14 @@ void host_add_link_target(void* link_view, double margin, void (*pointer)(double
   g_link_pointer = pointer;
 }
 
-void host_show_link_target(void* ui_view, double left, double top, double) {
+void host_show_link_target(void* ui_view, double left, double top, double fade) {
   g_link_shown_over = ui_view;
-  Show(g_link_target, ui_view, left - g_link_margin, top - g_link_margin, -1, -1, false);
-  LogShown(g_link_target, "link target");
+  FadeIn(g_link_target, ui_view, left - g_link_margin, top - g_link_margin, fade, "link target");
   WatchPointer();
 }
 
-void host_hide_link_target(double) {
-  Hide(g_link_target);
-  MaybeStopWatchingPointer();
+void host_hide_link_target(double fade) {
+  FadeOut(g_link_target, fade, MaybeStopWatchingPointer);
 }
 
 void host_focus(void* view) {
@@ -2578,17 +2773,21 @@ void host_show_menu_window(void* ui_view,
                    origin.y + static_cast<LONG>(height * scale)};
   g_menu.frame = frame;
   const unsigned showing = ++g_menu.showing;
-  // It goes on screen after the event, so the press that opened it is over. shortcut: the host
-  // can't force GPUI to draw this menu first as the Mac does, so its first frame may be the last
-  // menu's until GPUI's loop draws; refine when the engine runs the checks on Windows.
+  // It goes on screen after the event, so the press that opened it is over.
   Later([=] {
     if (showing != g_menu.showing) {
       return;
     }
     SetWindowLongPtrW(g_menu.hwnd, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(base));
     WatchOwner(root);
-    PlaceAndShow(g_menu.hwnd, frame.left, frame.top, frame.right - frame.left,
-                 frame.bottom - frame.top, true);
+    const int wide = frame.right - frame.left, high = frame.bottom - frame.top;
+    // Placed and drawn before it's on screen, as the Mac's host draws it, so its first frame is
+    // this menu and not the last: Windows sends a hidden window no WM_PAINT, but GPUI's window
+    // draws on any it's sent, shown or not.
+    SetWindowPos(g_menu.hwnd, nullptr, frame.left, frame.top, wide, high,
+                 SWP_NOACTIVATE | SWP_NOZORDER);
+    SendMessageW(g_menu.hwnd, WM_PAINT, 0, 0);
+    PlaceAndShow(g_menu.hwnd, frame.left, frame.top, wide, high, true);
     SetForegroundWindow(g_menu.hwnd);
     SetFocus(g_menu.hwnd);
     InstallMenuHooks();
@@ -2650,6 +2849,18 @@ bool host_menu_window_dismiss(void) {
 }  // extern "C"
 
 namespace {
+
+void LinkPreviewForegroundChanged(HWND front) {
+  HWND root = g_link_preview.root;
+  // The browser window's own, and those it owns, such as a page's dialog, aren't another window.
+  if (!root || g_link_preview.floating.mouse_through || GetAncestor(front, GA_ROOTOWNER) == root) {
+    return;
+  }
+  host_release_link_preview();
+  if (void (*dismissed)(void) = g_link_preview.dismissed) {
+    Later([dismissed] { dismissed(); });
+  }
+}
 
 // The task dialog host_ask shows, for host_choose, and its buttons' labels and ids.
 HWND g_alert = nullptr;

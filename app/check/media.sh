@@ -158,6 +158,10 @@ expect "^browser: page $a camera 1 microphone 1 sharing 1 shared 0\$" \
 expect "^browser: page $b camera 0 microphone 0 sharing 0 shared 1\$" \
   "the tab shared didn't show it's shared"
 expect "^browser: page $c share instead 1\$" "the other tab wasn't offered to share instead"
+# Chrome shows the tab a page starts sharing, unless the page asks it not to, once, up to a second
+# later, and whichever tab is shared by then. So it does before the share moves, or it shows the
+# other tab under the call's "e" (#1166).
+expect "^browser: selected $b\( in .*\)\{0,1\}\$" "Chrome didn't show the tab shared"
 ../tools/window-screenshot.sh "$pid" "$out/media-sharing.png" || fail "no window to capture"
 
 # The other tab's menu, from its row, moves the share there.
@@ -170,9 +174,8 @@ expect "^browser: page $c camera 0 microphone 0 sharing 0 shared 1\$" \
 expect "^browser: page $b camera 0 microphone 0 sharing 0 shared 0\$" \
   "Share This Tab Instead left the first tab shared"
 
-# Chrome shows the tab a page starts sharing, unless the page asks it not to, so the call's tab is
-# shown again for its "e".
-[ "$(grep '^browser: selected ' "$log" | tail -1 | cut -d' ' -f3)" = "$a" ] || shown "$a"
+# The call's tab is shown again for its "e".
+shown "$a"
 send click $page_point
 send key e
 expect "^browser: page $a camera 0 microphone 0 sharing 0 shared 0\$" \
@@ -182,18 +185,23 @@ expect "^browser: page $c camera 0 microphone 0 sharing 0 shared 0\$" \
 
 # A call floats once its tab is hidden, as Arc's does: Chrome's automatic Picture in Picture for a
 # page using the camera that asks for it with its media session, on https or a file alone. So a
-# page from the https server, from the command bar, whose "c" calls and which says when its window
-# floats and lands, and whose "k" puts how often it was asked to float in its title. Showing its
-# tab again brings the call back.
+# page from the https server, from the command bar, whose "c" calls and which says when Chrome
+# asks it to float, when its window floats and lands or why it was refused, and whose "k" puts how
+# often it was asked to float in its title. Showing its tab again brings the call back.
 printf '%s' '<title>loading</title><body style="background:#333">
 <script>
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
 let asked = 0;
 navigator.mediaSession.setActionHandler("enterpictureinpicture", async () => {
   asked++;
-  const floating = await documentPictureInPicture.requestWindow({width: 320, height: 180});
-  document.title = "floating";
-  floating.addEventListener("pagehide", () => document.title = "landed");
+  document.title = "asked to float";
+  try {
+    const floating = await documentPictureInPicture.requestWindow({width: 320, height: 180});
+    document.title = "floating";
+    floating.addEventListener("pagehide", () => document.title = "landed");
+  } catch (error) {
+    document.title = "not floating: " + error.name;
+  }
 });
 onkeydown = async e => {
   if (e.key == "c") {
@@ -269,6 +277,7 @@ mini_player() {
   if ! grep '^browser: settings shown ' "$log" | tail -1 | grep -q ' Advanced$'; then
     send clickkey 519 60
     expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
+    settings_drew Advanced
   fi
   send clickkey 592 208
   expect "^browser: mini player $1\$" "a click on the Mini Player's switch didn't turn it $1"

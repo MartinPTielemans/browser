@@ -114,6 +114,18 @@ class PopupLog : public views::NativeViewFocusChangeListener,
   std::set<raw_ptr<aura::Window>> popups_;
 };
 
+// Shows |holder|, a slot's widget, without giving it the keyboard. Chromium focuses each window it
+// shows that has no focus manager to take the first focus, as a child widget has none, even one
+// shown inactive (HWNDMessageHandler::SetInitialFocus), and focusing it activates its window: that
+// closed the command bar over it and brought a window restored behind to the front (#872).
+void ShowInactive(views::Widget* holder) {
+  HWND hwnd = views::HWNDForWidget(holder);
+  const LONG_PTR style = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+  SetWindowLongPtr(hwnd, GWL_EXSTYLE, style | WS_EX_NOACTIVATE);
+  holder->ShowInactive();
+  SetWindowLongPtr(hwnd, GWL_EXSTYLE, style);
+}
+
 // Gives a slot's HWND the keyboard while a page in it has aura's focus, and takes the page's focus
 // as the HWND loses it. Windows sends keys and the input method's messages only to the focused
 // HWND, and Chromium focuses a child widget's HWND, and tells its input method, only as a
@@ -437,7 +449,7 @@ class WindowViews : public views::WidgetObserver,
     page->Show();
     preview_.corner_radius = corner_radius;
     preview_.insets = InsetsOf(frame, ContentSize());
-    holder->ShowInactive();
+    ShowInactive(holder);
     LayOut();
   }
 
@@ -547,10 +559,9 @@ void Hold(aura::Window* parent, aura::Window* view, bool hidden) {
 }  // namespace
 
 views::NativeWidget* NewNativeWidget(views::Widget* widget, base::RepeatingClosure) {
-  // shortcut: keeps Windows' title bar, where the Mac's UI fills it; give the window a custom frame
-  // with the app's caption buttons when the header row is ported. Windows has no full screen of
-  // its own, so the window leaves it only when Chrome or the app (bc_window_toggle_full_screen)
-  // asks, each through Window::LeaveFullScreen.
+  // The app takes Windows' title bar away (host.cc's TakeTitleBar): its header draws the window's
+  // buttons and moves it. Windows has no full screen of its own, so the window leaves it only when
+  // Chrome or the app (bc_window_toggle_full_screen) asks, each through Window::LeaveFullScreen.
   return new views::DesktopNativeWidgetAura(widget);
 }
 
@@ -655,7 +666,7 @@ void ShowPages(views::Widget* widget,
     slot.page = pane.page;
     slot.devtools = devtools;
     slot.insets = InsetsOf(pane.frame, size);
-    hidden ? holder->Hide() : holder->ShowInactive();
+    hidden ? holder->Hide() : ShowInactive(holder);
   }
   if (panes.size() > 1 && focused < panes.size()) {
     views->ring().Show(views->WidgetFor(slots[focused])->GetNativeView(), ring_color,
@@ -677,7 +688,7 @@ void ShowPages(views::Widget* widget,
     panel.page = side_panel->page;
     panel.insets = InsetsOf(side_panel->frame, size);
     panel.bottom_corners_only = true;
-    hidden ? holder->Hide() : holder->ShowInactive();
+    hidden ? holder->Hide() : ShowInactive(holder);
   } else {
     views->Empty(panel, staying);
   }

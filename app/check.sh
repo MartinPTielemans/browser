@@ -10,7 +10,8 @@
 # uBlock Origin's own lists and widevine, Linux's alone, downloads Google's Widevine module, so they
 # need the network and run only when named: ./check.sh store.
 # Updates runs only when named too, until it passes on the Mac. So does keychain, which uses the
-# real Keychain, on the prod build and only in a check VM.
+# real Keychain, on the prod build and only in a check VM. Shots takes the Store's pictures from
+# pages on the internet, so it runs only when named too.
 # Every run but load and crash needs Browser to be the active app, and window, find and updates
 # take it full screen for a moment. Passkeys is the Mac's alone so far. Updates makes
 # build/Updates.app on the Mac, a copy with Sparkle and a feed of its own (build.sh updates), and
@@ -24,7 +25,7 @@
 # each run, since one an earlier run left can lack what a run expects, such as its search engines.
 # On Windows it runs under Git Bash, with python3 on the PATH, on the app the engine's chrome.exe
 # runs from build/Browser. The runs need what the Windows driver (platform/windows/drive.cc) does
-# so far: load, tabs, dialogs and crash.
+# so far: load, tabs, dialogs, crash, about and onboarding.
 # On Linux it runs itself in a headless sway session of its own (tools/headless.sh --run), on its
 # Xwayland, and the app's windows and input then never reach the owner's session. Of the runs,
 # load and history pass there so far; the others stop where they need what Linux hasn't yet, such
@@ -68,7 +69,7 @@ runs="load keys tabs window popup history spaces agents profiles restore relaunc
 runs="$runs split favorites cards extensions adblock adblock-lists windows private capture media"
 runs="$runs passwords links preview access trouble dialogs crash import quit onboarding passkeys mcp"
 runs="$runs appearance about"
-named="store adblock-live widevine updates keychain"
+named="store adblock-live widevine updates keychain shots"
 for run in "$@"; do
   case " $runs $named " in
     *" $run "*) ;;
@@ -129,7 +130,9 @@ rm -f "$(dirname "$saved")/Agents" "$(dirname "$saved")/Shortcuts"
 # check's own folder, never the user's Downloads. A failed extensions run may have left one of its
 # extensions pinned. The profile keeps the clear run's answers to its sites' questions, and how
 # often it dismissed them, for sites whose ports a later run may get, and a failed clear run may
-# have left localhost out of Developer Mode.
+# have left localhost out of Developer Mode. A failed media run may have left the Mini Player off,
+# which the core keeps as Block for every site's Automatic picture-in-picture and doesn't undo at
+# launch, so no later run's call floated (#1165).
 prefs="$profile_dir/Default/Preferences"
 mkdir -p "$(dirname "$prefs")" "$out/downloads"
 python3 -I -c '
@@ -142,12 +145,25 @@ prefs.setdefault("devtools", {}).setdefault("preferences", {})["currentDockState
 prefs.setdefault("download", {})["default_directory"] = sys.argv[2]
 prefs.setdefault("extensions", {})["pinned_extensions"] = []
 exceptions = prefs.get("profile", {}).get("content_settings", {}).get("exceptions", {})
-for kind in ("window_placement", "permission_autoblocking_data"):
+for kind in ("window_placement", "permission_autoblocking_data", "auto_picture_in_picture"):
     exceptions.pop(kind, None)
+defaults = prefs.get("profile", {}).get("default_content_setting_values", {})
+defaults.pop("auto_picture_in_picture", None)
 prefs.get("browser_core", {}).pop("developer_mode", None)
 with open(sys.argv[1], "w") as f:
     json.dump(prefs, f)
 ' "$prefs" "$PWD/$out/downloads"
+python3 -I -c '
+import json, os, sys
+if not os.path.exists(sys.argv[1]):
+    sys.exit()
+with open(sys.argv[1]) as f:
+    saved = json.load(f)
+if saved.get("settings", {}).get("auto_picture_in_picture") is False:
+    saved["settings"]["auto_picture_in_picture"] = True
+    with open(sys.argv[1], "w") as f:
+        json.dump(saved, f)
+' "$saved"
 # Each run starts in the one profile, Default: Chrome deletes the others, which a run before made,
 # as import's Work, or a failed run left, at its next launch.
 only_default() {
