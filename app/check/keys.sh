@@ -342,8 +342,10 @@ in_browser RenderWidgetHostViewCocoa "after the history tab closed"
 # records the next keys pressed.
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
+settings_drew
 send clickkey 401 60
 expect '^browser: settings tab Shortcuts$' "a click on Shortcuts didn't show its tab"
+settings_drew Shortcuts
 send clickkey 300 120
 send type new tab
 # Paste URL as New Tab has the words too, under it.
@@ -416,6 +418,7 @@ expect '^browser: command bar hidden$' "escape didn't close the command bar"
 send menu Settings…
 expect '^browser: settings shown Shortcuts$' \
   "Settings… didn't show the Shortcuts tab it showed last"
+settings_drew Shortcuts
 send clickkey 537 203
 expect '^browser: shortcut new-tab cmd-t$' "↺ didn't give New Tab ⌘T back"
 # The app menu's About opens Settings on its About tab: the version, the engine's and the credits.
@@ -446,8 +449,10 @@ in_browser RenderWidgetHostViewCocoa "after the command bar closed"
 # the page, and Restore Defaults gives F6 back, which does the same.
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
+settings_drew
 send clickkey 401 60
 expect '^browser: settings tab Shortcuts$' "a click on Shortcuts didn't show its tab"
+settings_drew Shortcuts
 send clickkey 300 120
 send type sidebar
 expect '^browser: shortcuts search "sidebar" finds ' "the search for sidebar didn't end"
@@ -483,6 +488,7 @@ in_browser RenderWidgetHostViewCocoa "after escape left the sidebar"
 send menu Settings…
 expect '^browser: settings shown Shortcuts$' \
   "Settings… didn't show the Shortcuts tab it showed last"
+settings_drew Shortcuts
 send clickkey 300 120
 send key a cmd
 send type focus sidebar
@@ -674,6 +680,7 @@ expect '^browser: space form gone$' "the form didn't leave after Create"
 send menu Settings…
 expect '^browser: settings shown Shortcuts$' \
   "Settings… didn't show the Shortcuts tab it showed last"
+settings_drew Shortcuts
 send clickkey 300 120
 send key a cmd
 send type go to space
@@ -736,6 +743,7 @@ expect "^browser: selected $favorite\( in .*\)\{0,1\}\$" "⌘1 didn't show the f
 send menu Settings…
 expect '^browser: settings shown Shortcuts$' \
   "Settings… didn't show the Shortcuts tab it showed last"
+settings_drew Shortcuts
 send clickkey 300 120
 send key a cmd
 send type include favorites
@@ -758,6 +766,7 @@ expect "^browser: selected $unfavored\( in .*\)\{0,1\}\$" \
 send menu Settings…
 expect '^browser: settings shown Shortcuts$' \
   "Settings… didn't show the Shortcuts tab it showed last"
+settings_drew Shortcuts
 send clickkey 126 246
 expect '^browser: shortcuts restored$' "a click on Restore Defaults didn't restore the keys"
 expect "^browser: shortcut select-space-1 $first_key\$" \

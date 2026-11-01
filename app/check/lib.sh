@@ -265,6 +265,11 @@ logged() {
 exited_without() {
   [ -z "${pid:-}" ] || kill -0 "$pid" 2>/dev/null || logged "$1" "${3:-}" || fail "the app exited: $2"
 }
+# Settings has drawn its tab $1, or whichever it shows, since the last command, on showing or on a
+# change of tab: until it has, a click in it finds nothing to land on (#1101, #1133).
+settings_drew() {
+  expect "^browser: settings drew ${1:-.*}\$" "Settings didn't draw ${1:-its tab}"
+}
 # Where Settings last drew its control $1, "x y" for clickkey, once it has: it logs each place it
 # draws one ("browser: settings $1 at x y").
 drawn() {
