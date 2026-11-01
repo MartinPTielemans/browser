@@ -8,7 +8,7 @@
 # <repo> is a copy of the published repository, or a new folder for the first: the build goes in
 # signed with the key in FLATPAK_GPG_KEY (ASCII-armoured, without a passphrase), builds older than
 # the last three are pruned, static deltas are made and the summary is signed. release.yml syncs it
-# with the bucket <URL> serves (README.md › Releases). The key stays in a keyring of this run's own.
+# with the bucket <URL> serves (docs/releasing.md). The key stays in a keyring of this run's own.
 # Usage: FLATPAK_GPG_KEY=… tools/flatpak-repo.sh <ilo.flatpak> <repo> <URL> <out>
 set -euo pipefail
 fail() {
