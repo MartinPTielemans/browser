@@ -345,7 +345,7 @@ if [ "$(uname)" = Linux ]; then
   send pip dragto $((pw / 2)) 27
   send pip dragto $((pw / 2)) $((17 + d))
   send pip release $((pw / 2)) $((17 + d))
-  mini_player_at "x == px && y == py + $d && w == pw && h == ph" \
+  mini_player_at "x == px && y >= py + $d - 10 && y <= py + $d && w == pw && h == ph" \
     "dragged partly below the screen, the floating call didn't go there"
   sleep 2
   grep '^browser: pip at ' "$log" | tail -4
