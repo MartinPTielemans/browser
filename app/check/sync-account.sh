@@ -60,7 +60,7 @@ expect '^browser: settings shown ' "Settings… didn't show Settings"
 send clickkey $(drawn "toolbar Sync")
 expect '^browser: settings tab Sync$' "a click on Sync didn't show its tab"
 at=$(drawn "sync sign-in") || fail "Settings › Sync didn't draw Sign In"
-../tools/window-screenshot.sh "$pid" "$out/sync-signed-out.png" || fail "no window to capture"
+../tools/window-screenshot.sh "$(app_pid)" "$out/sync-signed-out.png" || fail "no window to capture"
 send clickkey $at
 expect '^browser: account SigningIn None$' "Sign In didn't start signing in"
 await 'browser: sync sign-in loaded /authorize$' ||
@@ -117,7 +117,7 @@ if [ "$(uname)" = Linux ]; then
     fail "Settings couldn't have the keyboard again"
 fi
 at=$(drawn "sync done") || fail "Settings › Sync didn't show the recovery words with Done"
-../tools/window-screenshot.sh "$pid" "$out/sync-words.png" || fail "no window to capture"
+../tools/window-screenshot.sh "$(app_pid)" "$out/sync-words.png" || fail "no window to capture"
 send clickkey $at
 await 'browser: sync service active$' ||
   fail "sync's service didn't become active: $(grep 'browser: sync service ' "$log" | tail -1)"
@@ -239,7 +239,7 @@ fi
 # Not send: the alert runs its own loop until it closes, so the driver may only finish after.
 post key return
 await '^browser: account SignedOut None$' || fail "Sign Out didn't sign out"
-../tools/window-screenshot.sh "$pid" "$out/sync-signed-out-again.png" || fail "no window to capture"
+../tools/window-screenshot.sh "$(app_pid)" "$out/sync-signed-out-again.png" || fail "no window to capture"
 for _ in $(seq 50); do
   left=$(stored "SELECT count(*) FROM devices")
   [ "$left" = 0 ] && break
