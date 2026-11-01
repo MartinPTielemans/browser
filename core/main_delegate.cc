@@ -45,6 +45,8 @@
 #include "browser_core/search.h"
 #include "browser_core/session.h"
 #include "browser_core/sign_in_dialog.h"
+#include "browser_core/sync.h"
+#include "browser_core/sync_spaces.h"
 #include "browser_core/system_engine.h"
 #include "browser_core/tab.h"
 #include "browser_core/widevine.h"
@@ -82,6 +84,7 @@
 #include "base/strings/utf_string_conversions.h"
 #endif
 #if BUILDFLAG(IS_LINUX)
+#include "browser_core/platform/linux/wayland.h"
 #include "ui/ozone/public/ozone_switches.h"
 #endif
 #if !BUILDFLAG(IS_WIN) && !BUILDFLAG(IS_LINUX)
@@ -186,9 +189,13 @@ class ExtraParts : public ChromeBrowserMainExtraParts,
   }
 
   void PostBrowserStart() override {
+#if BUILDFLAG(IS_LINUX)
+    platform::FloatPictureInPictureBubbles();
+#endif
     if (Profile* profile = StartProfile()) {
       UseProfile(profile);
     }
+    sync::Start();
     // Once the Spaces the last launch saved are read, and so once the run loop is running.
     LoadSession(base::BindOnce([] {
       if (g_host.started) {
@@ -373,6 +380,8 @@ void Install(const bc_host& host) {
   g_browser_core_find_native_host = &FindNativeHost;
   g_browser_core_login_handler = &SignInDialog::Create;
   g_browser_core_external_protocol_dialog = &OpenAppDialog::Ask;
+  sync::Install();
+  sync_spaces::Install();
   SetUpAdBlock();
   SetUpMiniPlayer();
   g_browser_core_component_allowed = &widevine::MayUpdate;

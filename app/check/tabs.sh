@@ -345,6 +345,21 @@ expect '^browser: menu window at ' "the menu didn't take the keyboard"
 send click $page_point
 expect '^browser: menu closed$' "a click outside didn't close the menu"
 expect '^browser: menu window hidden$' "a click outside left the menu's window up"
+# A right-click elsewhere opens that menu in its place: on the next row, left of the menu, which
+# opens right of the pointer. ↓ shows the new one has the keys, not closed as it opened.
+post rightclick $(row 0)
+expect "^browser: menu shown $(cased 'Copy Link, ')" "a right-click on the top Today row didn't show its menu"
+expect '^browser: menu window at ' "the menu didn't take the keyboard"
+set -- $(row 1)
+post rightclick $(($1 - 60)) $2
+expect "^browser: menu shown $(cased 'Copy Link, ')" \
+  "a right-click on the next row with the menu up didn't show that row's menu"
+expect '^browser: menu window at ' "the next row's menu didn't take the keyboard"
+send key down
+expect "^browser: menu highlights $(cased 'Copy Link') at " \
+  "the next row's menu closed as it opened, or didn't take ↓"
+send key escape
+expect '^browser: menu closed$' "escape didn't close the next row's menu"
 
 # Before anything is typed, the bar lists the Space's other tabs, as Arc's does: those shown most
 # recently first, then the rest, such as favorites never shown.

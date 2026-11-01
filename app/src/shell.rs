@@ -466,6 +466,9 @@ use crate::tokens::shell::WINDOW_BUTTON_GLYPH;
 use crate::tokens::shell::WINDOW_BUTTON_CLOSE;
 use crate::tokens::shell::WINDOW_BUTTON_MINIMIZE;
 use crate::tokens::shell::WINDOW_BUTTON_ZOOM;
+use crate::tokens::shell::WINDOWS_BUTTON_GLYPH;
+use crate::tokens::shell::WINDOWS_BUTTON_PLATE;
+use crate::tokens::shell::WINDOWS_CLOSE_HOVERED;
 use crate::tokens::text;
 
 #[derive(Clone, Default)]
@@ -3742,7 +3745,10 @@ impl Shell {
     }
 
     /// The window's close, minimize and zoom buttons, drawn in the reveal's panel.
-    fn window_buttons(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    fn window_buttons(&self, cx: &mut Context<Self>) -> AnyElement {
+        if cfg!(target_os = "windows") {
+            return self.windows_buttons(cx);
+        }
         let zoom = if self.maximized { "icons/window-restore.svg" } else { ZOOM_GLYPH };
         let buttons = [
             (WindowButton::Close, "icons/window-close.svg"),
@@ -3782,6 +3788,69 @@ impl Shell {
                             }),
                     )
             }))
+            .into_any_element()
+    }
+
+    /// Windows' own buttons where the Mac's show, in Windows' order: minimize, maximize and close,
+    /// so a Windows user doesn't read the window as a Mac port's (#1244). The host offers Snap
+    /// layouts over maximize, the middle one (platform/windows/host.cc's FrameHit).
+    fn windows_buttons(&self, cx: &mut Context<Self>) -> AnyElement {
+        let maximize = match self.maximized {
+            true => "icons/window-windows-restore.svg",
+            false => "icons/window-windows-maximize.svg",
+        };
+        let buttons = [
+            (WindowButton::Minimize, "icons/window-windows-minimize.svg"),
+            (WindowButton::Zoom, maximize),
+            (WindowButton::Close, "icons/window-windows-close.svg"),
+        ];
+        let (first, _) = WINDOW_BUTTONS[0];
+        let (second, _) = WINDOW_BUTTONS[1];
+        let ink = Hsla::from(self.palette.glyph(NAV));
+        let plate = self.palette.plate(NAV_HOVERED);
+        div()
+            .absolute()
+            .left(px(first - WINDOWS_BUTTON_PLATE / 2.))
+            .top(px(WINDOW_BUTTON_Y - WINDOWS_BUTTON_PLATE / 2.))
+            .flex()
+            .gap(px(second - first - WINDOWS_BUTTON_PLATE))
+            .block_mouse_except_scroll()
+            .children(buttons.into_iter().map(|(button, glyph)| {
+                let close = matches!(button, WindowButton::Close);
+                div()
+                    .id(glyph)
+                    .size(px(WINDOWS_BUTTON_PLATE))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(NAV_RADIUS))
+                    .group(glyph)
+                    .map(|button| match close {
+                        true => button.hover(|style| style.bg(rgb(WINDOWS_CLOSE_HOVERED))),
+                        false => button.hover(move |style| style.bg(plate)),
+                    })
+                    .on_hover(move |hovered, _, _| {
+                        if *hovered {
+                            // check.sh waits for this line before it captures the plate.
+                            log!("browser: window button {button:?} hovered");
+                        }
+                    })
+                    .on_click(cx.listener(move |shell, _, _, cx| {
+                        // check.sh waits for this line.
+                        log!("browser: window button {button:?}");
+                        shell.browser.press_window_button(button, cx);
+                    }))
+                    .child(
+                        svg()
+                            .path(glyph)
+                            .size(px(WINDOWS_BUTTON_GLYPH))
+                            .text_color(ink)
+                            .when(close, |svg| {
+                                svg.group_hover(glyph, |style| style.text_color(gpui::white()))
+                            }),
+                    )
+            }))
+            .into_any_element()
     }
 }
 
