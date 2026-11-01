@@ -42,6 +42,24 @@ open_store() {
   await "^browser: loaded [0-9]* https://chromewebstore.google.com/detail/.*$store_id" ||
     fail "the store's page for the extension didn't load: $(grep '^browser: loaded' "$log")"
   await '^browser: title [0-9]* uBlock Origin Lite' || fail "the store's page didn't show"
+  # Since 2026-11-01 the store shows a browser that isn't Google's Chrome a "Switch to Chrome?" card,
+  # and while it's up, return on Add to Chrome does nothing, though a click works (#1297). No thanks
+  # closes it, as a user would. Once it's been answered the store may not show it again, so the
+  # run goes on without it.
+  send key f cmd
+  expect '^browser: find bar shown$' "⌘F didn't open the find bar"
+  send type "no thanks"
+  card=
+  for _ in $(seq 50); do
+    sed -n "/^browser: drive $step: /,\$p" "$log" |
+      grep -q '^browser: find [0-9]* open [1-9][0-9]* of [0-9]* no thanks$' && { card=1; break; }
+    sleep 0.1
+  done
+  send key escape
+  expect '^browser: find [0-9]* closed$' "escape didn't close the find"
+  if [ -n "$card" ]; then
+    send key return
+  fi
 }
 # Gives the keyboard to the store page's button with the text $1, lowercase, as the user who finds
 # it and closes the find does: Chrome focuses the button the match is in. Its place on the page
