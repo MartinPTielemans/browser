@@ -1204,6 +1204,14 @@ bool Run(const std::string& line, void (^done)(void)) {
       return false;
     }
     NSWindow* target = WindowAt(window, x, y);
+    // A click that another window of the app's takes, such as one AppKit puts over a full-screen
+    // window, says which, since a check's click that does nothing logs nothing else (#1090).
+    if (target != window) {
+      const NSRect frame = target.frame;
+      fprintf(stderr, "browser: drive click went to %s %ld at %.0f,%.0f %.0fx%.0f\n",
+              NSStringFromClass([target class]).UTF8String, (long)target.windowNumber,
+              frame.origin.x, frame.origin.y, frame.size.width, frame.size.height);
+    }
     Convert(window, target, &x, &y);
     Click(target, x, y, 1, Modifiers(words));
     done();

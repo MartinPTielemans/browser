@@ -133,7 +133,9 @@ bar=$(grep '^browser: command bar at ' "$log" | tail -1 | cut -d' ' -f5-)
 [ "$bar" = "$over_pane" ] ||
   fail "the tab menu's command bar opened at $bar, not over the pane at $over_pane as the bar's own does"
 send type exa
-expect '^browser: command bar drew "exa"$' "the tab menu's command bar didn't take typing"
+# With example.org in the history, from a run before this one in the same check, it completes in
+# place as typed.
+expect '^browser: command bar drew "exa[^"]*"$' "the tab menu's command bar didn't take typing"
 ../tools/window-screenshot.sh "$pid" "$out/split-tab-menu.png" || fail "no window to capture"
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the tab menu's command bar"
