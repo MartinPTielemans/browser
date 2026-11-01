@@ -42,7 +42,8 @@ if command -v sqlite3 > /dev/null && [ -f "$history_db" ]; then
   sqlite3 "$history_db" "delete from downloads; delete from downloads_url_chains;
     delete from downloads_slices;" || { echo "FAIL: the downloads wouldn't clear" >&2; exit 1; }
 fi
-BROWSER_DRIVE=1 BROWSER_URL="$site" "$browser" < "$out/drive" > "$log" 2>&1 &
+BROWSER_DRIVE=1 BROWSER_URL="$site" "$browser" --log-net-log="$(app_path "$PWD/$out/netlog.json")" \
+  --net-log-capture-mode=Everything < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load
