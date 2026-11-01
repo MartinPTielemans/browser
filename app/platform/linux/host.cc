@@ -440,6 +440,13 @@ bool host_key_repeated(void) {
   return false;
 }
 
+size_t host_paste(char* text, size_t capacity) {
+  if (capacity) {
+    text[0] = 0;
+  }
+  return 0;
+}
+
 void host_copy_png(const uint8_t* png, size_t size) {}
 
 void host_save_png(void* ui_view, const uint8_t* png, size_t size) {}

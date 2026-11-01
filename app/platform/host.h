@@ -578,6 +578,10 @@ void host_copy(const char* text);
 // where the host can't tell.
 bool host_key_repeated(void);
 
+// Copies the text host_copy's clipboard or pasteboard holds into |text|, |capacity| bytes with its
+// NUL, and returns its whole length in bytes without the NUL, 0 if it holds none.
+size_t host_paste(char* text, size_t capacity);
+
 // Opens |url| in Safari, which plays the protected video the engine can't. A driven run only logs it,
 // so checks never launch Safari.
 void host_open_in_safari(const char* url);

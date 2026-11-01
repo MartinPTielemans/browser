@@ -661,41 +661,79 @@ struct LinkPreview {
     }
   };
   std::optional<Hole> hole;
-  // What had the keyboard as it showed, to give back as it leaves.
-  HWND had_keyboard = nullptr;
 };
 LinkPreview g_link_preview;
 UINT_PTR const kLinkPreviewOwner = 2;
 
-// Puts the preview over all of its browser window's content, with its hole where the page shows.
-void PlaceLinkPreview() {
+// The preview's frame, from its window's corner to its content's, and the browser window's content
+// on screen, which its content covers.
+struct LinkPreviewFrame {
+  POINT inset;
+  SIZE border;
+  POINT origin;
+  RECT client;
+};
+
+LinkPreviewFrame MeasureLinkPreview(HWND hwnd, HWND root) {
+  LinkPreviewFrame frame{};
+  GetClientRect(root, &frame.client);
+  ClientToScreen(root, &frame.origin);
+  // GPUI's floating window keeps a frame round its content, which the region leaves out.
+  RECT window{};
+  GetWindowRect(hwnd, &window);
+  RECT content{};
+  GetClientRect(hwnd, &content);
+  POINT corner{0, 0};
+  ClientToScreen(hwnd, &corner);
+  frame.inset = {corner.x - window.left, corner.y - window.top};
+  frame.border = {(window.right - window.left) - content.right,
+                  (window.bottom - window.top) - content.bottom};
+  return frame;
+}
+
+// Shows the preview only over the browser window's content, less the hole the page shows in.
+void ShapeLinkPreview() {
   HWND hwnd = g_link_preview.floating.hwnd;
   HWND root = g_link_preview.root;
   if (!hwnd || !root) {
     return;
   }
-  RECT client{};
-  GetClientRect(root, &client);
-  POINT origin{0, 0};
-  ClientToScreen(root, &origin);
-  SetWindowLongPtrW(hwnd, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(root));
-  HRGN region = CreateRectRgn(0, 0, client.right, client.bottom);
+  const LinkPreviewFrame frame = MeasureLinkPreview(hwnd, root);
+  HRGN region = CreateRectRgn(0, 0, frame.client.right, frame.client.bottom);
   if (const auto& hole = g_link_preview.hole) {
     HRGN page = CreateRoundRectRgn(hole->rect.left, hole->rect.top, hole->rect.right + 1,
                                    hole->rect.bottom + 1, hole->diameter, hole->diameter);
     CombineRgn(region, region, page, RGN_DIFF);
     DeleteObject(page);
   }
+  OffsetRgn(region, frame.inset.x, frame.inset.y);
   // The window owns the region from here.
   SetWindowRgn(hwnd, region, IsWindowVisible(hwnd));
-  PlaceAndShow(hwnd, origin.x, origin.y, client.right, client.bottom, false);
+}
+
+// Puts the preview's content over all of its browser window's content, and shows it. Only from the
+// host's own tasks (Later): Windows sends WM_SIZE as it resizes, and GPUI, inside its update while
+// the app shows the preview or draws it, drops the size it can't take, so its view would keep its
+// first size, the dim covering only that and missing a click on the rest.
+void PlaceLinkPreview() {
+  HWND hwnd = g_link_preview.floating.hwnd;
+  HWND root = g_link_preview.root;
+  if (!hwnd || !root) {
+    return;
+  }
+  const LinkPreviewFrame frame = MeasureLinkPreview(hwnd, root);
+  SetWindowLongPtrW(hwnd, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(root));
+  // Shaped before it shows: the region is in the root's content, which doesn't need the new size.
+  ShapeLinkPreview();
+  PlaceAndShow(hwnd, frame.origin.x - frame.inset.x, frame.origin.y - frame.inset.y,
+               frame.client.right + frame.border.cx, frame.client.bottom + frame.border.cy, false);
 }
 
 // The browser window under the preview moved or resized, which it follows, or is going.
 LRESULT CALLBACK LinkPreviewOwnerProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam,
                                       UINT_PTR, DWORD_PTR) {
   if (message == WM_WINDOWPOSCHANGED && hwnd == g_link_preview.root) {
-    PlaceLinkPreview();
+    Later([] { PlaceLinkPreview(); });
   } else if (message == WM_DESTROY && hwnd == g_link_preview.root) {
     host_hide_link_preview();
   }
@@ -2233,13 +2271,16 @@ void host_show_link_preview(void* ui_view) {
     SetWindowSubclass(root, LinkPreviewOwnerProc, kLinkPreviewOwner, 0);
   }
   g_link_preview.root = root;
-  g_link_preview.had_keyboard = GetFocus();
   // All of it until its first frame says where the page is.
   g_link_preview.hole.reset();
   g_link_preview.floating.mouse_through = false;
-  PlaceLinkPreview();
-  // check.sh reads this line.
-  fprintf(stderr, "browser: link preview shown\n");
+  Later([root] {
+    if (g_link_preview.root == root) {
+      PlaceLinkPreview();
+      // check.sh reads this line.
+      fprintf(stderr, "browser: link preview shown\n");
+    }
+  });
 }
 
 void host_link_preview_drew(double left,
@@ -2264,7 +2305,7 @@ void host_link_preview_drew(double left,
   }
   if (!(hole == g_link_preview.hole)) {
     g_link_preview.hole = hole;
-    PlaceLinkPreview();
+    ShapeLinkPreview();
   }
 }
 
@@ -2272,12 +2313,8 @@ void host_release_link_preview(void) {
   if (!g_link_preview.root || g_link_preview.floating.mouse_through) {
     return;
   }
+  // The app gives the window's page the keyboard back, through the core (LinkPreviewHost).
   g_link_preview.floating.mouse_through = true;
-  // The window's page has the keyboard back from the preview's.
-  HWND had = std::exchange(g_link_preview.had_keyboard, nullptr);
-  if (had && IsWindow(had) && IsChild(g_link_preview.root, had)) {
-    SetFocus(had);
-  }
   // check.sh reads this line.
   fprintf(stderr, "browser: link preview released\n");
 }
@@ -2910,6 +2947,23 @@ void host_copy(const char* text) {
 
 bool host_key_repeated(void) {
   return false;
+}
+
+size_t host_paste(char* text, size_t capacity) {
+  std::string held;
+  if (OpenClipboard(nullptr)) {
+    if (HANDLE memory = GetClipboardData(CF_UNICODETEXT)) {
+      if (const wchar_t* wide = static_cast<const wchar_t*>(GlobalLock(memory))) {
+        held = Utf8(wide);
+        GlobalUnlock(memory);
+      }
+    }
+    CloseClipboard();
+  }
+  if (capacity) {
+    snprintf(text, capacity, "%s", held.c_str());
+  }
+  return held.size();
 }
 
 void host_open_full_disk_access(void) {}
