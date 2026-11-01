@@ -38,6 +38,9 @@ gpg --homedir "$gpghome" --batch --export "$key" >"$gpghome/public.gpg"
 sign=(--gpg-sign="$key" --gpg-homedir="$gpghome")
 
 [ -f "$repo/config" ] || ostree init --repo="$repo" --mode=archive-z2
+# A repository synced back from the bucket comes without ostree's empty directories, which object
+# storage doesn't keep, and build-update-repo then fails listing refs/remotes.
+mkdir -p "$repo"/refs/{heads,mirrors,remotes} "$repo"/{objects,state,tmp/cache,extensions}
 flatpak build-import-bundle "${sign[@]}" --update-appstream --no-update-summary "$repo" "$bundle"
 # The build and the two before it, so a copy one or two releases old updates by a delta.
 flatpak build-update-repo "${sign[@]}" --title="$name" --prune --prune-depth=2 \
