@@ -54,6 +54,7 @@ cleanup() {
   [ -z "${collector:-}" ] || kill "$collector" 2>/dev/null || true
   [ -z "${stuck:-}" ] || kill "$stuck" 2>/dev/null || true
   [ -z "${helper:-}" ] || kill "$helper" 2>/dev/null || true
+  [ -z "${ilo_server:-}" ] || kill "$ilo_server" 2>/dev/null || true
   [ -z "${tls:-}" ] || kill "$tls" 2>/dev/null || true
   # The other copies of the app a run started, as sync-devices' devices.
   [ -z "${others:-}" ] || kill $others 2>/dev/null || true
@@ -540,33 +541,36 @@ with open(sys.argv[1], "w") as f:
 ' "$prefs" || fail "the profile's sites for Safari's engine couldn't be reset"
 }
 
-# Starts the app on the page $1 with the profile $2, and check/cdp.py attached to the page whose
-# address ends in $3, logging to $log and $cdp_log, with the driver on fd 3 and cdp.py's commands
-# on fd 5, through fifos in $scratch. Sets $pid and $helper.
+# Starts the app on the page $1 with the profile $2 and the arguments after $3, and check/cdp.py
+# attached to the page whose address ends in $3, or with $3 empty to none until its attach command,
+# logging to $log and $cdp_log, with the driver on fd 3 and cdp.py's commands on fd 5, through fifos
+# in $scratch. Sets $pid and $helper.
 start_with_cdp() {
+  cdp_url=$1 cdp_profile=$2 cdp_page=$3
+  shift 3
   mkfifo "$scratch/cdp"
   if windows; then
     # Chrome on Windows takes its DevTools pipe as handles, which Git Bash can't give it, so
     # DevTools listens on a loopback port instead, which the browser says on its standard error. A
     # native program can't read Git Bash's fifo, so cat passes cdp.py its commands, and the page is
     # named without its slash, which Git Bash would make a path of Git's own.
-    BROWSER_DRIVE=1 BROWSER_URL="$1" BROWSER_PROFILE_DIR="$2" \
-      "$browser" --remote-debugging-port=0 < "$out/drive" > "$log" 2>&1 &
+    BROWSER_DRIVE=1 BROWSER_URL="$cdp_url" BROWSER_PROFILE_DIR="$cdp_profile" \
+      "$browser" --remote-debugging-port=0 "$@" < "$out/drive" > "$log" 2>&1 &
     pid=$!
     exec 3> "$out/drive"
     await '^DevTools listening on ws://' || fail "DevTools didn't say where it listens"
     socket=$(grep -m1 '^DevTools listening on ws://' "$log" | cut -d' ' -f4 | tr -d '\r')
-    cat "$scratch/cdp" | python3 -I -u check/cdp.py --socket "$socket" "${3#/}" \
+    cat "$scratch/cdp" | python3 -I -u check/cdp.py --socket "$socket" "${cdp_page#/}" \
       > "$cdp_log" 2>&1 &
   else
     mkfifo "$scratch/to-browser" "$scratch/from-browser"
     # Each end of a pipe waits for the other to open, in this order: the driver's, the browser's
     # DevTools pipe, then cdp.py's input.
-    BROWSER_DRIVE=1 BROWSER_URL="$1" BROWSER_PROFILE_DIR="$2" \
-      "$browser" --remote-debugging-pipe < "$out/drive" 3< "$scratch/to-browser" \
+    BROWSER_DRIVE=1 BROWSER_URL="$cdp_url" BROWSER_PROFILE_DIR="$cdp_profile" \
+      "$browser" --remote-debugging-pipe "$@" < "$out/drive" 3< "$scratch/to-browser" \
       4> "$scratch/from-browser" > "$log" 2>&1 &
     pid=$!
-    python3 -I -u check/cdp.py "$scratch/to-browser" "$scratch/from-browser" "$3" \
+    python3 -I -u check/cdp.py "$scratch/to-browser" "$scratch/from-browser" "$cdp_page" \
       < "$scratch/cdp" > "$cdp_log" 2>&1 &
     exec 3> "$out/drive"
   fi

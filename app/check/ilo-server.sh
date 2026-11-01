@@ -1,7 +1,7 @@
 # An ilo-server of the run's own, for the runs that sign in: SQLite, DEV_MODE, which logs its
 # sign-in codes, and a throwaway address, never the hosted server or a real account. ILO_SERVER
 # names the server's binary, built from its repo (check-linux.yml builds it); a run checks for it
-# before it sources this. The server is helper, so cleanup stops it after a failure.
+# before it sources this. The server is ilo_server, so cleanup stops it after a failure.
 
 db="$out/$run-server.db"
 server_log="$out/$run-server.log"
@@ -21,10 +21,10 @@ print(s.getsockname()[1])')
 server_url="http://localhost:$server_port"
 DEV_MODE=1 HOST=127.0.0.1 PORT=$server_port PUBLIC_URL=$server_url NO_COLOR=1 \
   DATABASE_URL="sqlite:$db?mode=rwc" "$ILO_SERVER" > "$server_log" 2>&1 3>&- &
-helper=$!
+ilo_server=$!
 for _ in $(seq 100); do
   grep -q 'ilo-server is up' "$server_log" && break
-  kill -0 "$helper" 2>/dev/null || fail "ilo-server exited: $(tail -1 "$server_log")"
+  kill -0 "$ilo_server" 2>/dev/null || fail "ilo-server exited: $(tail -1 "$server_log")"
   sleep 0.1
 done
 grep -q 'ilo-server is up' "$server_log" || fail "ilo-server didn't start"
@@ -54,14 +54,15 @@ sign_in_keys() {
     fail "the sign-in window couldn't have the keyboard"
   case $1 in
   type) xdotool type --delay 20 "$2" ;;
-  key) xdotool key "$(echo "$2" | sed 's/return/Return/; s/tab/Tab/')" ;;
+  key) xdotool key "${3:+$3+}$(echo "$2" | sed 's/return/Return/; s/tab/Tab/')" ;;
   esac
 }
 # The sign-in codes the server has logged, so that each sign-in takes its own.
 codes=0
 # Signs in as $email in the sign-in window Sign In opened, with the code the server logs. The
-# account's first sign-in ($1 first) offers a passkey, with Add a Passkey focused, which Not Now,
-# next, declines. $2, if given, is where to capture the window with the address typed.
+# account's first sign-in ($1 first or passkey) offers a passkey, with Add a Passkey focused, which
+# Not Now, next, declines, or with passkey is left for the run to add. $2, if given, is where to
+# capture the window with the address typed.
 sign_in() {
   sign_in_window=
   # The page focuses its field once it's there.
@@ -80,8 +81,9 @@ sign_in() {
   code=$(grep -o '[0-9]\{6\} is your ilo sign-in code' "$server_log" | tail -1 | cut -c1-6)
   sign_in_keys type "$code"
   sign_in_keys key return
-  [ "${1:-}" = first ] || return 0
+  [ "${1:-}" = first ] || [ "${1:-}" = passkey ] || return 0
   await 'browser: sync sign-in loaded /authorize/code$' || fail "the server didn't take the code"
+  [ "$1" = first ] || return 0
   sign_in_keys key tab
   sign_in_keys key return
 }
