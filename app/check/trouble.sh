@@ -248,9 +248,10 @@ for line in sys.stdin:
 PY
 rm -f "$out/network"
 mkfifo "$out/network"
-# Through cat, as Windows' Python can't read Git Bash's fifo and found no stdin (#872).
-python3 -I "$out/network.py" "$ports" "http://127.0.0.1:$free/" < <(cat "$out/network") \
-  > "$out/network.log" 2>&1 &
+# Through cat, as Windows' Python can't read Git Bash's fifo and found no stdin (#872). $! is
+# Python's, the pipe's last.
+cat "$out/network" |
+  python3 -I "$out/network.py" "$ports" "http://127.0.0.1:$free/" > "$out/network.log" 2>&1 &
 network=$!
 exec 4> "$out/network"
 # Takes the tab $1, offline or online.
