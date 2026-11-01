@@ -156,7 +156,7 @@ exec 5>&- 3>&-
 quit
 # The runs after start signed out.
 rm -f "$profile_dir/Account"
-kill "$helper" 2>/dev/null || true
-helper=
+kill "$ilo_server" 2>/dev/null || true
+ilo_server=
 echo "ok: A added B, C recovered with the copied words, which the clipboard let go of after 90 s," \
   "and B and C signed out, on a local ilo-server as $email. Logs: $out/sync-devices-*.log"

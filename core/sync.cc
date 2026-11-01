@@ -74,6 +74,10 @@
 #include "components/sync/service/sync_service.h"
 #include "components/sync/service/sync_service_observer.h"
 #include "components/sync/service/sync_user_settings.h"
+#include "components/web_modal/modal_dialog_host.h"
+#include "components/web_modal/web_contents_modal_dialog_host.h"
+#include "components/web_modal/web_contents_modal_dialog_manager.h"
+#include "components/web_modal/web_contents_modal_dialog_manager_delegate.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
@@ -177,8 +181,13 @@ scoped_refptr<base::SequencedTaskRunner> FileRunner() {
 }
 
 // The sign-in window: the server's sign-in page alone, in an off-the-record profile of its own,
-// until the page sends it to |redirect|, which it reports instead of loading.
-class SignInWindow : public views::WidgetObserver, public content::WebContentsObserver {
+// until the page sends it to |redirect|, which it reports instead of loading. Chrome's dialogs for
+// the page, such as its passkey dialog, show over it as over a tab's page; without a host Chrome
+// shows none, and the page's request waits with nothing on screen (#1295).
+class SignInWindow : public views::WidgetObserver,
+                     public content::WebContentsObserver,
+                     public web_modal::WebContentsModalDialogManagerDelegate,
+                     public web_modal::WebContentsModalDialogHost {
  public:
   SignInWindow(const GURL& url,
                const GURL& redirect,
@@ -217,12 +226,19 @@ class SignInWindow : public views::WidgetObserver, public content::WebContentsOb
     params.name = "BrowserCoreSyncSignIn";
     widget_->Init(std::move(params));
     widget_observation_.Observe(widget_.get());
-    Observe(web_view_->GetWebContents());
+    content::WebContents* contents = web_view_->GetWebContents();
+    Observe(contents);
+    web_modal::WebContentsModalDialogManager::CreateForWebContents(contents);
+    web_modal::WebContentsModalDialogManager::FromWebContents(contents)->SetDelegate(this);
     web_view_->LoadInitialURL(url);
     widget_->Show();
   }
 
   ~SignInWindow() override {
+    // Chrome's dialogs over the page close first: they keep the host (ModalDialogHost).
+    for (web_modal::ModalDialogHostObserver& observer : dialog_observers_) {
+      observer.OnHostDestroying();
+    }
     Observe(nullptr);
     widget_observation_.Reset();
     web_view_ = nullptr;
@@ -277,6 +293,34 @@ class SignInWindow : public views::WidgetObserver, public content::WebContentsOb
     Closed();
   }
 
+  // web_modal::WebContentsModalDialogManagerDelegate:
+  web_modal::WebContentsModalDialogHost* GetWebContentsModalDialogHost(
+      content::WebContents* contents) override {
+    return this;
+  }
+  void SetWebContentsBlocked(content::WebContents* contents, bool blocked) override {
+    // For the checks, which wait for the dialog before its keys and for it to go before the page's.
+    LOG(ERROR) << "browser: sync sign-in dialog " << (blocked ? "shown" : "closed");
+    // As a tab's page does, the page takes the keyboard back once the dialog has gone.
+    if (!blocked) {
+      contents->Focus();
+    }
+  }
+
+  // web_modal::WebContentsModalDialogHost:
+  gfx::NativeView GetHostView() const override { return widget_->GetNativeView(); }
+  gfx::Point GetDialogPosition(const gfx::Size& size) override {
+    // As over a tab's page: centred across the page, at its top. The page fills the window.
+    return gfx::Point((web_view_->width() - size.width()) / 2, 0);
+  }
+  gfx::Size GetMaximumDialogSize() override { return web_view_->size(); }
+  void AddObserver(web_modal::ModalDialogHostObserver* observer) override {
+    dialog_observers_.AddObserver(observer);
+  }
+  void RemoveObserver(web_modal::ModalDialogHostObserver* observer) override {
+    dialog_observers_.RemoveObserver(observer);
+  }
+
   const GURL redirect_;
   base::OnceCallback<void(std::optional<GURL>)> done_;
   raw_ptr<Profile> profile_ = nullptr;
@@ -284,6 +328,7 @@ class SignInWindow : public views::WidgetObserver, public content::WebContentsOb
   raw_ptr<views::WebView> web_view_ = nullptr;
   std::unique_ptr<views::Widget> widget_;
   base::ScopedObservation<views::Widget, views::WidgetObserver> widget_observation_{this};
+  base::ObserverList<web_modal::ModalDialogHostObserver> dialog_observers_;
 };
 
 // Change notifications from the browser's relay. Its token names this device to sync, which
