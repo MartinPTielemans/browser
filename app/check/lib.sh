@@ -265,6 +265,11 @@ logged() {
 exited_without() {
   [ -z "${pid:-}" ] || kill -0 "$pid" 2>/dev/null || logged "$1" "${3:-}" || fail "the app exited: $2"
 }
+# Settings has drawn its tab $1, or whichever it shows, since the last command, on showing or on a
+# change of tab: until it has, a click in it finds nothing to land on (#1101, #1133).
+settings_drew() {
+  expect "^browser: settings drew ${1:-.*}\$" "Settings didn't draw ${1:-its tab}"
+}
 # Where Settings last drew its control $1, "x y" for clickkey, once it has: it logs each place it
 # draws one ("browser: settings $1 at x y").
 drawn() {
@@ -484,6 +489,15 @@ pinned() {
 expect_lists() {
   expect "^browser: pinned $1\$" "$3: the pinned tabs are \"$(pinned)\", not \"$1\""
   expect "^browser: today $2\$" "$3: Today is \"$(today)\", not \"$2\""
+}
+# What the footer's + menu ends with to add from the desktop: one item where the system's open
+# panel picks files and folders together, the Mac's, else one for each.
+plus_adds() {
+  if [ "$(uname)" = Darwin ]; then
+    echo 'Add File or Folder…'
+  else
+    echo 'Add Files…, Add Folder…'
+  fi
 }
 # The centre of pinned row $1, counting from 0, under the Space's name, and of the ✕ it shows
 # under the pointer.
