@@ -100,7 +100,19 @@ quit
 # step's → and Return give the first Space the first swatch. The key goes in as soon as the intro
 # settles, with no capture first, as the intro goes on by itself after 3.4 s; the light pass
 # captures it.
+# With the system's animations off the app reduces its motion, as it reads at launch. Only on
+# Windows' check VM, as the setting is the system's; the Mac's and Linux's are read their own way.
+reduced=
+if windows && [ -n "${GITHUB_ACTIONS:-}" ]; then
+  windows_animations 0 || fail "PowerShell didn't turn Windows' animations off"
+  reduced=1
+fi
 launch_new dark
+if [ -n "$reduced" ]; then
+  windows_animations 1 || fail "PowerShell didn't turn Windows' animations back on"
+  grep -q '^browser: reduce motion on$' "$log" ||
+    fail "dark: with Windows' animations off, the app didn't reduce its motion"
+fi
 send key a
 expect '^browser: onboarding left intro via key$' "dark: a key didn't skip the intro"
 expect '^browser: onboarding step import settled$' "dark: the import step didn't come"
