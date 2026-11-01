@@ -576,6 +576,8 @@ LRESULT CALLBACK HolderProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
 
 // Closes ilo's menu, or takes its keyboard back, as the front window changes (defined below).
 void MenuForegroundChanged(HWND root, bool ours);
+// Has the link preview leave as another of the app's windows comes to the front (defined below).
+void LinkPreviewForegroundChanged(HWND front);
 
 // The watchers, which Windows tells of each window that comes to the front.
 void (*g_key_window_changed)(void*) = nullptr;
@@ -595,6 +597,9 @@ void CALLBACK ForegroundChanged(HWINEVENTHOOK, DWORD, HWND hwnd, LONG, LONG, DWO
     g_resigning_active();
   }
   MenuForegroundChanged(GetAncestor(hwnd, GA_ROOT), ours);
+  if (ours) {
+    LinkPreviewForegroundChanged(hwnd);
+  }
   g_active = ours;
   if (ours && g_key_window_changed) {
     if (void* ui_view = UiViewOf(GetAncestor(hwnd, GA_ROOT))) {
@@ -646,10 +651,13 @@ Floating g_site_controls;
 // shows and takes clicks through. Its keys are the page's, and the core hands the preview the ones
 // it acts on.
 //
-// shortcut: the page doesn't scale with the card's motion, as the Mac's does, and the preview stays
-// when the user goes to another window, where the Mac's closes, both as on Linux.
+// Another of the app's windows coming to the front, such as another browser window or Settings, is
+// the user leaving the preview, as another window becoming key is on the Mac. Another app isn't.
+//
+// shortcut: the page doesn't scale with the card's motion, as the Mac's does, as on Linux.
 struct LinkPreview {
   Floating floating;
+  void (*dismissed)(void) = nullptr;
   // The browser window it covers, while it shows.
   HWND root = nullptr;
   // Where the page shows, device pixels from the content's top left, and its corners' diameter.
@@ -2248,9 +2256,10 @@ void host_hide_site_controls(void) {
   g_site_controls.mouse_through = false;
 }
 
-void* host_add_link_preview(void* view, void (*)(void)) {
+void* host_add_link_preview(void* view, void (*dismissed)(void)) {
   // It never has the keyboard, which stays with the page.
   Adopt(g_link_preview.floating, view, false, nullptr);
+  g_link_preview.dismissed = dismissed;
   SetWindowLongPtrW(g_link_preview.floating.hwnd, GWL_EXSTYLE,
                     GetWindowLongPtrW(g_link_preview.floating.hwnd, GWL_EXSTYLE) |
                         WS_EX_NOACTIVATE);
@@ -2317,6 +2326,18 @@ void host_release_link_preview(void) {
   g_link_preview.floating.mouse_through = true;
   // check.sh reads this line.
   fprintf(stderr, "browser: link preview released\n");
+}
+
+void LinkPreviewForegroundChanged(HWND front) {
+  HWND root = g_link_preview.root;
+  // The browser window's own, and those it owns, such as a page's dialog, aren't another window.
+  if (!root || g_link_preview.floating.mouse_through || GetAncestor(front, GA_ROOTOWNER) == root) {
+    return;
+  }
+  host_release_link_preview();
+  if (void (*dismissed)(void) = g_link_preview.dismissed) {
+    Later([dismissed] { dismissed(); });
+  }
 }
 
 void host_hide_link_preview(void) {

@@ -1117,9 +1117,10 @@ impl link_preview::Host for LinkPreviewHost {
     fn release(&self) {
         unsafe { platform::host_release_link_preview() };
         // The window's page has the keyboard back from the preview's, which goes, or no page has
-        // it. Linux's host gives it as it releases; Windows' can't name the window.
+        // it, unless the user left for another window. Linux's host gives it as it releases;
+        // Windows' can't name the window.
         let window = self.over.replace(0);
-        if cfg!(target_os = "windows") && window != 0 {
+        if cfg!(target_os = "windows") && window != 0 && !LINK_PREVIEW_LEFT.get() {
             unsafe { bc::bc_window_focus_page(window) };
         }
     }
@@ -1149,12 +1150,16 @@ impl link_preview::Host for LinkPreviewHost {
 }
 
 extern "C" fn link_preview_dismissed() {
+    LINK_PREVIEW_LEFT.set(true);
     update_app(link_preview::dismissed);
+    LINK_PREVIEW_LEFT.set(false);
 }
 
 thread_local! {
     /// Whether the host has a view for a link preview's page.
     static LINK_PREVIEWS: Cell<bool> = const { Cell::new(false) };
+    /// The user left the preview for another window, which keeps the keyboard.
+    static LINK_PREVIEW_LEFT: Cell<bool> = const { Cell::new(false) };
 }
 
 /// A link is dragged over `tab`'s page: the window showing it shows the split view's targets, and
@@ -6523,6 +6528,7 @@ unsafe extern "C" fn window_activated(_: *mut c_void, window: bc::bc_id) {
     if let Some(cx) = CX.with_borrow(Clone::clone) {
         let later = async move {
             if let Some(ui_view) = ui_view_of(window) {
+                link_preview_window::took_keyboard(ui_view);
                 key_window_changed(ui_view);
             }
         };
