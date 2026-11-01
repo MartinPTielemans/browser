@@ -958,9 +958,9 @@ void DetachOthers(aura::Window* holder,
 }  // namespace
 
 views::NativeWidget* NewNativeWidget(views::Widget* widget, base::RepeatingClosure) {
-  // shortcut: keeps the window manager's title bar, where the Mac's UI fills it; draw the app's
-  // own once the header row is ported. The window manager reports a state it has already left
-  // full screen for, as a show state change, so the page leaves with it and nothing runs early.
+  // Framed by none of the window manager's (wayland.cc's SetUpWindow): the app's header draws the
+  // window's buttons and moves it. The window manager reports a state it has already left full
+  // screen for, as a show state change, so the page leaves with it and nothing runs early.
   return new views::DesktopNativeWidgetAura(widget);
 }
 
