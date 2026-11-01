@@ -157,6 +157,10 @@ expect "^browser: page $a camera 1 microphone 1 sharing 1 shared 0\$" \
 expect "^browser: page $b camera 0 microphone 0 sharing 0 shared 1\$" \
   "the tab shared didn't show it's shared"
 expect "^browser: page $c share instead 1\$" "the other tab wasn't offered to share instead"
+# Chrome shows the tab a page starts sharing, unless the page asks it not to, once, up to a second
+# later, and whichever tab is shared by then. So it does before the share moves, or it shows the
+# other tab under the call's "e" (#1166).
+expect "^browser: selected $b\( in .*\)\{0,1\}\$" "Chrome didn't show the tab shared"
 ../tools/window-screenshot.sh "$pid" "$out/media-sharing.png" || fail "no window to capture"
 
 # The other tab's menu, from its row, moves the share there.
@@ -169,9 +173,7 @@ expect "^browser: page $c camera 0 microphone 0 sharing 0 shared 1\$" \
 expect "^browser: page $b camera 0 microphone 0 sharing 0 shared 0\$" \
   "Share This Tab Instead left the first tab shared"
 
-# Chrome shows the tab a page starts sharing, unless the page asks it not to, a moment after the
-# share is logged, so once it has, the call's tab is shown again for its "e".
-expect "^browser: selected $c\( in .*\)\{0,1\}\$" "Chrome didn't show the tab shared instead"
+# The call's tab is shown again for its "e".
 shown "$a"
 send click $page_point
 send key e
