@@ -147,7 +147,7 @@ for kind in ("window_placement", "permission_autoblocking_data"):
 prefs.get("browser_core", {}).pop("developer_mode", None)
 with open(sys.argv[1], "w") as f:
     json.dump(prefs, f)
-' "$prefs" "$PWD/$out/downloads"
+' "$prefs" "$(app_path "$PWD/$out/downloads")"
 # Each run starts in the one profile, Default: Chrome deletes the others, which a run before made,
 # as import's Work, or a failed run left, at its next launch.
 only_default() {
