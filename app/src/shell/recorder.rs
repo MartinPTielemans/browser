@@ -978,6 +978,11 @@ impl Browser for Recorder {
         self.record(format!("copy {text}"))
     }
 
+    /// The host's clipboard holds what was copied last.
+    fn pasted(&self, _: &App) -> Option<String> {
+        self.copied.borrow().last().cloned()
+    }
+
     fn share_services(&self, _: &str) -> Vec<SharedString> {
         self.share_services.borrow().clone()
     }
