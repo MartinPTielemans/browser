@@ -658,6 +658,7 @@ expect '^browser: settings shown General$' "⌘, didn't show Settings on its Gen
 expect '^browser: settings drew General$' "Settings didn't draw General"
 send clickkey 519 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
+settings_drew Advanced
 # Copy All Links' toast is mostly still up, and the click lands all the same (#1134): a toast lets
 # clicks through, but on its plate while it has buttons, which this one hasn't. A slow run says
 # when the toast had gone first, so the click didn't have one to go past.

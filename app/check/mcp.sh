@@ -630,9 +630,11 @@ if [ "$driven" = 1 ]; then
   await_more "$hello" "$hellos" || fail "the app didn't hear the second client's hello"
   send menu Settings…
   expect '^browser: settings shown ' "Settings… didn't show Settings"
+  settings_drew
   # The seventh tab, and the switch at the end of the first row.
   send clickkey 461 60
   expect '^browser: settings tab Agents$' "a click on Agents didn't show its tab"
+  settings_drew Agents
   ../tools/window-screenshot.sh "$pid" "$out/settings-agents.png" || fail "no window to capture"
   send clickkey 592 134
   expect '^browser: agents off$' "a click on the switch didn't turn agents off"

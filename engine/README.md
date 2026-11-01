@@ -10,6 +10,7 @@ Work that doesn't change the core needs no build: `./fetch.sh` downloads the pre
 |---|---|
 | `pins.ini` | Chromium version and the ungoogled-chromium, ungoogled-chromium-macos, ungoogled-chromium-portablelinux and ungoogled-chromium-windows tags. Bumped together, every Chromium release |
 | `series` | Ordered list of patches applied after ungoogled-chromium's own series |
+| `patches/upstream/` | Fixes backported from Chromium after the pinned version, header naming the commit; dropped once the pin has it |
 | `patches/helium/` | Patches taken from Helium, header naming the upstream path and commit |
 | `patches/ardia/` | Patches taken from Ardia, same convention |
 | `patches/ours/` | Our own patches |
