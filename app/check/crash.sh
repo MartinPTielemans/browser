@@ -149,21 +149,11 @@ quit
 [ "$(pending)" = 1 ] || fail "the report didn't wait while Send Crash Reports was off"
 
 # Turned on at a new first launch's opt-ins step, it sends the report waiting and deletes it. Their
-# row is a click anywhere along it, the one row the step has, which is centred, so its middle is
-# (title + line - 24) / 2 under the window's, 18, whatever its sentence wraps to. Only the Mac's
-# window frame is its content, so elsewhere the driver's layout gives its size.
+# row takes a click on its switch, where the app says it's drawn once the step has come, as
+# onboarding.sh clicks the agents' (#1286).
 first_launch "$out/crash-on.log"
-frame=
-if [ "$(uname)" = Darwin ]; then
-  frame=$(grep -m1 '^browser: window [0-9]* frame ' "$log" | cut -d' ' -f7-8)
-fi
-if [ -z "$frame" ]; then
-  send layout
-  frame=$(grep -m1 '^browser: layout content ' "$log" |
-    sed 's/^browser: layout content \([0-9]*\)x\([0-9]*\).*/\1 \2/')
-fi
-[ -n "${frame#* }" ] || fail "the window didn't log its frame"
-send click $((${frame% *} / 2)) $((${frame#* } / 2 + 18))
+expect '^browser: onboarding crash-reports at ' "the opt-ins step didn't draw the crash reports' switch"
+send click $(grep '^browser: onboarding crash-reports at ' "$log" | tail -1 | cut -d' ' -f5-6)
 expect '^browser: onboarding crash-reports on$' \
   "a click on the crash reports' row didn't turn them on"
 await '^browser: crash report sent$' || fail "the report wasn't sent once the step turned them on"
