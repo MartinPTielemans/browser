@@ -47,6 +47,12 @@ impl Shell {
         match trouble {
             Trouble::Crashed => {
                 self.crash_cards.entry(tab).or_default();
+                // The keyboard went with the page's view. AppKit then offers the window's ⌘
+                // shortcuts to the UI's view, but on Linux and Windows nothing takes them, as with
+                // no page (#895), so the UI holds them until the page loads again, as ⇧⌘R does it.
+                if tab == self.selected && cfg!(any(target_os = "linux", target_os = "windows")) {
+                    self.browser.hold_keyboard_for_page(cx);
+                }
             }
             _ => {
                 self.crash_cards.remove(&tab);

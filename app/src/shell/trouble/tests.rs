@@ -67,6 +67,7 @@ fn a_page_that_died_shows_the_card_and_reload_loads_it_again(cx: &mut TestAppCon
     let (shell, cx, host) = window_with_tabs(cx, false);
     assert!(reload_button(&shell, cx).is_none(), "a page that's fine has no card");
     report(&shell, cx, 10, Trouble::Crashed);
+    host.take();
     let button = reload_button(&shell, cx).expect("the card's Reload is drawn");
     let frame = shell.read_with(cx, |shell, _| shell.page_frame(shell.viewport).0);
     assert!(frame.contains(&button.center()), "{button:?} is in the page's frame {frame:?}");
@@ -76,6 +77,18 @@ fn a_page_that_died_shows_the_card_and_reload_loads_it_again(cx: &mut TestAppCon
     // Once the core says the page is back, the card goes.
     report(&shell, cx, 10, Trouble::Fine);
     assert!(reload_button(&shell, cx).is_none());
+}
+
+/// The UI holds the keyboard for the page shown that died, whose view had it, off the Mac, where
+/// nothing else takes the keys, such as ⇧⌘R for it. One dying beside it leaves the keyboard be.
+#[gpui::test]
+fn the_ui_holds_the_keyboard_for_the_page_shown_that_died(cx: &mut TestAppContext) {
+    let (shell, cx, host) = window_with_tabs(cx, true);
+    let held = |host: &Recorder| host.take().iter().any(|asked| asked == "hold keyboard for page");
+    report(&shell, cx, 11, Trouble::Crashed);
+    assert!(!held(&host), "the page beside the tab shown died");
+    report(&shell, cx, 10, Trouble::Crashed);
+    assert_eq!(held(&host), cfg!(any(target_os = "linux", target_os = "windows")));
 }
 
 /// Only the tab shown has a card: another tab shown in its place has its page, and the card is
