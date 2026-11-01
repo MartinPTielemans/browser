@@ -256,7 +256,9 @@ send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar in full screen"
 # The footer is at the screen's bottom in full screen, so the +'s menu flips up over the pointer.
 post click 204 $((height - 25))
-expect "^browser: menu shown $(cased 'New Space…, New Folder…, New Split View, New Note')\$" "the footer's + in full screen showed no menu"
+plus="New Space…, New Folder…, New Split View, New Note, $(plus_adds)"
+expect "^browser: menu shown $(cased "$plus")\$" \
+  "the footer's + in full screen showed no menu"
 expect '^browser: menu window at ' "the +'s menu in full screen didn't open its window"
 top=$(grep '^browser: menu window at' "$log" | tail -1 | cut -d' ' -f5 | cut -d, -f2)
 [ "$top" -lt $((height - 65)) ] ||
