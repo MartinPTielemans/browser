@@ -368,7 +368,9 @@ exited
 log="$out/pinned-restored.log"
 step=0
 rm -f "$out/space.md"
-BROWSER_DRIVE=1 BROWSER_EXPORT_FILE="$out/space.md" "$browser" < "$out/drive" > "$log" 2>&1 &
+# The export's file as an absolute path, which the app on Windows needs, as it resolves a relative
+# one against its own folder (#997).
+BROWSER_DRIVE=1 BROWSER_EXPORT_FILE="$(app_path "$PWD/$out/space.md")" "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await '^browser: restored in ' || fail "the relaunch didn't restore the Space"
@@ -600,7 +602,7 @@ log="$out/folder-restored.log"
 step=0
 # The run names the file Export… writes, as it can't drive the system's save panel.
 rm -f "$out/spaces.md"
-BROWSER_EXPORT_FILE="$out/spaces.md" BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
+BROWSER_EXPORT_FILE="$(app_path "$PWD/$out/spaces.md")" BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await '^browser: restored in ' || fail "the relaunch didn't restore the Space"
