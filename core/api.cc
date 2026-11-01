@@ -288,7 +288,7 @@ bool bc_window_focus_ring(bc_id id, bc_rect* frame) {
 }
 
 bool bc_window_dialog(bc_id id, bc_rect* frame) {
-#if BUILDFLAG(IS_LINUX)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
   views::Widget* widget = OpenWidget(id);
   const std::optional<gfx::Rect> dialog =
       widget ? browser_core::platform::DialogFrame(widget) : std::nullopt;
