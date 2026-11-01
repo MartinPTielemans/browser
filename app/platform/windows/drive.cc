@@ -27,9 +27,11 @@
 // It logs as drive.mm does: "browser: drive <n>: <command>" as command n arrives, and "browser:
 // drive <n> done, key <window>, focus <view>, active <0|1>, marked <none|start,length>" once
 // Chromium and GPUI have handled its messages, with what the UI's field with the keys has marked.
-// The window and view are named as AppKit's classes are on the Mac, so the runs read one vocabulary: key is BrowserCoreNSWindow for a browser window and GPUIPanel for
-// an overlay, and focus RenderWidgetHostViewCocoa for a page, AccessKitSubclassOfGPUIView for the
-// UI and GPUIView for an overlay. Active is whether one of the app's windows is in front.
+// The window and view are named as AppKit's classes are on the Mac, so the runs read one
+// vocabulary: key is BrowserCoreNSWindow for a browser window, GPUIPanel for an overlay and
+// GPUIWindow for another window of the UI's, such as Settings, and focus RenderWidgetHostViewCocoa
+// for a page, AccessKitSubclassOfGPUIView for the UI and GPUIView for an overlay. Active is whether
+// one of the app's windows is in front.
 
 #include <windows.h>
 
@@ -724,7 +726,9 @@ std::string KeyName(HWND key) {
     return "BrowserCoreNSWindow";
   }
   if (IsGpui(key)) {
-    return "GPUIPanel";
+    // An overlay is shown owned by its browser window; Settings is a window of its own, as on the
+    // Mac, where it's an NSWindow and an overlay an NSPanel.
+    return GetWindow(key, GW_OWNER) ? "GPUIPanel" : "GPUIWindow";
   }
   // Chrome's own windows, such as its dialogs, are views' on the Mac too.
   if (IsChromium(key)) {

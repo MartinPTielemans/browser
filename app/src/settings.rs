@@ -2293,7 +2293,9 @@ impl Settings {
                 .rounded(px(RESTORE_RADIUS))
                 .hover(|restore| restore.bg(Palette::on_dark(STATE_HOVERED)))
                 .active(|restore| restore.bg(Palette::on_dark(STATE_PRESSED)))
+                .relative()
                 .child("↺")
+                .child(self.drawn(format!("restore {}", command.key_name())))
                 .on_click(cx.listener(move |settings, _, _, cx| settings.restore(command, cx)))
         });
         let chip = chip(keys, color)
