@@ -700,6 +700,8 @@ expect '^browser: sidebar shown$' "⌘S didn't bring the sidebar back after its 
 # (#1090).
 send key n cmd
 expect '^browser: window opened [0-9]*$' "⌘N didn't open a second window for the …"
+# The driver's fullscreen takes the window it drives, which stays the first till it's told.
+send window 2
 for where in second-window full-screen; do
   if [ $where = full-screen ]; then
     send fullscreen
@@ -730,6 +732,7 @@ send fullscreen
 expect '^browser: window left full screen$' "the second window didn't leave full screen"
 send key w cmd shift
 expect '^browser: window closed [0-9]' "⇧⌘W didn't close the second window"
+send window 1
 # A press shows it too, and it stays once the button comes up after the menu shows, as it does
 # when the user holds the button.
 send move $edit_point
