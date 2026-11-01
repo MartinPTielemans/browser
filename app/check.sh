@@ -10,7 +10,8 @@
 # uBlock Origin's own lists and widevine, Linux's alone, downloads Google's Widevine module, so they
 # need the network and run only when named: ./check.sh store.
 # Updates runs only when named too, until it passes on the Mac. So does keychain, which uses the
-# real Keychain, on the prod build and only in a check VM.
+# real Keychain, on the prod build and only in a check VM. Shots takes the Store's pictures from
+# pages on the internet, so it runs only when named too.
 # Every run but load and crash needs Browser to be the active app, and window, find and updates
 # take it full screen for a moment. Passkeys is the Mac's alone so far. Updates makes
 # build/Updates.app on the Mac, a copy with Sparkle and a feed of its own (build.sh updates), and
@@ -68,7 +69,7 @@ runs="load keys tabs window popup history spaces agents profiles restore relaunc
 runs="$runs split favorites cards extensions adblock adblock-lists windows private capture media"
 runs="$runs passwords links preview access trouble dialogs crash import quit onboarding passkeys mcp"
 runs="$runs appearance about"
-named="store adblock-live widevine updates keychain"
+named="store adblock-live widevine updates keychain shots"
 for run in "$@"; do
   case " $runs $named " in
     *" $run "*) ;;
