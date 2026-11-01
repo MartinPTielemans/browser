@@ -131,6 +131,10 @@ void StretchOnResize(content::RenderWidgetHostView* view, bool stretch);
 // window, from its content's top-left, if one shows (bc_window_dialog).
 std::optional<gfx::Rect> DialogFrame(views::Widget* widget);
 
+// On Windows: the widget of a tab's dialog, such as print preview, shown over |widget|'s window in
+// a window of its own (PageDialogsInOwnWindow), or null.
+views::Widget* PageDialog(views::Widget* widget);
+
 }  // namespace browser_core::platform
 
 #endif  // BROWSER_CORE_PLATFORM_WINDOW_VIEWS_H_
