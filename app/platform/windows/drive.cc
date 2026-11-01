@@ -318,6 +318,18 @@ void Move(const Target& target, int modifiers, UINT buttons) {
   if (host_drive_pointer(WM_MOUSEMOVE, target.screen.x, target.screen.y)) {
     return;
   }
+  // Over the frame, as over the UI's maximize button (host.cc's FrameHit), Windows sends the
+  // window a non-client move, with what's there and the point on the screen. Entered, so the leave
+  // Windows sends it at once, for the desktop's pointer, is dropped.
+  if (Ours(target.hwnd)) {
+    const LPARAM screen = MAKELPARAM(target.screen.x, target.screen.y);
+    const LRESULT hit = SendMessageW(target.hwnd, WM_NCHITTEST, 0, screen);
+    if (hit != HTCLIENT && hit != HTTRANSPARENT && hit != HTNOWHERE) {
+      Enter(target);
+      PostMessageW(target.hwnd, WM_NCMOUSEMOVE, hit, screen);
+      return;
+    }
+  }
   Enter(target);
   if (g_posted_moves.size() == 64) {
     g_posted_moves.pop_front();
