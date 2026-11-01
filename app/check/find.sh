@@ -246,9 +246,9 @@ send key 1 cmd
 expect "^browser: selected $second" "⌘1 didn't show the second tab"
 # It shrinks out over 70 ms, as Arc's does on a tab switch, so it's gone well before its 5 s are up,
 # which would take it anyway.
-gone() { sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q '^browser: zoom hud hidden$'; }
-for _ in $(seq 20); do gone && break; sleep 0.1; done
-gone || fail "the zoom HUD stayed over the tab shown in place of the one zoomed"
+hud_gone() { sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q '^browser: zoom hud hidden$'; }
+for _ in $(seq 20); do hud_gone && break; sleep 0.1; done
+hud_gone || fail "the zoom HUD stayed over the tab shown in place of the one zoomed"
 send key 2 cmd
 expect "^browser: selected $first" "⌘2 didn't show the first tab again"
 send key 0 cmd
