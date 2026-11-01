@@ -15,7 +15,8 @@
 //   rightclickkey <x> <y>                 a right click in the key window
 //   drag <x> <y> <x2> <y2>                presses at (x, y), moves to (x2, y2) and lets go
 //   dragkey <x> <y> <x2> <y2>             as drag, in the key window, such as Settings
-//   press <x> <y>                         presses at (x, y), for a drag in steps
+//   press <x> <y> [cmd] [shift] [alt]     presses at (x, y), for a drag in steps, with those keys
+//                                         held, as dragto and release take them too
 //   rightpress, rightdragto, rightrelease <x> <y>
 //                                         as press, dragto and release, with the right button,
 //                                         as a press-drag-release through a context menu
@@ -269,11 +270,11 @@ const std::map<std::string, unsigned short> kKeyCodes = {
     {"0", 29}, {"-", 27}, {"+", 27}, {"[", 33}, {"]", 30}, {"up", 126}, {"down", 125},
     {"left", 123}, {"right", 124}, {"backspace", 51}, {",", 43}, {"delete", 117},
     {"pageup", 116}, {"pagedown", 121}, {"/", 44}, {"?", 44}, {"=", 24}, {"&", 26}, {"_", 27},
-    {":", 41}, {"@", 19}, {"f12", 111}, {"f10", 109},
+    {":", 41}, {"@", 19}, {"f12", 111}, {"f10", 109}, {"f6", 97},
 };
 // AppKit's characters for the arrows are NSUpArrowFunctionKey to NSRightArrowFunctionKey, and for
-// the others NSDeleteFunctionKey, NSPageUpFunctionKey, NSPageDownFunctionKey, NSF12FunctionKey and
-// NSF10FunctionKey.
+// the others NSDeleteFunctionKey, NSPageUpFunctionKey, NSPageDownFunctionKey, NSF12FunctionKey,
+// NSF10FunctionKey and NSF6FunctionKey.
 const std::map<std::string, std::string> kCharacters = {
     {"return", "\r"},
     {"tab", "\t"},
@@ -289,6 +290,7 @@ const std::map<std::string, std::string> kCharacters = {
     {"pagedown", "\xEF\x9C\xAD"},
     {"f12", "\xEF\x9C\x8F"},
     {"f10", "\xEF\x9C\x8D"},
+    {"f6", "\xEF\x9C\x89"},
 };
 
 // Marks the end of a command's events. AppKit handles events in the order they were posted.
@@ -572,7 +574,7 @@ bool Key(NSWindow* window,
   if (key == "up" || key == "down" || key == "left" || key == "right") {
     flags |= NSEventModifierFlagFunction | NSEventModifierFlagNumericPad;
   } else if (key == "delete" || key == "pageup" || key == "pagedown" || key == "f12" ||
-             key == "f10") {
+             key == "f10" || key == "f6") {
     flags |= NSEventModifierFlagFunction;
   }
   for (NSEventType type : types) {
@@ -1202,6 +1204,14 @@ bool Run(const std::string& line, void (^done)(void)) {
       return false;
     }
     NSWindow* target = WindowAt(window, x, y);
+    // A click that another window of the app's takes, such as one AppKit puts over a full-screen
+    // window, says which, since a check's click that does nothing logs nothing else (#1090).
+    if (target != window) {
+      const NSRect frame = target.frame;
+      fprintf(stderr, "browser: drive click went to %s %ld at %.0f,%.0f %.0fx%.0f\n",
+              NSStringFromClass([target class]).UTF8String, (long)target.windowNumber,
+              frame.origin.x, frame.origin.y, frame.size.width, frame.size.height);
+    }
     Convert(window, target, &x, &y);
     Click(target, x, y, 1, Modifiers(words));
     done();
@@ -1335,7 +1345,7 @@ bool Run(const std::string& line, void (^done)(void)) {
     NSEventType type = action == "press"    ? NSEventTypeLeftMouseDown
                        : action == "dragto" ? NSEventTypeLeftMouseDragged
                                             : NSEventTypeLeftMouseUp;
-    PostMouse(target, type, x, y, 1);
+    PostMouse(target, type, x, y, 1, Modifiers(words));
     if (action == "release") {
       pressed = nil;
     }
@@ -1788,7 +1798,10 @@ bool Run(const std::string& line, void (^done)(void)) {
   if (action == "type") {
     std::string text = line.substr(std::min(line.size(), action.size() + 1));
     for (char character : text) {
-      if (!Key(key_window, std::string(1, character), 0)) {
+      // A capital is its letter with shift, as the keyboard types it.
+      const bool capital = character >= 'A' && character <= 'Z';
+      const std::string key(1, capital ? character - 'A' + 'a' : character);
+      if (!Key(key_window, key, capital ? NSEventModifierFlagShift : 0)) {
         return false;
       }
     }

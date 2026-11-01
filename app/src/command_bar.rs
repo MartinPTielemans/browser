@@ -183,6 +183,7 @@ fn command_glyph(command: shell::Command) -> &'static str {
         Command::Find => "icons/text-search.svg",
         Command::SearchTabs => "icons/search.svg",
         Command::SiteControls => "icons/sliders-horizontal.svg",
+        Command::Cast => "icons/cast.svg",
         Command::Back => "icons/arrow-left.svg",
         Command::Forward => "icons/arrow-right.svg",
         Command::Reload | Command::ForceReload => "icons/rotate-cw.svg",
@@ -219,6 +220,7 @@ fn command_glyph(command: shell::Command) -> &'static str {
         Command::Passwords => "icons/key-round.svg",
         Command::HelpCenter => "icons/book-open.svg",
         Command::WhatsNew => "icons/megaphone.svg",
+        Command::PrivacyPolicy => "icons/shield.svg",
         Command::ReportProblem => "icons/flag.svg",
         Command::CopyBuildInfo => "icons/copy.svg",
         _ => COMMAND_GLYPH,
@@ -573,6 +575,8 @@ fn reset(
             };
             bar.input.update(cx, |input, cx| input.set_placeholder(placeholder.into(), cx));
             bar.asked = text.to_string();
+            // Its answer, for nothing typed, is timed from here, not from the last ask (#1072).
+            bar.asked_at = Instant::now();
             bar.complete = false;
             bar.completion.clear();
             bar.before = (text.len(), 0);
@@ -1065,14 +1069,9 @@ impl CommandBar {
         }
     }
 
-    /// ⌫ with the caret at the start of a site search's input, or the commands-only list's,
-    /// leaves it.
-    fn backspace(
-        &mut self,
-        _: &text_input::Backspace,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    /// ⌫, ⌘⌫ or ⌥⌫ with the caret at the start of a site search's input, or the commands-only
+    /// list's, leaves it.
+    fn leave_at_start(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.input.read(cx).selection() == (0..0)
             && (self.leave_site(window, cx) || self.leave_commands(window, cx))
         {
@@ -1926,7 +1925,15 @@ impl Render for CommandBar {
                 .on_action(cx.listener(Self::shortcut))
                 .on_action(cx.listener(Self::enter_site_or_next))
                 .on_action(cx.listener(Self::leave_site_or_previous))
-                .capture_action(cx.listener(Self::backspace))
+                .capture_action(cx.listener(|bar, _: &text_input::Backspace, window, cx| {
+                    bar.leave_at_start(window, cx)
+                }))
+                .capture_action(cx.listener(|bar, _: &text_input::DeleteToStart, window, cx| {
+                    bar.leave_at_start(window, cx)
+                }))
+                .capture_action(cx.listener(|bar, _: &text_input::DeleteWordBack, window, cx| {
+                    bar.leave_at_start(window, cx)
+                }))
                 .on_action(
                     cx.listener(|bar, _: &Next, window, cx| bar.select_next(true, window, cx)),
                 )

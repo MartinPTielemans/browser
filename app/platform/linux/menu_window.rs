@@ -3,9 +3,11 @@
 //! (overlays.rs), with the keyboard, and the menu's own window takes its pointer events. A press
 //! outside, the keyboard going elsewhere or the window resizing is the user leaving it.
 //!
+//! A right-click elsewhere in the UI opens that menu in its place, as the press reaches the UI
+//! before GPUI tells the menu it was left, and a leaving is told only to the showing it left.
+//!
 //! shortcut: the pointer isn't the menu's first, so a press outside closes it and lands where it
-//! was pressed too, and a right-click elsewhere doesn't open that menu in its place. It stays
-//! inside its window, which it can't go past under Wayland.
+//! was pressed too. It stays inside its window, which it can't go past under Wayland.
 //!
 //! From the Linux driver's branch (feat/linux-drive, a566b45), which shows it the same way.
 
@@ -104,7 +106,9 @@ pub extern "C" fn host_hide_menu_window() {
     OVER.take();
     let view = menu.view;
     gpui_linux::hide_overlay(view, move || {
-        if window != 0 {
+        // A menu that opened again in the window before this hide ran keeps the keyboard it took.
+        let again = SHOWN.get().is_some_and(|(_, shown, _)| shown == window);
+        if window != 0 && !again {
             overlays::lend_keyboard(window, view, false);
         }
     });

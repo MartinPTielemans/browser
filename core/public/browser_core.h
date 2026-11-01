@@ -92,6 +92,25 @@ typedef struct bc_tab_state {
   // The system's engine shows the page, WebKit on the Mac, in place of Chromium
   // (bc_tab_set_system_engine).
   bool system_engine;
+  // The page uses the camera, or the microphone, as Chrome's tab strip marks it.
+  bool camera;
+  bool microphone;
+  // The page shares a screen, a window or another tab, as a call does.
+  bool sharing;
+  // Another page shares this tab, as a call shows it.
+  bool shared;
+  // Another page shares a tab, and bc_tab_share_instead would have it share this one.
+  bool share_instead;
+  // The page's media, as Chrome's media controls show it: whether it has a session the browser
+  // can play, pause and skip (bc_tab_media), whether that's playing, its title and artist, each
+  // empty without one, whether it has a next track, and whether it can float in Picture in Picture
+  // while nothing of the page floats.
+  bool media;
+  bool media_playing;
+  const char* media_title;
+  const char* media_artist;
+  bool media_next;
+  bool media_picture_in_picture;
   // The tab shows its page in Developer Mode (bc_tab_set_developer_mode): the user turned it on for
   // the page's site, or it's localhost, as Chrome counts it, and they didn't turn it off there.
   bool developer_mode;
@@ -381,6 +400,25 @@ typedef struct bc_site_controls {
   int developer_mode;
 } bc_site_controls;
 
+// What a device to cast to is doing, as Chrome's Cast dialog shows it.
+#define BC_CAST_AVAILABLE 0
+#define BC_CAST_CONNECTING 1
+#define BC_CAST_CONNECTED 2
+#define BC_CAST_DISCONNECTING 3
+#define BC_CAST_UNAVAILABLE 4
+
+// A device Chrome's media router found on the network, as its Cast dialog lists it.
+typedef struct bc_cast_device {
+  // Chrome's, for bc_tab_cast_to.
+  const char* id;
+  // The device's own name, such as "Living Room TV".
+  const char* name;
+  // A BC_CAST_ value.
+  int state;
+  // Chrome's words for what it's doing or what went wrong, such as "Casting tab", or "".
+  const char* status;
+} bc_cast_device;
+
 
 // An agent's call the core checked, for the activity log (bc_agent_may_act).
 typedef struct bc_agent_activity {
@@ -420,11 +458,14 @@ typedef struct bc_side_panel {
 } bc_side_panel;
 
 // What a tab's offer offers: to save the password of a login its page submitted, or to update the
-// password saved for it.
+// password saved for it; or to save an address or a card the page's form submitted.
 #define BC_OFFER_KIND_PASSWORD 0
 #define BC_OFFER_KIND_PASSWORD_UPDATE 1
+#define BC_OFFER_KIND_ADDRESS 2
+#define BC_OFFER_KIND_CARD 3
 
-// An offer from Chrome's password manager, in Chrome's words. The password stays in the core.
+// An offer from Chrome's password manager or its autofill, in Chrome's words. The password stays
+// in the core, and a card's number but its last four digits.
 typedef struct bc_offer {
   // A BC_OFFER_KIND_ kind.
   int kind;
@@ -443,6 +484,10 @@ typedef struct bc_offer {
   const char* accept;
   const char* decline;
   const char* never;
+  // An address's or a card's: what it saves, as Chrome's bubble lists it, a line each with '\n'
+  // between, such as the card's name and last four digits, then its expiry. "" for a password's,
+  // whose |username| and |password_length| say it, as theirs are "" and 0.
+  const char* details;
 } bc_offer;
 
 // What a page's own dialog asks, in tab_dialog: its alert(), confirm() or prompt(), whether to
@@ -495,6 +540,88 @@ typedef struct bc_page_menu_item {
 #define BC_LINK_DRAG_OVER 0
 #define BC_LINK_DRAG_LEFT 1
 #define BC_LINK_DRAG_DROP 2
+
+// Where the browser's account is, in sync_changed. The account is one ilo server's, the browser's
+// and not a profile's: it syncs the Spaces, and the bookmarks, passwords and open tabs of the
+// profile the core started with. Other profiles keep theirs on the device.
+// Signed out: bc_sync_sign_in starts.
+#define BC_SYNC_SIGNED_OUT 0
+// The sign-in window is open, or the core is getting the account's tokens with what it returned.
+#define BC_SYNC_SIGNING_IN 1
+// Signed in to an account whose data no device has a secret for yet, so this is its first device:
+// bc_sync_recovery_words makes the secret and turns sync on.
+#define BC_SYNC_FIRST_DEVICE 2
+// Signed in to an account another device holds the secret of, which this one hasn't got: it gets
+// it with bc_sync_request_pairing or bc_sync_enter_recovery_words, and can't read what's synced
+// until then.
+#define BC_SYNC_NEEDS_SECRET 3
+// It asked the account's other devices for the secret (bc_sync_request_pairing), and waits for one
+// to add it.
+#define BC_SYNC_PAIRING 4
+// Syncing.
+#define BC_SYNC_ON 5
+
+// Why the account's last step didn't go as asked, in sync_changed, for the app to say. It stays
+// until the next step the user takes.
+#define BC_SYNC_PROBLEM_NONE 0
+// The recovery words are words of the list, with their checksum, but not this account's.
+#define BC_SYNC_PROBLEM_WRONG_WORDS 1
+// The other device answered Not me, or cancelled.
+#define BC_SYNC_PROBLEM_DECLINED 2
+// No device added this one in the pairing's 5 minutes, or the one that answered went away.
+#define BC_SYNC_PROBLEM_EXPIRED 3
+// This device was removed from the account on another (bc_sync_remove_device), or the server
+// signed it out, so it's signed out now.
+#define BC_SYNC_PROBLEM_REMOVED 4
+// The server couldn't be reached, or refused, as when the account asked for too many pairings in
+// an hour. The step can be tried again.
+#define BC_SYNC_PROBLEM_SERVER 5
+
+// The browser's account, as Settings shows it. Strings are UTF-8.
+typedef struct bc_sync_state {
+  // A BC_SYNC_ value.
+  int status;
+  // A BC_SYNC_PROBLEM_ value.
+  int problem;
+  // The server the browser signs in to, such as "https://sync.example.org": the build's own,
+  // from its branding, until bc_sync_set_server gives another.
+  const char* server;
+  // The server is the build's own, which the app names by its own name.
+  bool default_server;
+  // The account's email while signed in, else "".
+  const char* email;
+  // With BC_SYNC_PAIRING, the match code once a device has answered: 6 digits, which that device
+  // shows too. Else "".
+  const char* code;
+} bc_sync_state;
+
+// Another device asks this one, through the server, to add it to the account, in
+// sync_pairing_asked.
+typedef struct bc_sync_pairing {
+  // Answer it with this, in bc_sync_answer_pairing.
+  const char* id;
+  // The device's name and system, as it gives them, such as "Pixel 9" and "Android". Shown, never
+  // trusted: the code is what the user checks.
+  const char* name;
+  const char* os;
+  // The match code, 6 digits, which the asking device shows too.
+  const char* code;
+  // When it asked, and when it signed in to the account, by the server's word rather than its
+  // own: milliseconds since the Unix epoch, 0 from a server that doesn't say.
+  double asked_at;
+  double signed_in_at;
+} bc_sync_pairing;
+
+// One of the account's devices, as Settings lists them.
+typedef struct bc_sync_device {
+  // For bc_sync_remove_device.
+  const char* id;
+  // As the device gave them when it signed in, such as "MacBook Air" and "macOS".
+  const char* name;
+  const char* os;
+  // It's this one.
+  bool current;
+} bc_sync_device;
 
 // What the app gives the core when it starts Chromium. Any callback may be null, and a string it's
 // passed lasts only for the call.
@@ -628,6 +755,15 @@ typedef struct bc_host {
   // changes, until bc_site_controls_close: a permission changed or was used, the tab went to
   // another page, or a video started or stopped.
   void (*tab_site_controls)(void* context, bc_id tab, const bc_site_controls* controls);
+  // The tab's Cast dialog, in place of Chrome's: after bc_tab_cast, the page menu's Cast… or the
+  // page asking to cast, and again as the devices found change, with Chrome's header, such as
+  // "Cast tab", and the devices, |count| of them. Once it closes, with |header| null: on
+  // bc_cast_close, another tab's, the tab going, or casting starting, as Chrome's closes then.
+  void (*tab_cast)(void* context,
+                   bc_id tab,
+                   const char* header,
+                   const bc_cast_device* devices,
+                   size_t count);
   // The box of the element at (|x|, |y|) bc_tab_element_at asked for, its border's in points from
   // the top-left of the page's view, or a box 0 wide if there's none or the page went.
   void (*tab_element_box)(void* context, bc_id tab, double x, double y, bc_rect box);
@@ -697,10 +833,10 @@ typedef struct bc_host {
   void (*tab_media_unsupported)(void* context, bc_id tab, const char* key_system);
   // Google's Widevine module is now |state|, a BC_WIDEVINE_ value (bc_widevine).
   void (*widevine_changed)(void* context, int state);
-  // The tab's offer changed: Chrome's password manager offers |offer|, or with null, it no longer
-  // does: it was answered, or another tab was shown or the tab closed. Show it while the tab is,
-  // and answer with bc_tab_answer_offer. A tab shown again doesn't get it back. The user's alone:
-  // agents hear none, as it names the user's login.
+  // The tab's offer changed: Chrome's password manager or its autofill offers |offer|, or with
+  // null, it no longer does: it was answered, or another tab was shown or the tab closed. Show it
+  // while the tab is, and answer with bc_tab_answer_offer. A tab shown again doesn't get it back.
+  // The user's alone: agents hear none, as it names the user's login, address or card.
   void (*tab_offer_changed)(void* context, bc_id tab, const bc_offer* offer);
   // The tab's key icon changed: what Chrome's password manager has for its page, a BC_PASSWORDS_
   // value, as Chrome's toolbar would show its key for it. The user's alone: agents hear none.
@@ -839,6 +975,22 @@ typedef struct bc_host {
   // On Linux under X11: ⌥ was pressed and let go alone, with no other key or click while it was
   // down, as the page in |window| had the keyboard. GPUI hears only the UI's keys there.
   void (*window_option_tapped)(void* context, bc_id window);
+  // bc_profile_add_addresses added |added| addresses to |profile|'s, once for each call that
+  // returned true, in order.
+  void (*addresses_added)(void* context, bc_id profile, size_t added);
+  // The browser's account changed, or was first read, once the browser has started. The user's
+  // alone: agents hear none.
+  void (*sync_changed)(void* context, const bc_sync_state* state);
+  // Another device asks to be added to the account: ask the user over the front window whether
+  // to, showing its code, and answer with bc_sync_answer_pairing. It comes only once the core has
+  // the code, after it answered the request with this device's key, which it does while one of the
+  // browser's windows is active, or once one becomes so, so the device the user is at takes it. It
+  // comes again with |pairing| null when the request ends unanswered: it expired, the asking device
+  // cancelled, or another device took it. One at a time. The user's alone: agents hear none.
+  void (*sync_pairing_asked)(void* context, const bc_sync_pairing* pairing);
+  // The account's devices, after bc_sync_read_devices, and again after bc_sync_remove_device:
+  // |count| of them, this one first. The user's alone: agents hear none.
+  void (*sync_devices_changed)(void* context, const bc_sync_device* devices, size_t count);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -1257,6 +1409,27 @@ typedef struct bc_history_page {
 // nothing. Then history_added, with how many it added. The core copies what it needs.
 BC_EXPORT bool bc_profile_add_history(bc_id profile, const bc_history_page* pages, size_t count);
 
+// A field of another browser's saved address, for bc_profile_add_addresses, as a Chromium-based
+// browser's Web Data keeps it: Chromium's FieldType and VerificationStatus numbers, and the value,
+// UTF-8.
+typedef struct bc_address_field {
+  int32_t type;
+  const char* value;
+  int32_t status;
+} bc_address_field;
+
+typedef struct bc_address {
+  const bc_address_field* fields;
+  size_t count;
+} bc_address;
+
+// Adds |count| of another browser's saved addresses to the loaded profile's, once they've loaded,
+// and returns whether it will: not to a private profile, one that hasn't loaded or one whose user
+// turned addresses off. A field of a type or status Chromium doesn't keep is left out, and an
+// address the profile has, or one with nothing in it, is skipped, so importing the same addresses
+// again adds nothing. Then addresses_added, with how many it added. The core copies what it needs.
+BC_EXPORT bool bc_profile_add_addresses(bc_id profile, const bc_address* addresses, size_t count);
+
 // Copies up to |capacity| of the Spaces into |spaces|, in order, and returns how many there are.
 BC_EXPORT size_t bc_spaces(bc_id* spaces, size_t capacity);
 
@@ -1665,6 +1838,12 @@ BC_EXPORT void bc_age_tabs_for_testing(double seconds);
 // The user's: agents get none, as it keeps trackers off the user's pages.
 BC_EXPORT bool bc_ad_blocking(void);
 BC_EXPORT void bc_set_ad_blocking(bool on);
+// Whether a page may take its video or call into Picture in Picture as its tab is hidden, the
+// Mini Player, in every profile: on unless the user turned it off. Off blocks it by default, as
+// Chrome's settings do, and a site the user allows in its Site Controls still may. The core keeps
+// it with the Spaces. The user's: agents get none.
+BC_EXPORT bool bc_auto_picture_in_picture(void);
+BC_EXPORT void bc_set_auto_picture_in_picture(bool on);
 
 // Crash reports. Crashpad writes a minidump of every crash in the profile folder, and the core sends
 // one only while the user has Settings › Privacy › Send Crash Reports on, which is off by default:
@@ -1997,6 +2176,20 @@ BC_EXPORT void bc_tab_site_controls(bc_id tab);
 // pinned actions alone.
 BC_EXPORT void bc_site_controls_close(void);
 
+// Opens the tab's Cast dialog, as Chrome's View › Cast… does, which looks for devices on the
+// network with DIAL (ungoogled-chromium builds without mDNS). Then tab_cast. The last tab's closes
+// first: one shows at a time. Does nothing for a profile Chrome's media router doesn't serve. The
+// user's: agents get none, as casting shows the page to a screen others can see.
+BC_EXPORT void bc_tab_cast(bc_id tab);
+
+// Closes the Cast dialog. Then tab_cast with a null header.
+BC_EXPORT void bc_cast_close(void);
+
+// A click on the device |id| in the tab's Cast dialog, as on Chrome's: one with a problem clears
+// it, one casting stops, and one available casts the tab, or the page's presentation where it
+// has one. Then tab_cast as it changes.
+BC_EXPORT void bc_tab_cast_to(bc_id tab, const char* id);
+
 // Gives the site of the tab's page |value|, a BC_SITE_ value, for the permission of |type|, as
 // Chrome's page info does, if it's one of the permission's choices and bc_tab_site_controls is
 // watching that tab. The profile keeps it, as Chrome's site settings do. Then tab_site_controls.
@@ -2038,15 +2231,16 @@ BC_EXPORT void bc_tab_picture_in_picture(bc_id tab);
 // the browser's own pages have.
 BC_EXPORT void bc_tab_show_certificate(bc_id tab);
 
-// Answers to the offer tab_offer_changed made: save or update the password; never save one for the
-// site; or not now.
+// Answers to the offer tab_offer_changed made: save or update the password, the address or the
+// card; never save a password for the site, which only a password's save offers; or not now.
 #define BC_OFFER_ACCEPT 0
 #define BC_OFFER_NEVER 1
 #define BC_OFFER_NOT_NOW 2
 
 // Answers the tab's offer with |answer|, a BC_OFFER_ answer, with the username as the user left it,
-// or null to keep the offer's, if the offer is still open. Then tab_offer_changed. The user's:
-// agents get none, as saving a password is the user's to decide.
+// or null to keep the offer's, if the offer is still open; an address's or a card's ignores it.
+// Then tab_offer_changed. The user's: agents get none, as saving a password, an address or a card
+// is the user's to decide, and an agent's tab is offered none of them.
 BC_EXPORT void bc_tab_answer_offer(bc_id tab, int answer, const char* username);
 
 // What tab_passwords_changed says Chrome's password manager has for a tab's page, as its key icon:
@@ -2164,6 +2358,22 @@ BC_EXPORT void bc_tab_set_icon(bc_id tab, const char* icon);
 // Mutes or unmutes the tab, whatever page it's at. Duplicating it and ⇧⌘T keep it muted; a quit
 // doesn't. Then tab_state_changed.
 BC_EXPORT void bc_tab_set_muted(bc_id tab, bool muted);
+
+// While a page shares a tab and the tab's state has share_instead, has the page share this tab's
+// page in its place, as Chrome's Share this tab instead does. The user's: agents get none, as it
+// would show a page to whoever the call reaches. Then tab_state_changed, for both tabs.
+BC_EXPORT void bc_tab_share_instead(bc_id tab);
+
+// What bc_tab_media does to the page's media, as Chrome's media controls do.
+#define BC_MEDIA_PLAY 0
+#define BC_MEDIA_PAUSE 1
+#define BC_MEDIA_NEXT 2
+#define BC_MEDIA_PICTURE_IN_PICTURE 3
+
+// Plays, pauses, skips or floats the page's media in Picture in Picture, one of BC_MEDIA_, while
+// its state has media, and media_picture_in_picture for the last. Then tab_state_changed. The
+// user's: agents act in the page instead.
+BC_EXPORT void bc_tab_media(bc_id tab, int action);
 
 // Closes the Today tabs below the tab, each as bc_tab_close does, bottom up. A window showing one
 // shows the tab first. Then tab_closed for each, and space_changed.
@@ -2311,6 +2521,77 @@ BC_EXPORT bool bc_window_is_full_screen(bc_id window);
 // full-screen key does on Linux, for the test driver, and on Windows, which has none, for Escape
 // too. On Linux bc_window_toggle_maximized takes it out as Escape asks.
 BC_EXPORT void bc_window_toggle_full_screen(bc_id window);
+// The browser's account, which keeps the Spaces and the first profile's bookmarks, passwords and
+// open tabs the same on each of its devices, through an ilo server (ilo-server's docs/protocol.md).
+// The server stores what's synced encrypted with the account's secret, which only devices hold: the
+// first device makes it and shows it once as 24 recovery words, and a new device gets it from one
+// that has it, by pairing, or from the words. The core signs in, keeps the tokens and the secret,
+// and syncs. The app sees neither, only the words when the user asks for them. Each step comes back
+// in sync_changed. All of it is the user's alone: agents get no account or sync calls, as the
+// account holds the user's passwords and its secret reads them, and the sign-in window is no tab an
+// agent can act in.
+
+// Signs in to |server| from now on, such as "https://sync.example.org", or to the build's own if it's
+// empty, signing out first if signed in, and returns whether it will: only to https, or to http on
+// a loopback address, for a server on the machine. Then sync_changed.
+BC_EXPORT bool bc_sync_set_server(const char* server);
+
+// Opens the server's sign-in page in a small window of the core's over the front window: the page
+// alone, the server's host in its title, in a session of its own that keeps nothing in the user's
+// profiles. Once the user has signed in, the core catches where the page sends it, closes the
+// window and gets the account's tokens; the user closing the window cancels. Only while signed out.
+// Then sync_changed, BC_SYNC_SIGNING_IN, then BC_SYNC_FIRST_DEVICE or BC_SYNC_NEEDS_SECRET, or
+// BC_SYNC_SIGNED_OUT again, with BC_SYNC_PROBLEM_SERVER if it failed.
+BC_EXPORT void bc_sync_sign_in(void);
+
+// Stops what the account waits for: the sign-in window closes, back to BC_SYNC_SIGNED_OUT, or the
+// pairing request is taken back from the other devices, back to BC_SYNC_NEEDS_SECRET. Then
+// sync_changed.
+BC_EXPORT void bc_sync_cancel(void);
+
+// Signs this device out: the server forgets it, and the core its tokens and the secret. What synced
+// stays on the device, and nothing more syncs. Then sync_changed.
+BC_EXPORT void bc_sync_sign_out(void);
+
+// Copies the account's recovery words into |words| as bc_space_name does: its secret as 24 words of
+// BIP-39's English list, lowercase, one space between them (protocol.md, The account secret). With
+// BC_SYNC_FIRST_DEVICE it makes the secret first and turns sync on, then sync_changed with
+// BC_SYNC_ON; with BC_SYNC_ON it copies the secret's. Else it copies nothing and returns 0.
+BC_EXPORT size_t bc_sync_recovery_words(char* words, size_t capacity);
+
+// Gets the secret from recovery words the user typed, with BC_SYNC_NEEDS_SECRET, or BC_SYNC_PAIRING,
+// whose request it takes back. Returns false, doing nothing, unless |words| are 24 words of the list
+// with their checksum, in any case and spacing. Then sync_changed, with BC_SYNC_ON once they open
+// the account's data, or BC_SYNC_NEEDS_SECRET with BC_SYNC_PROBLEM_WRONG_WORDS.
+BC_EXPORT bool bc_sync_enter_recovery_words(const char* words);
+
+// Starts the account over for a user with neither another device nor the recovery words, with
+// BC_SYNC_NEEDS_SECRET, or BC_SYNC_PAIRING, whose request it takes back: it deletes everything the
+// account keeps on the server, its synced data and the devices it knows (Chromium's
+// ClearServerData), and makes this the account's first device again. What this device has stays,
+// and syncs up again under the new secret. Then sync_changed, with BC_SYNC_FIRST_DEVICE, whose
+// bc_sync_recovery_words makes the new secret and its words, or with the status it had and
+// BC_SYNC_PROBLEM_SERVER if the server couldn't do it. Does nothing in any other status.
+BC_EXPORT void bc_sync_start_over(void);
+
+// Asks the account's other devices, through the server, to add this one, with BC_SYNC_NEEDS_SECRET:
+// it sends a commitment to a key made for it, with this device's name and system (protocol.md,
+// Pairing). Then sync_changed with BC_SYNC_PAIRING, again with its code once a device answers, then
+// BC_SYNC_ON once that device adds it, or BC_SYNC_NEEDS_SECRET with BC_SYNC_PROBLEM_DECLINED,
+// BC_SYNC_PROBLEM_EXPIRED or BC_SYNC_PROBLEM_SERVER.
+BC_EXPORT void bc_sync_request_pairing(void);
+
+// Answers the request sync_pairing_asked asked about last, |id|: |add| seals the secret to the
+// asking device, and else the core declines it, which that device says.
+BC_EXPORT void bc_sync_answer_pairing(const char* id, bool add);
+
+// Asks the server for the account's devices, while signed in. Then sync_devices_changed.
+BC_EXPORT void bc_sync_read_devices(void);
+
+// Signs the device |id| out of the account, one other than this, which bc_sync_sign_out signs out.
+// It keeps what synced, and syncs again only once it signs in and gets the secret. Then
+// sync_devices_changed.
+BC_EXPORT void bc_sync_remove_device(const char* id);
 
 // On Linux, the title of the window of Chromium's own with the keys in |window|
 // (bc_window_keyboard_in_child), such as a tab's dialog, copied into |title| as bc_space_name does,

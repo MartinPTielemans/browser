@@ -7,8 +7,9 @@
 # place until Remove Icon, and a Japanese conversion in the picker's search isn't a pick. A Space's
 # icon, picked in its icon picker, comes back too. A tab closed before the quit stays closed,
 # in the archive, from which the Library reopens it at its page. A page's downloads go in the
-# check's folder, a new one's icon flies into the Library button, none of those a relaunch reads
-# does, and ⇧⌘J opens the Library on Downloads, which lists them. While one runs, the button keeps
+# check's folder, on the Mac with macOS's quarantine flag, a new one's icon flies
+# into the Library button, none of those a relaunch reads does, and ⇧⌘J opens the Library on
+# Downloads, which lists them. While one runs, the button keeps
 # its name and resting on it shows the running one with the finished one. With one running, ⌘Q
 # asks first: Continue Downloading shows the Library's Downloads, and Quit quits, cancelling it.
 # After the relaunch, Remove from List and Clear List take them off the list and keep their files.
@@ -60,9 +61,25 @@ if [ "$active" != 1 ]; then
 fi
 # The page's downloads go in the check's folder, and ⇧⌘J from the page opens the Library on
 # Downloads, which lists them. The slow one runs until the quit.
+in_browser RenderWidgetHostViewCocoa "after a click on the page, before \"d\" downloads"
 send type d
-expect '^browser: download [0-9]* done notes.txt$' "the page's download didn't finish"
+# Run after store, the download didn't start on the Mac VM, and nothing said why.
+for _ in $(seq 100); do
+  logged '^browser: download [0-9]* done notes.txt$' && break
+  sleep 0.1
+done
+logged '^browser: download [0-9]* done notes.txt$' ||
+  fail "the page's download didn't finish. Its lines: \
+$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -i 'download' | tr '\n' ';'). \
+The folder: $(ls -A "$out/downloads" | tr '\n' ' ')"
 [ -f "$out/downloads/notes.txt" ] || fail "the download isn't in the check's folder"
+# On the Mac it carries macOS's quarantine flag, naming the app that downloaded it, so Gatekeeper
+# checks it the first time it opens (#685). Chromium's quarantine service sets it.
+if [ "$(uname)" = Darwin ]; then
+  flag=$(xattr -p com.apple.quarantine "$out/downloads/notes.txt" 2>&1) ||
+    fail "the download has no quarantine flag: $flag"
+  [ -n "$(echo "$flag" | cut -d';' -f3)" ] || fail "the download's quarantine flag names no app: $flag"
+fi
 send type s
 expect '^browser: download [0-9]* running slow.bin$' "the page's slow download didn't start"
 # Its icon flies into the Library button.
@@ -286,7 +303,7 @@ if [ "$active" != 1 ]; then
 fi
 # Rename… in its menu, with the name taken out, gives the tab back its page's title.
 post rightclick $(row 0)
-menu=$(cased "Copy Link$share, Change Icon…, Remove Icon, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › [^,]* (checked), Move to › reading list, Move to › New Space…, Archive Tab, Archive Tabs Below")
+menu=$(cased "Copy Link$share, Change Icon…, Remove Icon, Rename…, Mute (disabled), Add Split View, Duplicate, Add to Folder › New Folder, Move to › [^,]* (checked), Move to › reading list, Move to › New Space…, Archive Tab, Archive Tabs Below")
 expect "^browser: menu shown $menu\$" \
   "a right-click on the renamed tab's row didn't offer Rename…"
 send choose Rename…
@@ -667,9 +684,13 @@ send key n cmd
 expect '^browser: window opened [0-9]*$' "⌘N didn't open a second window"
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
-send clickkey 519 60
+settings_drew
+send clickkey $(drawn "toolbar Advanced")
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
-send clickkey 592 209
+settings_drew Advanced
+# Where Settings drew the switch, as the Mini Player's row above it moves it.
+at=$(drawn "switch restore windows") || fail "Restore windows from last session has no switch"
+send clickkey $at
 expect '^browser: restore windows off$' \
   "a click on Restore windows from last session didn't turn it off"
 send key w cmd
@@ -683,6 +704,9 @@ pid=$!
 await '^browser: restored in ' || fail "a launch with Restore windows off didn't bring the Spaces back"
 await "^browser: pinned $p\$" || fail "the pinned tab didn't come back with Restore windows off"
 await '^browser: archive 1 tabs$' || fail "the Today tab didn't go in the archive with Restore windows off"
+# A window says it's open after its Space's lines, on Linux after the archive's too, so the count
+# below waits for it (#1038).
+await '^browser: window opened ' || fail "no window opened with Restore windows off"
 ../tools/window-screenshot.sh "$pid" "$out/fresh-window.png" || fail "no window to capture"
 [ -z "$(today)" ] || fail "Today is \"$(today)\" with Restore windows off, not empty"
 grep -q '^browser: loaded ' "$log" && fail "a page loaded at a launch with Restore windows off"

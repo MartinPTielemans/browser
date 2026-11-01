@@ -15,6 +15,7 @@
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "browser_core/ad_block.h"
+#include "browser_core/address_import.h"
 #include "browser_core/agent_autofill.h"
 #include "browser_core/agent_page.h"
 #include "browser_core/agent_session.h"
@@ -22,6 +23,7 @@
 #include "browser_core/auto_archive.h"
 #include "browser_core/autofill_data.h"
 #include "browser_core/capture.h"
+#include "browser_core/cast_dialog.h"
 #include "browser_core/clear_site.h"
 #include "browser_core/crash_reports.h"
 #include "browser_core/developer_mode.h"
@@ -40,6 +42,7 @@
 #include "browser_core/notes.h"
 #include "browser_core/page_menu.h"
 #include "browser_core/page_text.h"
+#include "browser_core/autofill_offer.h"
 #include "browser_core/password_offer.h"
 #include "browser_core/passwords.h"
 #include "browser_core/page_dialog.h"
@@ -52,6 +55,7 @@
 #include "browser_core/session.h"
 #include "browser_core/site_controls.h"
 #include "browser_core/space.h"
+#include "browser_core/sync.h"
 #include "browser_core/system_engine.h"
 #include "browser_core/tab.h"
 #include "browser_core/widevine.h"
@@ -287,7 +291,7 @@ bool bc_window_focus_ring(bc_id id, bc_rect* frame) {
 }
 
 bool bc_window_dialog(bc_id id, bc_rect* frame) {
-#if BUILDFLAG(IS_LINUX)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
   views::Widget* widget = OpenWidget(id);
   const std::optional<gfx::Rect> dialog =
       widget ? browser_core::platform::DialogFrame(widget) : std::nullopt;
@@ -768,6 +772,11 @@ void bc_profile_set_notes_service(bc_id profile_id, const char* service) {
 bool bc_profile_add_history(bc_id profile, const bc_history_page* pages, size_t count) {
   return (pages || !count) &&
          browser_core::AddImportedHistory(LoadedProfile(profile), profile, pages, count);
+}
+
+bool bc_profile_add_addresses(bc_id profile, const bc_address* addresses, size_t count) {
+  return (addresses || !count) &&
+         browser_core::AddImportedAddresses(LoadedProfile(profile), profile, addresses, count);
 }
 
 size_t bc_spaces(bc_id* spaces, size_t capacity) {
@@ -1364,6 +1373,16 @@ void bc_set_ad_blocking(bool on) {
   browser_core::SessionChanged();
 }
 
+bool bc_auto_picture_in_picture(void) {
+  return browser_core::UserSettings().auto_picture_in_picture;
+}
+
+void bc_set_auto_picture_in_picture(bool on) {
+  browser_core::UserSettings().auto_picture_in_picture = on;
+  browser_core::ApplyAutoPictureInPicture(/*changed=*/true);
+  browser_core::SessionChanged();
+}
+
 size_t bc_crash_reports_collector(char* host, size_t capacity) {
   return CopyString(browser_core::crash_reports::CollectorHost(), host, capacity);
 }
@@ -1703,6 +1722,18 @@ void bc_site_controls_close(void) {
   browser_core::SiteControls::Close();
 }
 
+void bc_tab_cast(bc_id id) {
+  browser_core::CastDialog::Open(id);
+}
+
+void bc_cast_close(void) {
+  browser_core::CastDialog::Close();
+}
+
+void bc_tab_cast_to(bc_id id, const char* device) {
+  browser_core::CastDialog::To(id, device);
+}
+
 void bc_tab_set_site_permission(bc_id id, int type, int value) {
   browser_core::SiteControls::SetPermission(id, type, value);
 }
@@ -1746,6 +1777,9 @@ void bc_tab_show_certificate(bc_id id) {
 }
 
 void bc_tab_answer_offer(bc_id id, int answer, const char* username) {
+  if (browser_core::AutofillOffer::Answer(id, answer)) {
+    return;
+  }
   browser_core::PasswordOffer::Answer(id, answer, username);
 }
 
@@ -1941,6 +1975,18 @@ void bc_tab_set_muted(bc_id id, bool muted) {
   }
 }
 
+void bc_tab_share_instead(bc_id id) {
+  if (browser_core::Tab* tab = browser_core::Tab::Get(id)) {
+    tab->ShareInstead();
+  }
+}
+
+void bc_tab_media(bc_id id, int action) {
+  if (browser_core::Tab* tab = browser_core::Tab::Get(id)) {
+    tab->Media(action);
+  }
+}
+
 void bc_tab_close_below(bc_id id) {
   browser_core::Window::CloseBelow(id);
 }
@@ -2079,4 +2125,52 @@ void bc_window_toggle_full_screen(bc_id id) {
     widget->SetFullscreen(true);
   }
 #endif
+}
+
+bool bc_sync_set_server(const char* server) {
+  return browser_core::sync::SetServer(server ? server : "");
+}
+
+void bc_sync_sign_in(void) {
+  browser_core::sync::SignIn();
+}
+
+void bc_sync_cancel(void) {
+  browser_core::sync::Cancel();
+}
+
+void bc_sync_sign_out(void) {
+  browser_core::sync::SignOut();
+}
+
+size_t bc_sync_recovery_words(char* words, size_t capacity) {
+  return CopyString(browser_core::sync::RecoveryWords(), words, capacity);
+}
+
+bool bc_sync_enter_recovery_words(const char* words) {
+  return words && browser_core::sync::EnterRecoveryWords(words);
+}
+
+void bc_sync_start_over(void) {
+  browser_core::sync::StartOver();
+}
+
+void bc_sync_request_pairing(void) {
+  browser_core::sync::RequestPairing();
+}
+
+void bc_sync_answer_pairing(const char* id, bool add) {
+  if (id) {
+    browser_core::sync::AnswerPairing(id, add);
+  }
+}
+
+void bc_sync_read_devices(void) {
+  browser_core::sync::ReadDevices();
+}
+
+void bc_sync_remove_device(const char* id) {
+  if (id) {
+    browser_core::sync::RemoveDevice(id);
+  }
 }

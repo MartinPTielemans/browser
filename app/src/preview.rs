@@ -10,11 +10,13 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use browser::account::{self, Account};
 use browser::import::sources::{Os, Roots};
 use browser::log;
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState,
-    Folders, Match, MenuBar, MenuEntry, Page, Shell, SpaceEntry, Split, Trouble, WindowButton,
+    Folders, Match, MediaAction, MenuBar, MenuEntry, Page, Shell, SpaceEntry, Split, Trouble,
+    WindowButton,
 };
 use browser::command_bar::{self, Suggestion};
 use browser::dialog;
@@ -417,6 +419,8 @@ impl Browser for Fake {
         0
     }
 
+    fn open_behind(&self, _: &[String], _: bool, _: u64, _: usize, _: &mut App) {}
+
     fn create_folder(&self, _: u64, name: &str, folder: u64, index: usize, cx: &mut App) -> u64 {
         let id = self.next_id.get();
         self.next_id.set(id + 1);
@@ -689,6 +693,45 @@ impl Browser for Fake {
             let page = Page { muted, ..shell.page(tab) };
             shell.set_page(tab, page, cx);
         });
+    }
+
+    // The made-up pages share nothing.
+    fn share_instead(&self, _: u64, _: &mut App) {}
+
+    fn media(&self, tab: u64, action: MediaAction, cx: &mut App) {
+        self.later(cx, move |shell, cx| {
+            let media_playing = match action {
+                MediaAction::Play => true,
+                MediaAction::Pause => false,
+                MediaAction::Next => shell.page(tab).media_playing,
+                MediaAction::PictureInPicture => shell.page(tab).media_playing,
+            };
+            // A made-up page floats nothing, but its player's button goes as a real one's would.
+            let media_picture_in_picture = (shell.page(tab).media_picture_in_picture)
+                && action != MediaAction::PictureInPicture;
+            let page = Page { media_playing, media_picture_in_picture, ..shell.page(tab) };
+            shell.set_page(tab, page, cx);
+        });
+    }
+
+    fn cast(&self, tab: u64, cx: &mut App) {
+        self.later(cx, move |shell, cx| {
+            let device = shell::CastDevice {
+                id: "cast:preview".into(),
+                name: "Living Room TV".into(),
+                state: shell::CastState::Available,
+                status: "".into(),
+            };
+            let cast = shell::Cast { header: "Cast tab".into(), devices: vec![device] };
+            shell.set_cast(tab, Some(cast), cx);
+        });
+    }
+
+    fn cast_close(&self, _: &mut App) {}
+
+    // Casting starting closes the dialog, as the core's does.
+    fn cast_to(&self, tab: u64, _: SharedString, cx: &mut App) {
+        self.later(cx, move |shell, cx| shell.set_cast(tab, None, cx));
     }
 
     fn can_use_system_engine(&self) -> bool {
@@ -1135,6 +1178,10 @@ impl Browser for Fake {
     // The preview leaves the clipboard alone, and shares nothing.
     fn copy(&self, _: &str, _: &mut App) {}
 
+    fn pasted(&self, _: &App) -> Option<String> {
+        None
+    }
+
     fn share_services(&self, _: &str) -> Vec<SharedString> {
         Vec::new()
     }
@@ -1155,7 +1202,7 @@ impl Browser for Fake {
     fn toast_button(
         &self,
         _: &str,
-        _: (&'static str, &'static str),
+        _: (Option<&'static str>, &'static str),
         _: Rc<dyn Fn(&mut App)>,
         _: Duration,
         _: &mut App,
@@ -1458,6 +1505,14 @@ fn main() {
         browser::face::register(cx);
         shell::bind_keys(cx);
         browser::text_input::bind_keys(cx);
+        // PREVIEW_ACCOUNT=signed-out, no-server, words, waiting or signed-in shows Settings ›
+        // Account in that state, alone, no-server's for a build that names no sync server; =approve
+        // shows another device's request over the browser window.
+        let account = std::env::var("PREVIEW_ACCOUNT").ok();
+        if let Some(state) = account.as_deref().filter(|state| *state != "approve") {
+            preview_account(state, cx);
+            return;
+        }
         // PREVIEW_SIZE=<width>x<height> opens the window at that size.
         let (width, height) = std::env::var("PREVIEW_SIZE")
             .ok()
@@ -1735,6 +1790,20 @@ fn main() {
             let at = point(px(left as f32), px(top));
             preview_bar(&mode, at, cx);
         }
+        if account.as_deref() == Some("approve") {
+            if !DIALOG_OPEN.replace(true) {
+                dialog::open_at(Rc::new(PreviewDialog), bounds, true, cx);
+            }
+            let pairing = account::Pairing {
+                id: "2".into(),
+                name: "MacBook Air".into(),
+                os: "macOS".into(),
+                code: "312568".into(),
+                asked: "15:04".into(),
+                signed_in: "2 minutes ago".into(),
+            };
+            dialog::ask_account(account::pairing_question(&pairing), Box::new(|_, _| {}), cx);
+        }
         // PREVIEW_ICON_PICKER=<emoji, or empty> shows the icon picker for a Space with that icon.
         if let Ok(icon) = std::env::var("PREVIEW_ICON_PICKER") {
             let left = x as f32 + 40.;
@@ -1975,5 +2044,131 @@ fn preview_site() -> Site {
         logins: Vec::new(),
         ad_blocking: Some(true),
         developer_mode: Some(false),
+    }
+}
+
+/// Settings › Sync alone, framed as Settings frames a tab, in a window of Settings' size.
+fn preview_account(state: &str, cx: &mut App) {
+    use account::{Device, State, Status};
+    use browser::tokens::settings::{HEIGHT, WIDTH};
+    account::bind_keys(cx);
+    let (mut x, mut y) = (0., 0.);
+    unsafe { host_centered(WIDTH as f64, HEIGHT as f64, &mut x, &mut y) };
+    let bounds = Bounds::new(point(px(x as f32), px(y as f32)), size(px(WIDTH), px(HEIGHT)));
+    let status = match state {
+        "words" => Status::FirstDevice,
+        "waiting" => Status::Pairing,
+        "signed-in" => Status::On,
+        _ => Status::SignedOut,
+    };
+    let no_server = state == "no-server";
+    let state = State {
+        status,
+        problem: None,
+        server: if no_server { "".into() } else { "https://sync.ilo.app".into() },
+        default_server: !no_server,
+        email: "sam@example.com".into(),
+        code: if status == Status::Pairing { "312568".into() } else { "".into() },
+    };
+    let device = |id: &str, name: &str, os: &str, current| Device {
+        id: id.to_string().into(),
+        name: name.to_string().into(),
+        os: os.to_string().into(),
+        current,
+    };
+    let devices = vec![
+        device("1", "Sam's MacBook Pro", "macOS", true),
+        device("2", "MacBook Air", "macOS", false),
+        device("3", "ThinkPad X1", "Linux", false),
+    ];
+    let options =
+        WindowOptions { window_bounds: Some(WindowBounds::Windowed(bounds)), ..Default::default() };
+    let opened = cx.open_window(options, |window, cx| {
+        let page = cx.new(|cx| {
+            let dialog = dialog::in_window(Rc::new(PreviewDialog), cx);
+            let host = Rc::new(PreviewAccount { dialog: dialog.clone() });
+            let account = cx.new(|cx| {
+                let mut account = Account::new(host, cx);
+                account.set_state(state, cx);
+                if status == Status::On {
+                    account.set_devices(devices, cx);
+                }
+                account
+            });
+            AccountPage { account, dialog }
+        });
+        window.focus(&page.read(cx).account.focus_handle(cx), cx);
+        page
+    });
+    if let Err(error) = opened {
+        log!("preview: couldn't open the account's window: {error}");
+    }
+}
+
+/// The account's view on Settings' background, in from its sides as Settings' tabs are, with the
+/// dialog it asks in over all of it, as Settings has on Linux.
+struct AccountPage {
+    account: gpui::Entity<Account>,
+    dialog: gpui::Entity<dialog::Dialog>,
+}
+
+impl gpui::Render for AccountPage {
+    fn render(
+        &mut self,
+        _: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl gpui::IntoElement {
+        use browser::tokens::settings::{BACKGROUND, FIRST, SIDE, TEXT};
+        use browser::tokens::text;
+        use gpui::{ParentElement, Styled, div, rgb};
+        div()
+            .relative()
+            .size_full()
+            .bg(rgb(BACKGROUND))
+            .font_family(browser::face::UI)
+            .text_size(px(text::BODY))
+            .text_color(rgb(TEXT))
+            .child(div().px(px(SIDE)).py(px(FIRST)).child(self.account.clone()))
+            .children(dialog::cover(&self.dialog, cx))
+    }
+}
+
+/// A made-up account: its recovery words are made-up words, and it asks nothing of a server. It
+/// asks the user in its window's dialog.
+struct PreviewAccount {
+    dialog: gpui::Entity<dialog::Dialog>,
+}
+
+impl account::Host for PreviewAccount {
+    fn set_server(&self, _: &str) -> bool {
+        true
+    }
+    fn sign_in(&self) {}
+    fn cancel(&self) {}
+    fn sign_out(&self) {}
+    fn recovery_words(&self) -> String {
+        "harbor velvet nominee orbit quarter skill tumble canyon effort glide lunar prize \
+         answer bridge cotton dwarf frozen hollow island jacket kitten ladder mango noble"
+            .into()
+    }
+    fn enter_recovery_words(&self, _: &str) -> bool {
+        true
+    }
+    fn start_over(&self) {}
+    fn request_pairing(&self) {}
+    fn read_devices(&self) {}
+    fn remove_device(&self, _: &str) {}
+    fn copy_secret(&self, _: &str, _: Duration, _: &mut App) {}
+    fn confirm(
+        &self,
+        message: String,
+        detail: String,
+        action: &'static str,
+        on_return: dialog::Return,
+        confirmed: Box<dyn FnOnce(&mut App)>,
+        window: &mut gpui::Window,
+        cx: &mut App,
+    ) {
+        dialog::ask_in(&self.dialog, message, detail, action, on_return, confirmed, window, cx);
     }
 }
