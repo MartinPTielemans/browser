@@ -1252,8 +1252,8 @@ swatch-pitch = 40.0
 swatch-gap = 28.0
 swatch-ring = 2.0
 swatch-edge = 0.12
-# The import step holds the import view as wide as Settings' boxes, on the flow's ground, its
-# boxes this much of the ink over it.
+# The import and account steps hold Settings' own views as wide as its boxes, on the flow's
+# ground, their boxes this much of the ink over it.
 import-width = 556.0
 import-surface = 0.05
 # The opt-ins step's switches, Settings' own, a row each under its line: the switch's name over its

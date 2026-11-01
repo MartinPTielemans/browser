@@ -452,9 +452,19 @@ impl dialog::Host for InWindow {
 
 /// The browser's account, as the Sync tab asks the core for it.
 struct CoreAccount {
-    /// Where it asks before signing out or showing the words on Linux, which has no alert.
+    /// Where it asks before signing out or showing the words on Linux, which has no alert:
+    /// Settings' own dialog, or for a browser window's view, the browser's.
     #[cfg(target_os = "linux")]
-    dialog: Entity<dialog::Dialog>,
+    dialog: Option<Entity<dialog::Dialog>>,
+}
+
+/// The browser's account for a view of it in a browser window, as the first launch's step, which
+/// asks before starting over in an alert, or on Linux in the browser's dialog.
+pub fn browser_account() -> Rc<dyn account::Host> {
+    Rc::new(CoreAccount {
+        #[cfg(target_os = "linux")]
+        dialog: None,
+    })
 }
 
 impl account::Host for CoreAccount {
@@ -525,7 +535,15 @@ impl account::Host for CoreAccount {
         cx: &mut App,
     ) {
         #[cfg(target_os = "linux")]
-        dialog::ask_in(&self.dialog, message, detail, action, on_return, confirmed, window, cx);
+        match &self.dialog {
+            Some(dialog) => {
+                dialog::ask_in(dialog, message, detail, action, on_return, confirmed, window, cx)
+            }
+            None => crate::with_overlays(
+                move |cx| dialog::ask_returning(message, detail, action, on_return, confirmed, cx),
+                cx,
+            ),
+        }
         #[cfg(not(target_os = "linux"))]
         {
             let _ = window;
@@ -540,15 +558,10 @@ impl account::Host for CoreAccount {
     }
 }
 
-/// The account as the core last said it is, for the Sync tab when Settings first opens.
-#[derive(Default)]
-struct Synced(account::State);
-
-impl Global for Synced {}
-
-/// The browser's account changed.
+/// The browser's account changed: Settings' Sync tab shows it, and the first launch's account
+/// step follows it (account::Synced).
 pub fn sync_changed(state: account::State, cx: &mut App) {
-    cx.set_global(Synced(state.clone()));
+    cx.set_global(account::Synced(state.clone()));
     if let Some(window) = cx.try_global::<SettingsWindow>().map(|settings| settings.0) {
         let changed = move |settings: &mut Settings, _: &mut Window, cx: &mut Context<Settings>| {
             settings.account.update(cx, |account, cx| account.set_state(state, cx));
@@ -885,7 +898,7 @@ fn open(cx: &mut App) {
     let close = if crate::shell::OFF_THE_MAC { "ctrl-w" } else { "cmd-w" };
     cx.bind_keys([gpui::KeyBinding::new(close, CloseSettings, Some("Settings"))]);
     account::bind_keys(cx);
-    let synced = cx.try_global::<Synced>().map(|synced| synced.0.clone()).unwrap_or_default();
+    let synced = account::synced(cx);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(
             point(px(0.), px(0.)),
@@ -935,7 +948,7 @@ fn open(cx: &mut App) {
             };
             let host = CoreAccount {
                 #[cfg(target_os = "linux")]
-                dialog: dialog.clone(),
+                dialog: Some(dialog.clone()),
             };
             let account = cx.new(|cx| {
                 let mut account = Account::new(Rc::new(host), cx);
