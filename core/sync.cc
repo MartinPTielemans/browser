@@ -406,6 +406,9 @@ struct Asked {
   std::string id;
   std::string name;
   std::string os;
+  // The server's times, in milliseconds since the Unix epoch, 0 unsaid.
+  double asked_at = 0;
+  double signed_in_at = 0;
   bool accepted = false;
   base::OneShotTimer expiry;
 };
@@ -1455,7 +1458,9 @@ class Account : public syncer::SyncServiceObserver,
         bc_sync_pairing asked = {.id = asked_->id.c_str(),
                                  .name = asked_->name.c_str(),
                                  .os = asked_->os.c_str(),
-                                 .code = asked_->pairing.code().c_str()};
+                                 .code = asked_->pairing.code().c_str(),
+                                 .asked_at = asked_->asked_at,
+                                 .signed_in_at = asked_->signed_in_at};
         Host().sync_pairing_asked(Host().context, &asked);
       }
     } else if (*type == "pair_sealed" && pairing && request_ && request_->id == *pairing) {
@@ -1525,6 +1530,9 @@ class Account : public syncer::SyncServiceObserver,
     const std::string* os = frame.FindString("os");
     asked_->name = name ? *name : std::string();
     asked_->os = os ? *os : std::string();
+    // Seconds, from the server.
+    asked_->asked_at = frame.FindDouble("asked_at").value_or(0) * 1000;
+    asked_->signed_in_at = frame.FindDouble("signed_in_at").value_or(0) * 1000;
     StartExpiry(asked_->expiry, frame, *pairing);
     for (Window* window : Window::All()) {
       if (window->widget() && window->widget()->IsActive()) {
