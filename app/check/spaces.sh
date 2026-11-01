@@ -59,10 +59,19 @@ step=0
 # its steps go to the Spaces and the Library by key, click and wheel instead. Its clicks land on
 # whole pixels, at scale 1 here.
 x11=
+no_phases=
 if [ "$(uname)" = Linux ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
   x11=1
+  no_phases=1
   echo "skip: two fingers across the sidebar, on X11, which sends no touch phases (#554)."
 fi
+# Nor does GPUI on Windows, where a touchpad's scrolling comes as a wheel's lines (#1212).
+case $(uname) in
+MINGW* | MSYS*)
+  no_phases=1
+  echo "skip: two fingers across the sidebar, on Windows, where GPUI has no touch phases (#1212)."
+  ;;
+esac
 rm -f "$saved" "$launch_frame"
 BROWSER_DRIVE=1 BROWSER_URL="$page" "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
@@ -267,7 +276,7 @@ expect_tabs "$a" "$a" "after closing the last-used check's tab"
 # along the list scroll it, and a wheel's tick across pages once. Held partway, the next Space's
 # page shows beside the first's.
 swipe_point="110 500"
-if [ -z "$x11" ]; then
+if [ -z "$no_phases" ]; then
 post swipe $swipe_point -10 0 10 1500
 await '^browser: swipe across$' || fail "two fingers across the sidebar didn't page"
 ../tools/window-screenshot.sh "$pid" "$out/swipe.png" || fail "no window to capture"
@@ -308,7 +317,7 @@ library_to() {
   expect "^browser: command view-library via $2\$" "a $1 didn't reach the Library"
   expect "^browser: library $3\$" "a $1 didn't leave the Library $3"
 }
-if [ -z "$x11" ]; then
+if [ -z "$no_phases" ]; then
 post swipe $swipe_point 30 0 10 1500
 expect '^browser: library section ' "two fingers past the first Space didn't bring the Library out"
 ../tools/window-screenshot.sh "$pid" "$out/library-swipe.png" || fail "no window to capture"
@@ -536,7 +545,7 @@ step=$slide
 expect "^browser: settled space $second\$" "the second Space's page didn't settle"
 step=$now
 
-if [ -z "$x11" ]; then
+if [ -z "$no_phases" ]; then
 send swipe $swipe_point -10 0 10
 expect '^browser: swipe across$' "two fingers across the sidebar didn't page"
 none_since '^browser: new space ready$' || fail "a short pull past the last Space readied a Space"
@@ -588,7 +597,7 @@ expect '^browser: command new-space via ui$' "New Space in the menu didn't run n
 expect "^browser: spaces $first [0-9]* $second\$" "New Space didn't make a Space after the first"
 third=$(grep '^browser: spaces' "$log" | tail -1 | cut -d' ' -f4)
 expect "^browser: settled space $third\$" "the form's page didn't settle"
-if [ -z "$x11" ]; then
+if [ -z "$no_phases" ]; then
 send swipe $swipe_point -40 0 10
 expect '^browser: swipe across$' "two fingers across the form didn't page"
 expect "^browser: settled space $third\$" "the form's page didn't settle back"
