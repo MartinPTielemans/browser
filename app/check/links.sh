@@ -54,6 +54,7 @@ if [ "$driven" = 1 ]; then
   # Settings says the browser isn't the default and offers to make it so.
   send key , cmd
   expect '^browser: settings shown General$' "⌘, didn't show Settings on its General tab"
+  settings_drew General
   expect '^browser: default browser no$' "Settings didn't read whether the browser is the default"
   ../tools/window-screenshot.sh "$pid" "$out/links-settings.png" || fail "no window to capture"
   send key w cmd
@@ -95,8 +96,10 @@ if [ "$driven" = 1 ]; then
   front=$(cased "The Space in Front")
   send key , cmd
   expect '^browser: settings shown General$' "⌘, didn't show Settings on its General tab"
+  settings_drew General
   send clickkey 162 60
   expect '^browser: settings tab Links$' "a click on Links didn't show its tab"
+  settings_drew Links
   expect "$(drawn none "$front")" "the Links tab didn't draw its empty box"
   ../tools/window-screenshot.sh "$pid" "$out/links-rules-empty.png" || fail "no window to capture"
   send clickkey 76 173
@@ -113,6 +116,7 @@ if [ "$driven" = 1 ]; then
   # A second rule, for a URL exactly, to the first Space, which a URL longer than it doesn't meet.
   send menu Settings…
   expect '^browser: settings shown Links$' "Settings… didn't show Settings on its Links tab"
+  settings_drew Links
   send clickkey 76 173
   expect '^browser: link rule 1 field has the keyboard$' "+ didn't give the second rule's field the keyboard"
   send insert "${site}?exact"
@@ -129,6 +133,7 @@ if [ "$driven" = 1 ]; then
   # Dragged by its arrow onto the first row, the second rule goes first.
   send menu Settings…
   expect '^browser: settings shown Links$' "Settings… didn't show Settings on its Links tab"
+  settings_drew Links
   send dragkey 407 170 407 129
   expect "$(drawn "$exact, URL contains \"work\" → work" "$front")" "the drag didn't put the second rule first"
   ../tools/window-screenshot.sh "$pid" "$out/links-rules.png" || fail "no window to capture"
@@ -142,6 +147,7 @@ if [ "$driven" = 1 ]; then
   # − takes the first rule away.
   send menu Settings…
   expect '^browser: settings shown Links$' "Settings… didn't show Settings on its Links tab"
+  settings_drew Links
   send clickkey 597 129
   expect "$(drawn 'URL contains "work" → work' work)" "− didn't take the rule away"
   send key w cmd
