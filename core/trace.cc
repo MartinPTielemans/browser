@@ -37,3 +37,5 @@ void bc_trace_stop(void) {
         }
       })));
 }
+
+// Probe for a warm Core on Linux run; never merged.
