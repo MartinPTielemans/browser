@@ -3175,8 +3175,25 @@ bool host_drag_file(const char* path, void (*ended)(bool)) {
     // On the UI thread GPUI has made an OLE apartment, as Explorer's drag is.
     DWORD effect = DROPEFFECT_NONE;
     fprintf(stderr, "browser: proof: file drag loop starts\n");
+    // Whether the loop dispatches a timer's messages, and whether the thread answers a sent one.
+    static int ticks = 0;
+    ticks = 0;
+    const UINT_PTR tick = SetTimer(nullptr, 0, 300, [](HWND, UINT, UINT_PTR, DWORD) {
+      if (++ticks <= 5) {
+        fprintf(stderr, "browser: proof: file drag loop tick %d\n", ticks);
+      }
+    });
+    HWND answering = GetForegroundWindow();
+    std::thread([answering] {
+      Sleep(2000);
+      DWORD_PTR result = 0;
+      const LRESULT sent =
+          SendMessageTimeoutW(answering, WM_NULL, 0, 0, SMTO_NORMAL, 2000, &result);
+      fprintf(stderr, "browser: proof: file drag loop answers a sent message %d\n", sent != 0);
+    }).detach();
     const HRESULT dropped = DoDragDrop(data.Get(), source.Get(), DROPEFFECT_COPY, &effect);
     fprintf(stderr, "browser: proof: file drag loop returned %lx effect %lu\n", dropped, effect);
+    KillTimer(nullptr, tick);
     if (ended) {
       ended(dropped == DRAGDROP_S_DROP && effect != DROPEFFECT_NONE);
     }
