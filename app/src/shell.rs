@@ -3101,7 +3101,7 @@ impl Render for Shell {
         self.step_new_space(window);
         self.step_flight(window);
         self.step_picture(window);
-        self.step_recent_downloads(window);
+        self.step_recent_downloads(window, cx);
         if let Some((_, left)) = &self.leaving_form {
             if left.elapsed().as_secs_f32() < FORM_LEAVE_TITLE + FORM_LEAVE {
                 window.request_animation_frame();
