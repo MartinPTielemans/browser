@@ -278,18 +278,23 @@ painted(() => document.title = "fields");
   # one of another, which Chromium puts in a process of its own, and the agent acts in both. A
   # password field in a frame is as off limits as one in the page. The page names itself once the
   # other site's frame has painted: until then Chromium hasn't the frame's drawing to find what's
-  # under a click in, and gives the click to the page around it.
+  # under a click in, and gives the click to the page around it. Before that it names the frame's
+  # size and visibility as it loaded, and its own, which say why a frame never painted.
   printf '%s' '<p>Inner text</p><button>Inner button</button><input aria-label="Inner field">' \
     > "$out/site/inner.html"
   printf '%s' '<p>Cross text</p>
 <button onclick="document.body.append(&quot;cross clicked&quot;)">Cross button</button>
 <input aria-label="Cross field" oninput="document.body.append(&quot;cross typed&quot;)">
 <input type=password aria-label="Cross password"><script src="painted.js"></script>
-<script>painted(() => parent.postMessage("painted", "*"));</script>' > "$out/site/cross.html"
+<script>painted(() => parent.postMessage("painted", "*"));
+addEventListener("load", () => parent.postMessage(`cross at ${innerWidth}x${innerHeight} ${document.visibilityState}`, "*"));</script>' > "$out/site/cross.html"
   printf '%s' "<title>loading</title><p>Top text</p><iframe src=inner.html></iframe>
 <iframe src=http://127.0.0.1:$port/cross.html></iframe>
-<script>addEventListener('message', (event) => {
-  if (event.data === 'painted') document.title = 'frames';
+<script>let painted = false;
+addEventListener('message', (event) => {
+  if (String(event.data).startsWith('cross at ') && !painted)
+    document.title = \`\${event.data}, page at \${innerWidth}x\${innerHeight} \${document.visibilityState}\`;
+  if (event.data === 'painted') { painted = true; document.title = 'frames'; }
   if (event.data === 'extension frame') document.title = 'frames with extension';
 });</script>" > "$out/site/frames.html"
   outline=$(call open_tab "{\"url\":\"localhost:$port/frames.html\"}")
@@ -299,7 +304,9 @@ painted(() => document.title = "fields");
     *) fail "the page with frames was outlined as: $outline" ;;
   esac
   frames_tab=$(printf '%s\n' "$outline" | sed -n '1s/^Opened tab \([0-9]*\)\..*/\1/p')
-  await_log "^browser: title $frames_tab frames\$" "the other site's frame didn't paint"
+  await "^browser: title $frames_tab frames\$" || fail "the other site's frame didn't paint: $(
+    grep "^browser: title $frames_tab cross at " "$log" | tail -1 | cut -d' ' -f4- | grep . ||
+      echo "it never loaded")"
   inner=$(ref_of button "Inner button")
   cross=$(ref_of button "Cross button")
   [ -n "$inner" ] && [ -n "$cross" ] && [ "$inner" != "$cross" ] ||
