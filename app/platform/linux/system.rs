@@ -65,8 +65,26 @@ pub fn watch_activation<T: 'static>(
     whole_window: bool,
     cx: &mut Context<T>,
 ) {
-    cx.observe_window_activation(window, move |_, window, _| unsafe {
-        platform::host_window_active(ui_view, window.is_window_active(), whole_window)
+    cx.observe_window_activation(window, move |_, window, _| {
+        let active = window.is_window_active();
+        if active {
+            crate::link_preview_window::took_keyboard(ui_view);
+        }
+        unsafe { platform::host_window_active(ui_view, active, whole_window) }
+    })
+    .detach();
+}
+
+/// Tells the link preview each time Settings, whose view is `view`, takes the keyboard.
+pub fn watch_settings_activation<T: 'static>(
+    window: &mut Window,
+    view: *mut c_void,
+    cx: &mut Context<T>,
+) {
+    cx.observe_window_activation(window, move |_, window, _| {
+        if window.is_window_active() {
+            crate::link_preview_window::took_keyboard(view);
+        }
     })
     .detach();
 }

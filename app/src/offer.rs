@@ -1,17 +1,18 @@
-//! The offer to save a login's password, or to update the one saved, after a page submits it
-//! (docs/ux-spec.md › Passwords and autofill): a card at the top right of the page, in Chrome's
-//! words. GPUI can't draw over the page's native view, so as the find bar is, each browser
-//! window's offer is a window of its own that the host shows over it, as its child. The core keeps
-//! the password; the card shows the username, which the user can edit or pick from the page's other
-//! fields, and the password masked. Showing another tab closes the offer, as it closes Chrome's
-//! bubble, and coming back doesn't bring it back. What it asks of its window and the core goes
-//! through `Host`.
+//! The offer to save a login's password, or to update the one saved, after a page submits it, or
+//! to save the address or the card a page's form submitted (docs/ux-spec.md › Passwords and
+//! autofill): a card at the top right of the page, in Chrome's words. GPUI can't draw over the
+//! page's native view, so as the find bar is, each browser window's offer is a window of its own
+//! that the host shows over it, as its child. The core keeps the password; the card shows the
+//! username, which the user can edit or pick from the page's other fields, and the password masked.
+//! An address's or a card's shows what it saves in the same two rows, to read. Showing another tab
+//! closes the offer, as it closes Chrome's bubble, and coming back doesn't bring it back. What it
+//! asks of its window and the core goes through `Host`.
 
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use gpui::{
-    App, Bounds, Context, Entity, Focusable, FontWeight, Global, Hsla, KeyBinding, Pixels, Point,
-    SharedString, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds,
+    App, Bounds, Context, Entity, FocusHandle, Focusable, FontWeight, Global, Hsla, KeyBinding,
+    Pixels, Point, SharedString, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds,
     WindowHandle, WindowKind, WindowOptions, actions, div, point, prelude::*, px, size,
     svg,
 };
@@ -68,6 +69,10 @@ pub enum Kind {
     Save,
     /// To update the password saved for it.
     Update,
+    /// To save the address the page's form submitted.
+    Address,
+    /// To save the card the page's form submitted, to this device.
+    Card,
 }
 
 /// An offer from Chrome's password manager, as the core reports it, in Chrome's words.
@@ -88,6 +93,15 @@ pub struct Offer {
     pub decline: SharedString,
     /// None where there's no Never, as for an update.
     pub never: Option<SharedString>,
+    /// An address's or a card's: what it saves, a line each, as Chrome's bubble lists it.
+    pub details: Vec<SharedString>,
+}
+
+impl Offer {
+    /// It saves a password, which the user names in the field.
+    fn of_login(&self) -> bool {
+        matches!(self.kind, Kind::Save | Kind::Update)
+    }
 }
 
 /// The user's answer.
@@ -122,6 +136,8 @@ pub struct OfferPrompt {
     /// The window's colour, which the card takes, and the palette its text is drawn in.
     look: Box<dyn Fn(&App) -> (Hsla, Palette)>,
     input: Entity<TextInput>,
+    /// The card's own, which has the keyboard for an address's or a card's offer, with no field.
+    focus: FocusHandle,
     /// The tab the window shows, whose offer this is.
     tab: u64,
     /// The tab's page shows in another window, which shows the offer, and this one a picture of it.
@@ -179,12 +195,13 @@ pub fn open(
                 .caret_color(look(cx).1.accent)
                 .selection_color(look(cx).1.selection())
         });
-        // The field has the keyboard whenever the window does.
+        // The field has the keyboard whenever the window does, unless the offer has none.
         window.focus(&input.focus_handle(cx), cx);
-        cx.new(|_| OfferPrompt {
+        cx.new(|cx| OfferPrompt {
             host,
             look: Box::new(look),
             input,
+            focus: cx.focus_handle(),
             tab: 0,
             elsewhere: false,
             settling: Settling::default(),
@@ -218,16 +235,21 @@ fn windows(cx: &App) -> Vec<WindowHandle<OfferPrompt>> {
 pub fn changed(tab: u64, offer: Option<Offer>, cx: &mut App) {
     // check.sh reads these lines. They count the page's other fields' values rather than log them,
     // as a check keeps its log, and leave out the password's length, since prod logs to stderr too.
+    // An address's or a card's logs how many lines it has, not what they say.
     match &offer {
-        Some(offer) => log!(
-            "browser: offer {tab} {} {} {}",
-            match offer.kind {
-                Kind::Save => "save",
-                Kind::Update => "update",
-            },
-            offer.username,
-            offer.usernames.len()
-        ),
+        Some(offer) => match offer.kind {
+            Kind::Save | Kind::Update => log!(
+                "browser: offer {tab} {} {} {}",
+                if offer.kind == Kind::Save { "save" } else { "update" },
+                offer.username,
+                offer.usernames.len()
+            ),
+            Kind::Address | Kind::Card => log!(
+                "browser: offer {tab} {} {}",
+                if offer.kind == Kind::Address { "address" } else { "card" },
+                offer.details.len()
+            ),
+        },
         None => log!("browser: offer {tab} gone"),
     }
     OFFERS.with_borrow_mut(|offers| match offer {
@@ -291,6 +313,10 @@ fn show_offer(window: WindowHandle<OfferPrompt>, cx: &mut App) {
         .update(cx, |prompt, window, cx| {
             match prompt.offer().filter(|_| !prompt.elsewhere) {
                 Some(offer) => {
+                    match offer.of_login() {
+                        true => window.focus(&prompt.input.focus_handle(cx), cx),
+                        false => window.focus(&prompt.focus, cx),
+                    }
                     prompt.input.update(cx, |input, cx| input.reset(offer.username, window, cx));
                     prompt.host.show();
                     prompt.settling.start(format!("offer {}", prompt.tab), cx);
@@ -427,6 +453,17 @@ impl Render for OfferPrompt {
             .overflow_hidden()
             .text_color(palette.text(DETAIL))
             .child("•".repeat(offer.password_length));
+        // An address's first line, its name, then the rest on one; a card's name and last digits,
+        // then its expiry.
+        let first = offer.details.first().cloned().unwrap_or_default();
+        let rest: Vec<&str> = offer.details.iter().skip(1).map(|line| line.as_ref()).collect();
+        let line = |text: SharedString| {
+            row().pr(px(FIELD_X)).child(div().flex_1().min_w_0().truncate().child(text))
+        };
+        let (first, second) = match offer.of_login() {
+            true => (username, password),
+            false => (line(first), line(rest.join(", ").into()).text_color(palette.text(DETAIL))),
+        };
         let buttons = div()
             .mt(px(BUTTONS_TOP))
             .flex()
@@ -438,6 +475,7 @@ impl Render for OfferPrompt {
         root.child(
             div()
                 .key_context("Offer")
+                .track_focus(&self.focus)
                 .on_action(cx.listener(Self::accept))
                 .on_action(cx.listener(Self::not_now))
                 .size_full()
@@ -466,8 +504,8 @@ impl Render for OfferPrompt {
                         .truncate()
                         .child(offer.site),
                 )
-                .child(username.mt(px(HEADER_GAP)))
-                .child(password.mt(px(ROW_GAP)))
+                .child(first.mt(px(HEADER_GAP)))
+                .child(second.mt(px(ROW_GAP)))
                 .child(buttons),
         )
     }
