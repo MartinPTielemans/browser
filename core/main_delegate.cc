@@ -304,6 +304,7 @@ class ContentBrowserClient : public ChromeContentBrowserClient {
     ChromeContentBrowserClient::CreateThrottlesForNavigation(registry);
     system_engine::CreateThrottlesForNavigation(registry);
     AddLinkPreviewThrottle(registry);
+    AddAdBlockHold(registry);
   }
 
   bool HandleExternalProtocol(
