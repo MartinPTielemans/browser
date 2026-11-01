@@ -600,7 +600,8 @@ void ShowPages(views::Widget* widget,
   }
   views->set_corner_radius(corner_radius);
   views->set_held(false);
-  const bool hidden = !widget->IsVisible();
+  // A minimized window counts as visible (Window::OnWidgetShowStateChanged).
+  const bool hidden = !widget->IsVisible() || widget->IsMinimized();
   const gfx::Size size = views->ContentSize();
 
   Staying staying;

@@ -2430,6 +2430,18 @@ bool Window::FullScreenForPage() const {
   return false;
 }
 
+void Window::OnWidgetShowStateChanged(views::Widget* widget) {
+#if BUILDFLAG(IS_WIN)
+  // On Windows a minimized window stays visible to views, and its pages, each in a child window of
+  // its own, kept drawing: Chromium hides only the window's own content as it minimizes
+  // (HandleWindowMinimizedOrRestored). It goes out of sight and back as the Mac's and Linux's do.
+  const bool minimized = widget->IsMinimized();
+  if (minimized != std::exchange(minimized_, minimized)) {
+    OnWidgetVisibilityChanged(widget, !minimized);
+  }
+#endif
+}
+
 void Window::OnWidgetBoundsChanged(views::Widget* widget, const gfx::Rect& new_bounds) {
   // The session keeps each regular window's frame, saved a while after it moves, so a crash
   // keeps it too.

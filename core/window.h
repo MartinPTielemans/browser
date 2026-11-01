@@ -16,6 +16,7 @@
 #include "base/scoped_observation.h"
 #include "browser_core/public/browser_core.h"
 #include "browser_core/session.h"
+#include "build/build_config.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "components/web_modal/web_contents_modal_dialog_host.h"
 #include "ui/gfx/geometry/rect.h"
@@ -341,6 +342,7 @@ class Window : public web_modal::WebContentsModalDialogHost,
   void OnWidgetActivationChanged(views::Widget* widget, bool active) override;
   void OnWidgetVisibilityChanged(views::Widget* widget, bool visible) override;
   void OnWidgetBoundsChanged(views::Widget* widget, const gfx::Rect& new_bounds) override;
+  void OnWidgetShowStateChanged(views::Widget* widget) override;
 
  private:
   class ClientView;
@@ -465,6 +467,10 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Whether the keyboard was the page's as the window went out of sight, which hid the page, or is
   // the page shown's once the window is active again.
   bool page_had_keyboard_ = false;
+#if BUILDFLAG(IS_WIN)
+  // Whether the window was minimized at its last show state change (OnWidgetShowStateChanged).
+  bool minimized_ = false;
+#endif
   // DevTools that showed docked, until they're laid out past the page, and then until FocusPage
   // gives them the keyboard. A covered page view is hidden, and Chromium drops each key it doesn't
   // handle, as F12 to close them (#1120).
