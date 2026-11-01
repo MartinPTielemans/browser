@@ -198,6 +198,8 @@ mod platform {
         pub fn host_watch_active(became_active: extern "C" fn());
         #[cfg(not(target_os = "linux"))]
         pub fn host_reduce_motion() -> bool;
+        #[cfg(not(target_os = "linux"))]
+        pub fn host_watch_reduce_motion(changed: extern "C" fn());
         pub fn host_is_default_browser() -> bool;
         pub fn host_make_default_browser(answered: extern "C" fn());
         pub fn host_since_launch() -> f64;
@@ -4298,6 +4300,10 @@ fn finish_opening(
         platform::host_watch_active(became_active);
     }
     follow_reduce_motion(cx);
+    #[cfg(not(target_os = "linux"))]
+    unsafe { platform::host_watch_reduce_motion(reduce_motion_changed) };
+    #[cfg(target_os = "linux")]
+    reduce_motion::watch(cx);
     if let Some(bar) = command_bar::open(Rc::new(Bar), cx)
         && let Ok(view) = bar.update(cx, |_, window, _| ns_view(window))
     {
@@ -5123,17 +5129,24 @@ extern "C" fn became_active() {
     update_app_later(|cx| {
         settings::check_default_browser(cx);
         import_host::became_active(cx);
+        // GTK's settings file, Linux's last word, says nothing as it changes.
+        #[cfg(target_os = "linux")]
         follow_reduce_motion(cx);
     });
 }
 
-/// Reads the system's Reduce Motion as the first window opens, before its first frame, and each
-/// time the app becomes active, as the setting changes in the system's settings, another app.
+/// Reads the system's Reduce Motion as the first window opens, before its first frame, and again
+/// as the system says it changed.
 fn follow_reduce_motion(cx: &mut App) {
     #[cfg(not(target_os = "linux"))]
     set_reduce_motion(unsafe { platform::host_reduce_motion() }, cx);
     #[cfg(target_os = "linux")]
     reduce_motion::read(cx);
+}
+
+#[cfg(not(target_os = "linux"))]
+extern "C" fn reduce_motion_changed() {
+    update_app_later(follow_reduce_motion);
 }
 
 /// What GPUI's animations and the UI's own motion follow (`App::reduce_motion`).

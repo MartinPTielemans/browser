@@ -654,6 +654,7 @@ void MenuForegroundChanged(HWND root, bool ours);
 void (*g_key_window_changed)(void*) = nullptr;
 void (*g_resigning_active)(void) = nullptr;
 void (*g_became_active)(void) = nullptr;
+void (*g_reduce_motion_changed)(void) = nullptr;
 bool g_active = true;
 
 void CALLBACK ForegroundChanged(HWINEVENTHOOK, DWORD, HWND hwnd, LONG, LONG, DWORD, DWORD) {
@@ -1728,6 +1729,12 @@ LRESULT CALLBACK FrameProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
     case WM_NCDESTROY:
       WindowButtonsShown().erase(hwnd);
       break;
+    // Windows tells every top-level window that "Show animations in Windows" changed.
+    case WM_SETTINGCHANGE:
+      if (wparam == SPI_SETCLIENTAREAANIMATION && g_reduce_motion_changed) {
+        g_reduce_motion_changed();
+      }
+      break;
   }
   return DefSubclassProc(hwnd, message, wparam, lparam);
 }
@@ -2127,6 +2134,11 @@ bool ChoiceIsOurs(const wchar_t* scheme) {
 bool host_reduce_motion(void) {
   BOOL animations = TRUE;
   return SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animations, 0) && !animations;
+}
+
+// FrameProc calls it as the browser windows hear of the change.
+void host_watch_reduce_motion(void (*changed)(void)) {
+  g_reduce_motion_changed = changed;
 }
 
 bool host_is_default_browser(void) {
