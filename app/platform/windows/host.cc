@@ -157,6 +157,9 @@ struct Floating {
   HWND hwnd = nullptr;
   // Clicks go through it to the browser window under it.
   bool mouse_through = false;
+  // Where it takes clicks, in pixels from its top-left, if not all of it: the hover card's plate,
+  // whose margin, where its shadow draws, lets them through as on the Mac and Linux.
+  std::optional<RECT> plate;
   // Called after the event, when the user leaves it for a window that isn't its own.
   void (*dismissed)(void) = nullptr;
   // Set while the host hides it, so that isn't the user leaving it.
@@ -220,6 +223,13 @@ LRESULT CALLBACK FloatingProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpa
       // To the browser window under it, which is on this thread.
       if (floating->mouse_through) {
         return HTTRANSPARENT;
+      }
+      if (floating->plate) {
+        POINT at{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+        ScreenToClient(hwnd, &at);
+        if (!PtInRect(&*floating->plate, at)) {
+          return HTTRANSPARENT;
+        }
       }
       break;
     case WM_MOUSEACTIVATE:
@@ -2705,8 +2715,7 @@ void host_hide_tooltip(double fade) {
   FadeOut(g_tooltip, fade, [] {});
 }
 
-// shortcut: the card takes clicks over its whole window, the margin round the plate included, and
-// ends only as the pointer leaves it or the UI ends it, as a key does.
+// shortcut: the card ends only as the pointer leaves it or the UI ends it, as a key does.
 void host_add_hover_card(void* card_view, double margin, void (*)(void)) {
   Adopt(g_card, card_view, false, nullptr);
   // A click on its buttons leaves the keyboard where it was.
@@ -2715,7 +2724,13 @@ void host_add_hover_card(void* card_view, double margin, void (*)(void)) {
   g_card_margin = margin;
 }
 
-void host_show_hover_card(void* ui_view, double left, double top, double, double) {
+void host_show_hover_card(void* ui_view, double left, double top, double width, double height) {
+  if (HWND root = Root(ui_view)) {
+    const double scale = Scale(root);
+    g_card.plate = RECT{std::lround(g_card_margin * scale), std::lround(g_card_margin * scale),
+                        std::lround((g_card_margin + width) * scale),
+                        std::lround((g_card_margin + height) * scale)};
+  }
   Show(g_card, ui_view, left - g_card_margin, top - g_card_margin, -1, -1, false);
   HWND root = Root(ui_view);
   RECT frame;
