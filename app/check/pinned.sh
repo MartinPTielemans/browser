@@ -368,7 +368,9 @@ exited
 log="$out/pinned-restored.log"
 step=0
 rm -f "$out/space.md"
-BROWSER_DRIVE=1 BROWSER_EXPORT_FILE="$out/space.md" "$browser" < "$out/drive" > "$log" 2>&1 &
+# The export's file as an absolute path, which the app on Windows needs, as it resolves a relative
+# one against its own folder (#997).
+BROWSER_DRIVE=1 BROWSER_EXPORT_FILE="$(app_path "$PWD/$out/space.md")" "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await '^browser: restored in ' || fail "the relaunch didn't restore the Space"
@@ -600,7 +602,7 @@ log="$out/folder-restored.log"
 step=0
 # The run names the file Export… writes, as it can't drive the system's save panel.
 rm -f "$out/spaces.md"
-BROWSER_EXPORT_FILE="$out/spaces.md" BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
+BROWSER_EXPORT_FILE="$(app_path "$PWD/$out/spaces.md")" BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await '^browser: restored in ' || fail "the relaunch didn't restore the Space"
@@ -659,7 +661,7 @@ send key , cmd
 expect '^browser: settings shown General$' "⌘, didn't show Settings on its General tab"
 # The run's first ⌘, opens the window, which takes no click until it has drawn (#1101).
 expect '^browser: settings drew General$' "Settings didn't draw General"
-send clickkey 519 60
+send clickkey $(drawn "toolbar Advanced")
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
 settings_drew Advanced
 # Copy All Links' toast is mostly still up, and the click lands all the same (#1134): a toast lets
@@ -702,7 +704,8 @@ expect "^browser: outline $c\$" "⇧⌘Z didn't delete the folder again: $(outli
 # shows, titled by its name.
 t=$(today)
 ../tools/window-screenshot.sh "$pid" "$out/drop-before.png" || fail "no window to capture"
-send dragover 100 150 file "$(cd "$out" && pwd)/site/notes.txt"
+# As Explorer would drag it on Windows, D:/a/..., which Chrome's file URL finds (#997).
+send dragover 100 150 file "$(app_path "$(cd "$out" && pwd)/site/notes.txt")"
 expect '^browser: drag over HostUIView taken$' "the list didn't take a file dragged over it"
 expect '^browser: drop line in pinned 0$' "no line marked the file's place above the pinned tab"
 ../tools/window-screenshot.sh "$pid" "$out/drop-line.png" || fail "no window to capture"
@@ -843,7 +846,7 @@ mkdir -p "$notes/sub"
 for file in b.txt A.txt .hidden sub/c.txt; do
   echo "$file" > "$notes/$file"
 done
-send dragdrop 100 150 file "$notes"
+send dragdrop 100 150 file "$(app_path "$notes")"
 expect '^browser: dropped 1 in pinned 0$' "the folder didn't drop above the pinned tabs"
 expect '^browser: folder [0-9]* from disk 1 2 Notes$' \
   "the dropped folder didn't come in with its folder and two files, the hidden one left out"
