@@ -67,7 +67,6 @@ send type d
 await '^browser: download [0-9]* \(done\|failed\) notes.txt$' || fail "the page's download didn't end"
 if grep -q '^browser: download [0-9]* failed notes.txt$' "$log"; then
   # Proof for #872: Chrome's histograms keep why it failed, its interrupt reason as their mean.
-  send key escape
   go_from_bar chrome://histograms/Download.Interrupted
   await '^browser: loaded [0-9]* chrome://histograms' || true
   await "^browser: title [0-9]* Histograms$" || true
