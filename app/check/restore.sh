@@ -675,8 +675,10 @@ send key n cmd
 expect '^browser: window opened [0-9]*$' "⌘N didn't open a second window"
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
+settings_drew
 send clickkey 519 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
+settings_drew Advanced
 # Where Settings drew the switch, as the Mini Player's row above it moves it.
 at=$(drawn "switch restore windows") || fail "Restore windows from last session has no switch"
 send clickkey $at
