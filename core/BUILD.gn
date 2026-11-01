@@ -5,6 +5,7 @@
 import("//build/config/sanitizers/sanitizers.gni")
 import("//mojo/public/tools/bindings/mojom.gni")
 import("//testing/test.gni")
+import("//ui/base/ui_features.gni")
 
 # What a page tells the core about the key system it asks for. Blink's encrypted media module calls
 # it (engine/patches/ours/chromium-drm-request.patch), so it has a Blink variant.
@@ -435,4 +436,8 @@ test("browser_core_unittests") {
     "//components/variations:test_support",
     "//testing/gtest",
   ]
+  if (use_xkbcommon) {
+    sources += [ "xkb_no_keymap_unittest.cc" ]
+    deps += [ "//ui/events/ozone/layout" ]
+  }
 }
