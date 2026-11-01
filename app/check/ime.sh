@@ -1,7 +1,7 @@
 #!/bin/bash
 # On Linux: typing through an input method, on Wayland and on X11 (sway's Xwayland), in the page's
 # fields and the app's own. Not a check.sh run, which drives the Mac: run check/ime.sh, or
-# check/ime.sh wayland or x11 for one, after ./build.sh.
+# check/ime.sh wayland, x11 or no-keyboard for one, after ./build.sh.
 # Each runs the app in a headless sway session (tools/headless.sh) with an fcitx5 of its own, its
 # configuration made here, in a D-Bus session that starts nothing else, so the user's input method
 # and screens are untouched. fcitx5's quick phrase (Ctrl+;) composes what's typed inline, as
@@ -15,6 +15,9 @@
 #   and Enter commits "qxyz" without opening anything, and the bar takes the next key, "w".
 # - A click in the page while the bar composes leaves no composition behind: the page composes
 #   "fg" on its own.
+# - no-keyboard: on Wayland with no keyboard on the seat, where activating the input method makes
+#   fcitx5's virtual keyboard the seat's first, with no keymap, the app lives on (#1138), and after
+#   another keyboard comes and goes.
 # Under Wayland the bar composes through the core's input method (bc_window_ui_text_input), so its
 # steps need an engine with that core. Leaves the captures of each composition and the logs in
 # build/check/ime/.
@@ -39,6 +42,15 @@ if [ "${1:-}" = --steps ]; then
     fail "no \"$1\" in the log"
   }
   mark() { wc -l < "$LOG"; }
+  # The app's own process, not its helpers, is still there and logged no crash after line $1.
+  alive() {
+    local p up=
+    for p in $(pgrep -x chrome); do
+      grep -qa -- --type= "/proc/$p/cmdline" || up=1
+    done
+    [ -n "$up" ] || fail "the app quit $2"
+    ! tail -n "+$(($1 + 1))" "$LOG" | grep -qE 'Received signal|panicked' || fail "the app crashed $2"
+  }
   click() { "$VKBD" --click "$1" "$2"; }
   key() { "$VKBD" "$1"; }
   compose() { key '^;'; key "$1"; }
@@ -49,6 +61,23 @@ if [ "${1:-}" = --steps ]; then
     hold=$!
     trap 'kill $hold 2>/dev/null || true' EXIT
     sleep 0.5
+  fi
+
+  if [ "$mode" = no-keyboard ]; then
+    at=$(mark); click 330 40
+    sleep 2
+    alive "$at" "when the input method's keyboard came with no keymap"
+    # The keyboard that types goes after, leaving the input method's, with no keymap, the seat's
+    # only one again, which crashed the app up to 10 s later. The keys may not reach the page, as
+    # the input method can pass them on through its keyboard, whose keys can't be read.
+    key abc
+    for _ in $(seq 20); do
+      sleep 0.5
+      alive "$at" "once the keyboard that typed went"
+    done
+    grim "$out/$mode-after.png"
+    mv "$out/$mode.failed" "$out/$mode.passed"
+    exit 0
   fi
 
   # The page's textarea.
@@ -90,11 +119,11 @@ if [ "${1:-}" = --steps ]; then
   await "title [0-9]* composing [a-z]*fg[a-z]*$" "$at"
   ! tail -n "+$((at + 1))" "$LOG" | grep -q "title [0-9]* composing .*zz" || fail "the bar's composition went to the page"
   key $'\e'
-  rm "$out/$mode.failed"
+  mv "$out/$mode.failed" "$out/$mode.passed"
   exit 0
 fi
 
-modes=${1:-"wayland x11"}
+modes=${1:-"wayland x11 no-keyboard"}
 for tool in sway grim magick fcitx5 dbus-run-session xkbcli cargo; do
   command -v "$tool" >/dev/null || { echo "FAIL: needs $tool" >&2; exit 1; }
 done
@@ -142,11 +171,11 @@ EOF
 # What headless.sh runs: fcitx5 on the session's displays, then the app, in its process group.
 # Under Wayland, first a keyboard on the seat for the whole run, as a desk has: fcitx5's own virtual
 # keyboard takes its keymap from it, and with none the app gets a keyboard with no keymap, whose keys
-# it can't read (#1138). A seat with no keyboard left would also send the app a keyboard leave,
-# which closes an overlay as the user leaving it.
+# it can't read (#1138), as the no-keyboard run checks. A seat with no keyboard left would also send
+# the app a keyboard leave, which closes an overlay as the user leaving it.
 cat > "$home/run.sh" <<EOF
 #!/bin/bash
-[ -z "\${WAYLAND_DISPLAY:-}" ] || "$VKBD" --hold 600 &
+[ -z "\${WAYLAND_DISPLAY:-}" ] || [ "\$1" = no-keyboard ] || "$VKBD" --hold 600 &
 env XDG_CONFIG_HOME=$home/config XDG_DATA_HOME=$home/data XDG_CACHE_HOME=$home/cache \\
   fcitx5 --disable=notificationitem,notifications,kimpanel,clipboard,fcitx4frontend \\
   > "$out/\$1-fcitx5.log" 2>&1 &
@@ -179,7 +208,7 @@ for mode in $modes; do
     ../tools/headless.sh $x11 --then "$PWD/check/ime.sh --steps $mode $out" \
     "$out/$mode.png" 'browser: loaded' "$home/run.sh" "$mode" build/Browser/chrome \
     > "$out/$mode-run.log" 2>&1 || true
-  if [ ! -f "$out/$mode-page-preedit.png" ] || [ -f "$out/$mode.failed" ]; then
+  if [ ! -f "$out/$mode.passed" ]; then
     failed=1
     cat "$out/$mode.failed" 2>/dev/null || echo "FAIL ($mode): see $out/$mode-run.log" >&2
   else
