@@ -1000,7 +1000,8 @@ Export as Markdown…, Delete Space")\$" \
   "a right-click on a dot in the first window didn't show its Space's menu"
 send choose Delete Space
 expect "^browser: spaces $first\$" "Delete in the first window didn't delete the Space"
-send window 2
+# The window ⌘N opened, the third: the driver counts every window opened, closed ones too.
+send window 3
 send menu Clear Archive
 expect '^browser: dialog shown Clear the archive?$' "Clear Archive in the second window didn't ask first"
 send key return
@@ -1014,7 +1015,7 @@ send key z cmd
 expect "^browser: spaces $first $second\$" "the first window's ⌘Z didn't bring back its Space"
 expect "^browser: space $second\( in .*\)\{0,1\}\$" "the first window's ⌘Z didn't show the Space"
 none_since '^browser: archive 0 tabs$' || fail "the first window's ⌘Z took the archive back out"
-send window 2
+send window 3
 send key w cmd shift
 expect "^browser: window closed $other\$" "⇧⌘W didn't close the second window"
 send window 1
