@@ -275,7 +275,9 @@ exec 3>&-
 quit
 [ -s "$netlog" ] || fail "Chromium wrote no net log"
 urls=$(grep -o '"url":"[a-z]*://[^"]*"' "$netlog" | cut -d'"' -f4 | sort -u)
-google=$(printf '%s\n' "$urls" | grep -i '^[a-z]*://[^/]*\(google\|gstatic\|gvt1\|9oo91e\|qjz9zk\)' || true)
+# Google's servers, but the security components' updates, which a run as long as the Mac's, with
+# the words' 90 s on the clipboard, reaches.
+google=$(printf '%s\n' "$urls" | google_asked)
 [ -z "$google" ] ||
   fail "the browser asked Google's servers: $(printf "%s\n" "$google" | tr "\n" " ")"
 kill "$helper" 2>/dev/null || true

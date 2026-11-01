@@ -32,9 +32,9 @@ grep 'browser: sync service ' "$log" | grep -qv 'disabled, not signed in$' &&
 [ "$(grep -c '"[A-Z]* /' "$out/site.log" || true)" = "$asked" ] ||
   fail "signed out, the browser asked the sync server: $(grep '"[A-Z]* /' "$out/site.log" | tail -1)"
 [ -s "$netlog" ] || fail "Chromium wrote no net log"
-# Every address the net log names, Google's with ungoogled-chromium's substitutes for its domains.
+# Every address the net log names, and Google's but the security components' updates.
 urls=$(grep -o '"url":"[a-z]*://[^"]*"' "$netlog" | cut -d'"' -f4 | sort -u)
-google=$(printf '%s\n' "$urls" | grep -i '^[a-z]*://[^/]*\(google\|gstatic\|gvt1\|9oo91e\|qjz9zk\)' || true)
+google=$(printf '%s\n' "$urls" | google_asked)
 [ -z "$google" ] || fail "signed out, the browser asked Google's servers: $(printf "%s\n" "$google" | tr "\n" " ")"
 ours=$(printf '%s\n' "$urls" | grep "^${site%/}" || true)
 [ -z "$ours" ] || fail "signed out, the browser asked the sync server: $(printf "%s\n" "$ours" | tr "\n" " ")"
