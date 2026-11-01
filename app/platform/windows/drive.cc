@@ -1170,9 +1170,13 @@ bool Run(const std::string& line) {
     return true;
   }
   if (action == "front") {
+    // As other apps list windows, such as WebRTC's window capture, which T3 Code's uses: an owned
+    // window, as each overlay is, isn't one unless it has the taskbar's style.
     HWND first = nullptr;
     for (HWND top = GetTopWindow(nullptr); top && !first; top = GetWindow(top, GW_HWNDNEXT)) {
-      first = Ours(top) && IsWindowVisible(top) ? top : nullptr;
+      const bool listed = !GetWindow(top, GW_OWNER) ||
+                          (GetWindowLongPtrW(top, GWL_EXSTYLE) & WS_EX_APPWINDOW);
+      first = Ours(top) && IsWindowVisible(top) && listed ? top : nullptr;
     }
     const std::string key = Describe(GetActiveWindow());
     fprintf(stderr, "browser: front %s, main %s, key %s, ax focused %s, ax main %s\n",
