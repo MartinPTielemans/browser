@@ -226,6 +226,9 @@ $(grep "^browser: question $f at " "$log" | tail -1 | cut -d' ' -f5-)
 EOF
 send click $((qx + qw * 3 / 4)) $((qy + qh - 26))
 expect "^browser: title $f in a call\$" "Allow didn't give the floating call the camera"
+# The page has its camera before Chrome counts it as capturing, which is what lets the tab float
+# once hidden: hidden before then, it stays (#1165).
+expect "^browser: page $f camera 1 microphone 1 " "Chrome didn't count the floating call's camera"
 shown "$b"
 expect "^browser: title $f floating\$" "the call didn't float with its tab hidden"
 # It lands as its tab is shown, so before the click that gives its page the keyboard.
