@@ -242,11 +242,14 @@ send menu "Pin to URL Field › Check Popup"
 expect "^browser: unpin extension $popup\$" "Pin to URL Field › Check Popup didn't unpin it"
 expect '^browser: extension actions $' "unpinning the last action left it in the URL field"
 # Their keys, as Chrome gave them: those the extensions suggested, as no one set any. Off the Mac
-# Alt is ⌃ in the Mac's names (docs/ux-spec.md › Keyboard).
+# Alt is ⌃ in the Mac's names (docs/ux-spec.md › Keyboard), so Alt+Shift+O is pressed as ⌃⇧O:
+# Windows' driver presses ⌥ as Ctrl+Alt, which no extension's Alt key is.
 if [ "$(uname)" = Darwin ]; then
   popup_key="p alt shift" popup_named=alt-shift-p popup_said=⌥⇧P third_named=cmd-j
+  panel_key="k alt shift"
 else
-  popup_key="o alt shift" popup_named=ctrl-shift-o popup_said=Alt+Shift+O third_named=ctrl-shift-j
+  popup_key="o ctrl shift" popup_named=ctrl-shift-o popup_said=Alt+Shift+O third_named=ctrl-shift-j
+  panel_key="k ctrl shift"
 fi
 grep -q "^browser: extension keys $clicked hello=shift-cmd-y suggested\$" "$log" &&
   grep -q "^browser: extension keys $popup _execute_action=$popup_named suggested\$" "$log" &&
@@ -441,9 +444,9 @@ EOF
 # The header's ✕ is its last button, 30 square, 3 in from the card's corner.
 send click $((px + pw - 18)) $((py + 18))
 expect '^browser: side panel none$' "the header's ✕ didn't close the side panel"
-# ⌥⇧K opens the panel for this tab alone, which goes on a switch to a tab without one and comes
-# back with its tab.
-send key k alt shift
+# ⌥⇧K, Alt+Shift+K off the Mac, opens the panel for this tab alone, which goes on a switch to a tab
+# without one and comes back with its tab.
+send key $panel_key
 expect "^browser: extension command $panel tab ran via " "⌥⇧K didn't run Check Panel's command"
 expect "^browser: side panel $panel the tab panel\$" "⌥⇧K didn't open the tab's side panel"
 other=$(today | tr ' ' '\n' | grep -v "^$first\$" | head -1)
