@@ -47,6 +47,9 @@ use browser::tokens::settings::HEIGHT;
 use browser::tokens::settings::TITLE_BAR;
 use browser::tokens::shell::WINDOW_BUTTON_GLYPH;
 use browser::tokens::shell::WINDOW_BUTTON_SIZE;
+use browser::tokens::shell::WINDOWS_BUTTON_GLYPH;
+use browser::tokens::shell::WINDOWS_BUTTON_PLATE;
+use browser::tokens::shell::WINDOWS_CLOSE_HOVERED;
 use browser::tokens::settings::TOOLBAR;
 use browser::tokens::settings::TAB;
 use browser::tokens::settings::TAB_PADDING;
@@ -881,7 +884,10 @@ pub fn refresh(cx: &mut App) {
 /// The window's close button, for a window without a frame to draw it: where the browser window's
 /// is on Linux, and in the top right corner on Windows, where Windows puts close. Settings can't be
 /// minimized or zoomed, so it's alone. `at` logs where it's drawn.
-fn close_button(at: gpui::Canvas<()>) -> impl IntoElement {
+fn close_button(at: gpui::Canvas<()>) -> AnyElement {
+    if cfg!(target_os = "windows") {
+        return windows_close_button(at);
+    }
     let (x, colour) = shell::WINDOW_BUTTONS[0];
     let button = div().id("close").absolute();
     let button = match cfg!(target_os = "windows") {
@@ -905,6 +911,37 @@ fn close_button(at: gpui::Canvas<()>) -> impl IntoElement {
                 .group_hover("close", |style| style.text_color(rgba(WINDOW_BUTTON_GLYPH))),
         )
         .child(at)
+        .into_any_element()
+}
+
+/// Windows' close, as the browser window's (shell.rs's `windows_buttons`): Settings' title's grey
+/// glyph, on Windows' red under the pointer, as far in from the corner as the Mac's is.
+fn windows_close_button(at: gpui::Canvas<()>) -> AnyElement {
+    let (x, _) = shell::WINDOW_BUTTONS[0];
+    div()
+        .id("close")
+        .absolute()
+        .right(px(x - WINDOWS_BUTTON_PLATE / 2.))
+        .top(px((TITLE_BAR - WINDOWS_BUTTON_PLATE) / 2.))
+        .size(px(WINDOWS_BUTTON_PLATE))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(CONTROL_RADIUS))
+        .group("close")
+        .hover(|style| style.bg(rgb(WINDOWS_CLOSE_HOVERED)))
+        // A press here closes the window, and doesn't move it.
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_click(|_, _, cx| hide(cx))
+        .child(
+            svg()
+                .path("icons/window-windows-close.svg")
+                .size(px(WINDOWS_BUTTON_GLYPH))
+                .text_color(rgb(TITLE))
+                .group_hover("close", |style| style.text_color(gpui::white())),
+        )
+        .child(at)
+        .into_any_element()
 }
 
 fn hide(_: &mut App) {
@@ -1127,31 +1164,13 @@ impl Settings {
         detailed_row(row.title(), row.detail(), make.map(IntoElement::into_any_element))
     }
 
-    /// A pop-up button showing `label`. It opens on a press, as a pop-up button does, and shows
-    /// pressed while its menu is open.
-    /// Logs where the element it fills is drawn, its centre in the window, as "browser: settings
-    /// `what` at x y", each time it moves, for check.sh to click it there. Put it in a relative one.
+    /// Logs where the element it fills is drawn (settings_rows::drawn). Put it in a relative one.
     fn drawn(&self, what: String) -> gpui::Canvas<()> {
-        let logged = self.drawn_logged.clone();
-        canvas(
-            |_, _, _| {},
-            move |bounds, _, _, _| {
-                let (x, y) = (f32::from(bounds.center().x), f32::from(bounds.center().y));
-                let line = format!("browser: settings {what} at {x:.0} {y:.0}");
-                let mut logged = logged.borrow_mut();
-                // Once a place: forget where it was drawn before.
-                let at = format!("browser: settings {what} at ");
-                if !logged.contains(&line) {
-                    log!("{line}");
-                    logged.retain(|each| !each.starts_with(&at));
-                    logged.push(line);
-                }
-            },
-        )
-        .absolute()
-        .inset_0()
+        browser::settings_rows::drawn(what, self.drawn_logged.clone())
     }
 
+    /// A pop-up button showing `label`. It opens on a press, as a pop-up button does, and shows
+    /// pressed while its menu is open.
     fn popup(
         &self,
         which: Popup,
@@ -2311,7 +2330,9 @@ impl Settings {
                 .rounded(px(RESTORE_RADIUS))
                 .hover(|restore| restore.bg(Palette::on_dark(STATE_HOVERED)))
                 .active(|restore| restore.bg(Palette::on_dark(STATE_PRESSED)))
+                .relative()
                 .child("↺")
+                .child(self.drawn(format!("restore {}", command.key_name())))
                 .on_click(cx.listener(move |settings, _, _, cx| settings.restore(command, cx)))
         });
         let chip = chip(keys, color)
