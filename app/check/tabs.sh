@@ -966,7 +966,7 @@ links=$(printf '%sthree.html\n%stwo.html\n%sone.html' "$site" "$site" "$site")
 send choose "$(cased 'Copy URLs')"
 expect "^browser: copied ${site}three.html\$" "Copy URLs didn't copy the chosen rows' links"
 [ "$(copied)" = "$links" ] || fail "Copy URLs copied \"$(copied)\", not the three links in order"
-clipboard_holds "$links" || fail "Copy URLs left the clipboard without the three links"
+clipboard_holds "$links" || fail "Copy URLs left the clipboard without the three links: $(grep 'diag clipboard' "$log" | tr '\n' ' ') wl-paste -l: $(WAYLAND_DISPLAY="${BROWSER_HEADLESS:-}" wl-paste -l 2>&1 | tr '\n' ' ')"
 send key c cmd shift
 expect "^browser: copied ${site}three.html\$" "⇧⌘C with rows chosen didn't copy their links"
 [ "$(copied)" = "$links" ] || fail "⇧⌘C copied \"$(copied)\", not the chosen rows' links"

@@ -16,6 +16,16 @@ use crate::platform;
 /// details. check.sh's runs have a headless session's clipboard, never the user's.
 pub fn copy(text: &str, cx: &mut App) {
     cx.write_to_clipboard(ClipboardItem::new_string(text.to_owned()));
+    // Diagnostic, not for merging: GPUI's clipboard as it reads it, at once and a moment later.
+    fn read(cx: &App) -> Option<usize> {
+        cx.read_from_clipboard().and_then(|item| item.text()).map(|text| text.len())
+    }
+    log!("browser: diag clipboard {} at once {:?}", text.len(), read(cx));
+    cx.spawn(async move |cx| {
+        cx.background_executor().timer(std::time::Duration::from_millis(500)).await;
+        cx.update(|cx| log!("browser: diag clipboard later {:?}", read(cx)));
+    })
+    .detach();
 }
 
 /// The clipboard's text, as host_paste reads it on the Mac.
