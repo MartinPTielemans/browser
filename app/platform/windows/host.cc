@@ -2772,7 +2772,13 @@ void host_show_reveal(void* ui_view, double width) {
   }
   double content_width, content_height;
   ContentSize(Root(ui_view), &content_width, &content_height);
+  // check.sh reads it once it comes on screen, as the Mac's and Linux's hosts log it, not as the UI
+  // shows it again over it.
+  const bool shown = it->second.floating.hwnd && IsWindowVisible(it->second.floating.hwnd);
   Show(it->second.floating, ui_view, 0, 0, width, content_height, false);
+  if (!shown) {
+    LogShown(it->second.floating, "reveal");
+  }
   WatchPointer();
 }
 
