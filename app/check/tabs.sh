@@ -741,6 +741,13 @@ go_on() {
   send click $page_point
   expect "^browser: page $h back 1 forward 0 loading 0 ${site}$1\$" \
     "a click on the page's link didn't go on to $1 in its tab"
+  # A click hits the buttons the window drew last, where back was dimmed as the page before had
+  # nowhere to go back to. Off the Mac that frame can come after the driver's click (#1048, #1179).
+  for _ in $(seq 100); do
+    [ "$(last 'nav back drawn')" = on ] && return
+    sleep 0.1
+  done
+  fail "the header didn't draw back on once the page had gone on to $1"
 }
 drawn back
 go_on next.html
