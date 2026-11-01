@@ -11,6 +11,9 @@
 #include "base/files/file_path.h"
 #include "base/functional/callback_forward.h"
 #include "components/permissions/permission_prompt.h"
+#include "components/sync/base/data_type.h"
+#include "components/sync/base/passphrase_enums.h"
+#include "components/sync/engine/commit_and_get_updates_types.h"
 #include "content/public/browser/login_delegate.h"
 #include "content/public/browser/weak_document_ptr.h"
 #include "extensions/browser/extension_install_prompt_client.h"
@@ -27,6 +30,7 @@ class CommandLine;
 }
 
 class BrowserWindowInterface;
+class GoogleServiceAuthError;
 class ExtensionInstallPromptShowParams;
 class VideoOverlayWindowViews;
 class RenderViewContextMenuBase;
@@ -60,6 +64,18 @@ class AuthChallengeInfo;
 
 namespace policy {
 class ConfigurationPolicyProvider;
+}
+
+namespace signin {
+struct AccessTokenInfo;
+class IdentityManager;
+}
+
+namespace syncer {
+class DataTypeController;
+struct SyncAccountInfo;
+class SyncInvalidationsService;
+class SyncService;
 }
 
 namespace ui {
@@ -193,6 +209,46 @@ extern void (*g_browser_core_load_bundled_extensions)(Profile* profile);
 // The core keeps it for as long as the browser runs.
 extern policy::ConfigurationPolicyProvider* (*g_browser_core_policy_provider)();
 
+// components/sync/service/sync_auth_manager.cc: the account to sync and its access tokens, from the
+// browser's own account in place of Google's sign-in, for the profile |identity_manager| is
+// |profile|'s. |done| runs after the call returns. |changed| is the call to make when the account
+// changes, as IdentityManager's events would, and does nothing once that profile's sync is gone.
+extern syncer::SyncAccountInfo (*g_browser_core_sync_account)(
+    const signin::IdentityManager* identity_manager);
+extern void (*g_browser_core_sync_token)(
+    const signin::IdentityManager* identity_manager,
+    base::OnceCallback<void(GoogleServiceAuthError, signin::AccessTokenInfo)> done);
+extern void (*g_browser_core_sync_account_watch)(const signin::IdentityManager* identity_manager,
+                                                 base::RepeatingClosure changed);
+
+// chrome/browser/sync/sync_invalidations_service_factory.cc: |profile|'s sync change
+// notifications, from the browser's relay in place of FCM.
+extern std::unique_ptr<syncer::SyncInvalidationsService> (*g_browser_core_sync_invalidations)(
+    Profile* profile);
+
+// components/sync/service/sync_service_impl.cc: the server sync talks to, read as the service
+// starts, for its reports, and as each engine starts, in place of --sync-url's, which is read once
+// and is Google's when not given.
+extern GURL (*g_browser_core_sync_url)();
+
+// components/sync/engine/data_type_worker.cc: whether |type|'s changes wait to commit, given
+// whether the type is encrypted and with which passphrase, and a last look at each commit before
+// it goes to the server, which may trim it. Both run on sync's own sequence.
+extern bool (*g_browser_core_sync_hold_commit)(syncer::DataType type,
+                                               bool encrypted,
+                                               syncer::PassphraseType passphrase);
+extern void (*g_browser_core_sync_commit)(syncer::DataType type,
+                                          syncer::CommitRequestDataList& commit);
+
+// components/password_manager/core/browser/sync/password_proto_utils.cc: a password's client tag,
+// from Chromium's, on the password store's sequence.
+extern std::string (*g_browser_core_sync_password_tag)(const std::string& tag);
+
+// chrome/browser/sync/sync_service_factory.cc: the controllers of the core's own data types for
+// |profile|'s sync, such as ILO_SPACE's, after Chrome's.
+extern std::vector<std::unique_ptr<syncer::DataTypeController>> (*g_browser_core_sync_controllers)(
+    Profile* profile,
+    syncer::SyncService* sync_service);
 // components/component_updater/component_updater_service.cc: whether the component updater may
 // check for and download the component |id| as well as the three security components it always
 // does (engine/patches/ardia/chromium-component-updater-security-only.patch): Google's Widevine

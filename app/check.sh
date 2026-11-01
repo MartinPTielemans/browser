@@ -5,7 +5,7 @@
 #   load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear
 #   split favorites cards extensions adblock adblock-lists windows private capture media
 #   passwords links preview access trouble dialogs crash import quit onboarding passkeys mcp
-#   appearance about
+#   appearance about sync
 # The store run installs from Google's Web Store, adblock-live blocks Google's ad servers with
 # uBlock Origin's own lists and widevine, Linux's alone, downloads Google's Widevine module, so they
 # need the network and run only when named: ./check.sh store.
@@ -67,7 +67,7 @@ fi
 runs="load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear"
 runs="$runs split favorites cards extensions adblock adblock-lists windows private capture media"
 runs="$runs passwords links preview access trouble dialogs crash import quit onboarding passkeys mcp"
-runs="$runs appearance about"
+runs="$runs appearance about sync"
 named="store adblock-live widevine updates keychain"
 for run in "$@"; do
   case " $runs $named " in
