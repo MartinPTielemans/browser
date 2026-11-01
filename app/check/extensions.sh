@@ -275,8 +275,9 @@ expect "^browser: extension command $clicked hello ran via ui\$" \
 expect "^browser: loaded [0-9]* chrome-extension://$clicked/command.html\$" \
   "Check Clicked didn't hear its command from the UI"
 # An action's key runs it as a click on its button does, its popup with the keyboard. The command
-# opened its page in a new tab, which can take the keyboard as it commits, so the UI takes it back.
-send click $sidebar_point
+# opened its page in a new tab, which can take the keyboard as it commits, so the UI takes it back,
+# from the sidebar under its last row: that tab's row moved the others down onto $sidebar_point.
+send click $(row "$(today | wc -w)")
 in_browser AccessKitSubclassOfGPUIView "after a click on the sidebar"
 send key $popup_key
 expect "^browser: extension command $popup _execute_action ran via ui\$" \
