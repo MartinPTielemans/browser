@@ -519,10 +519,27 @@ await_load
 await "^browser: extensions menu [a-p]* $ublock\$" ||
   fail "the Extensions menu didn't list Check Native"
 native=$(grep -m1 "^browser: extensions menu [a-p]* $ublock\$" "$log" | cut -d' ' -f4)
-# The host allows only the extension, whose id comes from its folder.
+# The host allows only the extension, whose id comes from its folder. Windows runs a host that isn't
+# an .exe through cmd, so there it's a .bat that runs the script with Git Bash.
+host="$home/host.sh"
+if windows; then
+  printf '@"%s" "%s"\r\n' "$(cygpath -w "$(command -v bash)")" "$(app_path "$home/host.sh")" \
+    > "$home/host.bat"
+  host=$(app_path "$home/host.bat")
+fi
 printf '{"name": "dev.browser.check", "description": "Check", "path": "%s", "type": "stdio",
- "allowed_origins": ["chrome-extension://%s/"]}\n' "$home/host.sh" "$native" \
+ "allowed_origins": ["chrome-extension://%s/"]}\n' "$host" "$native" \
   > "$host_dir/dev.browser.check.json"
+# Windows finds other browsers' hosts in the registry, not in folders (native_hosts_win.cc): the
+# user's key of Edge's names the manifest, until the run ends.
+if windows; then
+  edge_host='HKCU\Software\Microsoft\Edge\NativeMessagingHosts\dev.browser.check'
+  forget_host() { MSYS2_ARG_CONV_EXCL='*' reg delete "$edge_host" /f > /dev/null 2>&1 || true; }
+  trap 'cleanup; forget_host' EXIT
+  MSYS2_ARG_CONV_EXCL='*' reg add "$edge_host" /ve /t REG_SZ /f \
+    /d "$(cygpath -w "$host_dir/dev.browser.check.json")" > /dev/null ||
+    fail "couldn't register the host under Edge's key"
+fi
 # As Check Clicked's, the script's listener comes once it has run.
 heard='^browser: native host dev.browser.check from '
 for _ in $(seq 10); do
@@ -537,7 +554,9 @@ grep -q '^browser: native host lookup dev.browser.check$' "$log" ||
   fail "the browser never looked past its own folders for the host: $(grep -o \
     'chrome-extension://[^ ]*unanswered[^ ]*' "$log" | sort -u | tr '\n' ' ')"
 none_since "$heard" && fail "the browser didn't find the host in Chrome Beta's folder"
-grep -qxF "browser: native host dev.browser.check from $host_dir" "$log" ||
+found=$host_dir
+! windows || found=$(cygpath -w "$host_dir")
+grep -qxF "browser: native host dev.browser.check from $found" "$log" ||
   fail "the host came from another folder: $(grep "$heard" "$log")"
 await "^browser: loaded [0-9]* chrome-extension://$native/answered.html\$" ||
   fail "Check Native didn't hear the host's answer: $(grep -o 'chrome-extension://[^ ]*' "$log" |
@@ -546,7 +565,11 @@ await "^browser: loaded [0-9]* chrome-extension://$native/answered.html\$" ||
 quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't quit"
 exited
-echo "ok: an extension reaches a native messaging host that only Chrome Beta's folder has, and hears its answer. Window: $out/native-host.png"
+if windows; then
+  forget_host
+  trap cleanup EXIT
+fi
+echo "ok: an extension reaches a native messaging host that only Chrome Beta's folder has, or on Windows only Edge's key, and hears its answer. Window: $out/native-host.png"
 
 # An extension's .crx from the served page, which Chrome installs from off the Web Store with
 # ungoogled-chromium's flag, asking first. It's added in a profile of the launch's own, which the
