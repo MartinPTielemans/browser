@@ -15,6 +15,7 @@
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "browser_core/ad_block.h"
+#include "browser_core/address_import.h"
 #include "browser_core/agent_autofill.h"
 #include "browser_core/agent_page.h"
 #include "browser_core/agent_session.h"
@@ -771,6 +772,11 @@ void bc_profile_set_notes_service(bc_id profile_id, const char* service) {
 bool bc_profile_add_history(bc_id profile, const bc_history_page* pages, size_t count) {
   return (pages || !count) &&
          browser_core::AddImportedHistory(LoadedProfile(profile), profile, pages, count);
+}
+
+bool bc_profile_add_addresses(bc_id profile, const bc_address* addresses, size_t count) {
+  return (addresses || !count) &&
+         browser_core::AddImportedAddresses(LoadedProfile(profile), profile, addresses, count);
 }
 
 size_t bc_spaces(bc_id* spaces, size_t capacity) {
