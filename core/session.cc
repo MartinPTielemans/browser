@@ -1,7 +1,6 @@
 #include "browser_core/session.h"
 
 #include <algorithm>
-#include <cmath>
 #include <cstdio>
 #include <functional>
 #include <map>
@@ -37,6 +36,7 @@
 #include "browser_core/favorites.h"
 #include "browser_core/host.h"
 #include "browser_core/profiles.h"
+#include "browser_core/sidebar_backups.h"
 #include "browser_core/space.h"
 #include "browser_core/sync_spaces.h"
 #include "browser_core/tab.h"
@@ -758,16 +758,6 @@ std::optional<Saved> Read(const base::FilePath& path) {
   return saved;
 }
 
-// Ours, as Arc's spacing isn't known: today's backups are an hour apart at least, so the ten kept
-// span a day's use rather than its last few minutes, which a save every ten seconds would fill.
-constexpr base::TimeDelta kBackupGap = base::Hours(1);
-// Arc's schedule: ten from today, then one a day for the ten days before, one a week to a month
-// back and one a month to a year back, by the user's calendar.
-constexpr size_t kBackupsToday = 10;
-constexpr int64_t kDailyBackupsFor = 10;
-constexpr int64_t kWeeklyBackupsFor = 31;
-constexpr int64_t kMonthlyBackupsFor = 365;
-
 base::FilePath BackupsDir(Profile* profile) {
   return profile->GetPath().Append(FILE_PATH_LITERAL("Sidebar Backups"));
 }
@@ -775,11 +765,6 @@ base::FilePath BackupsDir(Profile* profile) {
 // Named by when it was taken, so listing them reads no file.
 base::FilePath BackupPath(const base::FilePath& dir, base::Time time) {
   return dir.AppendASCII(base::NumberToString(time.InMillisecondsSinceUnixEpoch()) + ".json");
-}
-
-// The days since 1970 to the user's date of |time|. Local midnight is within 14 hours of UTC's.
-int64_t LocalDay(base::Time time) {
-  return std::lround((time.LocalMidnight() - base::Time::UnixEpoch()).InSecondsF() / 86400);
 }
 
 // The backups in |dir|, newest first.
@@ -795,38 +780,6 @@ std::vector<base::Time> ListBackups(const base::FilePath& dir) {
   }
   std::ranges::sort(times, std::greater());
   return times;
-}
-
-// Those of |times|, newest first, that Arc's schedule keeps at |now|: the newest of each day, week
-// or month it keeps one of.
-std::vector<base::Time> BackupsKept(const std::vector<base::Time>& times, base::Time now) {
-  const int64_t today = LocalDay(now);
-  size_t from_today = 0;
-  // By how often they're kept, then which day, week or month.
-  std::set<std::pair<int, int64_t>> spans;
-  std::vector<base::Time> kept;
-  for (base::Time time : times) {
-    const int64_t day = LocalDay(time);
-    // One from a clock set back counts as today's.
-    const int64_t ago = std::max<int64_t>(today - day, 0);
-    bool keep = false;
-    if (ago == 0) {
-      keep = from_today++ < kBackupsToday;
-    } else if (ago <= kDailyBackupsFor) {
-      keep = spans.insert({0, day}).second;
-    } else if (ago <= kWeeklyBackupsFor) {
-      // Weeks from Monday: 1 January 1970 was a Thursday.
-      keep = spans.insert({1, (day + 3) / 7}).second;
-    } else if (ago <= kMonthlyBackupsFor) {
-      base::Time::Exploded exploded;
-      time.LocalExplode(&exploded);
-      keep = spans.insert({2, exploded.year * 12 + exploded.month}).second;
-    }
-    if (keep) {
-      kept.push_back(time);
-    }
-  }
-  return kept;
 }
 
 // On the writer's sequence: writes |saved| as a backup in |dir| at |now| if |force|, or if it's

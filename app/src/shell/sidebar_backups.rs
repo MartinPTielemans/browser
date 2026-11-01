@@ -91,9 +91,13 @@ impl Shell {
 
 #[cfg(test)]
 mod tests {
-    use gpui::TestAppContext;
+    use std::rc::Rc;
 
-    use crate::shell::{Command, Folders, SidebarBackup, drag::detents::shell_with};
+    use gpui::{AppContext, TestAppContext};
+
+    use crate::shell::{
+        Command, Folders, Shell, SidebarBackup, drag::detents::shell_with, recorder::Recorder,
+    };
 
     fn backup(time: u64, label: &str) -> SidebarBackup {
         SidebarBackup { time, label: label.to_string().into() }
@@ -157,5 +161,40 @@ mod tests {
         assert!(!host.take().iter().any(|call| call.starts_with("restore sidebar")));
         cx.update(confirmed);
         assert!(host.take().contains(&"restore sidebar 1000".to_string()));
+    }
+
+    /// An agent's Space, though in the profile, offers no restore: the restore replaces the user's
+    /// Spaces, and the agent works in its own.
+    #[gpui::test]
+    fn an_agents_space_offers_no_restore(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let shell = cx.new(|cx| Shell::new(host.clone(), cx));
+        shell.update(cx, |shell, cx| {
+            shell.set_spaces(
+                vec![
+                    (1, "Space 1".into(), None, 0, "".into(), "".into(), "".into()),
+                    (2, "Research".into(), None, 0, "".into(), "Claude Code".into(), "".into()),
+                ],
+                cx,
+            );
+            shell.set_tabs(1, Vec::new(), vec![10], Vec::new(), Folders::default(), cx);
+            shell.set_tabs(2, Vec::new(), vec![20], Vec::new(), Folders::default(), cx);
+            shell.set_sidebar_backups(0, vec![backup(2000, "Thursday")], cx);
+            shell.set_space(2, cx);
+        });
+        let offered = |cx: &mut TestAppContext| {
+            shell.read_with(cx, |shell, _| shell.offers(Command::RestoreEarlierSidebar))
+        };
+        assert!(!offered(cx));
+        assert!(host.menu_bar.borrow().sidebar_backups.is_empty());
+        let menus = host.menus.borrow().len();
+        shell.update(cx, |shell, cx| shell.run(Command::RestoreEarlierSidebar, "ui", cx));
+        shell.update(cx, |shell, cx| shell.run(Command::RestoreSidebar(2000), "ui", cx));
+        assert_eq!(host.menus.borrow().len(), menus, "no list in the agent's Space");
+        assert!(host.confirming.borrow().is_none());
+
+        shell.update(cx, |shell, cx| shell.set_space(1, cx));
+        assert!(offered(cx));
+        assert_eq!(host.menu_bar.borrow().sidebar_backups.len(), 1);
     }
 }
