@@ -4598,6 +4598,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
     app.extend([
         item("Settings…", Command::Settings),
         item("Import from Other Browsers…", Command::Import),
+        item("Privacy Policy", Command::PrivacyPolicy),
         MenuItem::separator(),
         MenuItem::os_submenu("Services", SystemMenuType::Services),
         MenuItem::separator(),
