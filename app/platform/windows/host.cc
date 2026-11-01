@@ -296,8 +296,13 @@ void Adopt(Floating& floating, void* view, bool mouse_through, void (*dismissed)
                       GetWindowLongPtrW(floating.hwnd, GWL_EXSTYLE) | WS_EX_NOACTIVATE);
   }
   SetWindowSubclass(floating.hwnd, FloatingProc, 1, reinterpret_cast<DWORD_PTR>(&floating));
-  SetWindowPos(floating.hwnd, nullptr, 0, 0, 0, 0,
-               SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+  // GPUI made the window its size with a border round it, which FloatingProc gives the UI: the
+  // window shrinks to that size, or the offer, which keeps the size it opened at, would be 16 by 8
+  // points bigger than the UI's.
+  RECT client{};
+  GetClientRect(floating.hwnd, &client);
+  SetWindowPos(floating.hwnd, nullptr, 0, 0, client.right, client.bottom,
+               SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
   FloatingByHwnd()[floating.hwnd] = &floating;
   OwnShadow(floating.hwnd);
 }
@@ -1161,6 +1166,27 @@ void Disown(HWND root) {
 
 UINT_PTR const kOwner = 3;
 
+// |root| moved or was resized: the find bar and the offer showing over it keep to its page's top
+// right corner, as the Mac's child windows and Linux's panels do. Windows moves no owned window.
+void PlaceCorners(HWND root) {
+  for (auto* corners : {&g_find_bars, &g_offers}) {
+    for (auto& [ui_view, corner] : *corners) {
+      if (corner.floating.hwnd && IsWindowVisible(corner.floating.hwnd) && Root(ui_view) == root) {
+        double content_width, content_height, width, height;
+        ContentSize(root, &content_width, &content_height);
+        WindowSize(corner.floating.hwnd, &width, &height);
+        auto [extra_right, extra_top] = g_pane_corners[ui_view];
+        const double scale = Scale(root);
+        POINT origin{std::lround((content_width - corner.right - extra_right - width) * scale),
+                     std::lround((corner.top + extra_top) * scale)};
+        ClientToScreen(root, &origin);
+        SetWindowPos(corner.floating.hwnd, nullptr, origin.x, origin.y, 0, 0,
+                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+      }
+    }
+  }
+}
+
 // A browser window the app's windows are over. Windows hides one before it destroys it and the
 // windows it owns, so they leave it as it hides.
 LRESULT CALLBACK OwnerProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR,
@@ -1168,6 +1194,9 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
   if (message == WM_WINDOWPOSCHANGED &&
       (reinterpret_cast<const WINDOWPOS*>(lparam)->flags & SWP_HIDEWINDOW)) {
     Disown(hwnd);
+  } else if (message == WM_WINDOWPOSCHANGED &&
+             (~reinterpret_cast<const WINDOWPOS*>(lparam)->flags & (SWP_NOMOVE | SWP_NOSIZE))) {
+    PlaceCorners(hwnd);
   } else if (message == WM_NCDESTROY) {
     RemoveWindowSubclass(hwnd, OwnerProc, kOwner);
   }
@@ -2441,12 +2470,21 @@ void host_add_offer(void* ui_view, void* offer_view, double right, double top) {
 void host_show_offer(void* ui_view) {
   if (auto it = g_offers.find(ui_view); it != g_offers.end()) {
     ShowCorner(it->second, ui_view, false);
+    // check.sh reads this line, as the Mac's and Linux's hosts write it once the card is up.
+    if (IsWindowVisible(it->second.floating.hwnd)) {
+      fprintf(stderr, "browser: offer shown\n");
+    }
   }
 }
 
 void host_hide_offer(void* ui_view) {
   if (auto it = g_offers.find(ui_view); it != g_offers.end()) {
+    const bool shown = IsWindowVisible(it->second.floating.hwnd);
     Hide(it->second.floating);
+    // check.sh reads this line, as the Mac's and Linux's hosts write it.
+    if (shown) {
+      fprintf(stderr, "browser: offer hidden\n");
+    }
   }
 }
 
@@ -2513,23 +2551,39 @@ void host_set_site_controls_shape(const double*, size_t) {}
 
 void host_show_site_controls(void* ui_view, double left, double top, double width, double height) {
   Show(g_site_controls, ui_view, left, top, width, height, true);
-  // check.sh reads this line, as it does the Mac's and Linux's.
+  // check.sh reads these lines, as the Mac's and Linux's hosts write them.
+  fprintf(stderr, "browser: site controls at %g %g %g %g\n", left, top, width, height);
   fprintf(stderr, "browser: site controls shown\n");
 }
 
 void host_set_site_controls_height(double height) {
+  if (!g_site_controls.hwnd || !IsWindowVisible(g_site_controls.hwnd)) {
+    return;
+  }
+  RECT rect{};
+  GetWindowRect(g_site_controls.hwnd, &rect);
+  if (rect.bottom - rect.top ==
+      static_cast<int>(std::lround(height * Scale(g_site_controls.hwnd)))) {
+    return;
+  }
   Resize(g_site_controls, height);
+  fprintf(stderr, "browser: site controls height %g\n", height);
 }
 
 void host_site_controls_drew(double, double, double, double) {}
 
 void host_release_site_controls(void) {
+  if (!g_site_controls.hwnd || !IsWindowVisible(g_site_controls.hwnd) ||
+      g_site_controls.mouse_through) {
+    return;
+  }
   g_site_controls.mouse_through = true;
   if (GetForegroundWindow() == g_site_controls.hwnd) {
     g_site_controls.hiding = true;
     SetForegroundWindow(GetWindow(g_site_controls.hwnd, GW_OWNER));
     g_site_controls.hiding = false;
   }
+  fprintf(stderr, "browser: site controls released\n");
 }
 
 void host_hide_site_controls(void) {
@@ -2999,13 +3053,17 @@ void LinkPreviewForegroundChanged(HWND front) {
   }
 }
 
-// The task dialog host_ask shows, for host_choose, and its buttons' labels and ids.
+// The task dialog host_ask shows, for host_choose, its message, and its buttons' labels and ids.
 HWND g_alert = nullptr;
+std::string g_alert_message;
 std::vector<std::pair<std::wstring, int>> g_alert_buttons;
 
 HRESULT CALLBACK AlertEvent(HWND hwnd, UINT event, WPARAM, LPARAM, LONG_PTR texts) {
   if (event == TDN_CREATED) {
     g_alert = hwnd;
+    // check.sh reads this line, as the Mac's host writes it for its alert, once host_choose can
+    // answer it.
+    fprintf(stderr, "browser: alert shown %s\n", g_alert_message.c_str());
     // Its texts and buttons, as the Mac's driver logs an alert's, for check.sh to wait for.
     if (GetEnvironmentVariableW(L"BROWSER_DRIVE", nullptr, 0) > 0) {
       fprintf(stderr, "browser: modal shown %s\n", reinterpret_cast<const char*>(texts));
@@ -3046,7 +3104,8 @@ int host_ask(const char* message, const char* detail, const char* const* buttons
   config.cButtons = static_cast<UINT>(task_buttons.size());
   config.pButtons = task_buttons.data();
   config.nDefaultButton = task_buttons.empty() ? 0 : task_buttons[0].nButtonID;
-  std::string texts = std::string(message ? message : "") + ", " + (detail ? detail : "");
+  g_alert_message = message ? message : "";
+  std::string texts = g_alert_message + ", " + (detail ? detail : "");
   g_alert_buttons.clear();
   for (const TASKDIALOG_BUTTON& button : task_buttons) {
     texts += ", " + Utf8(button.pszButtonText);
