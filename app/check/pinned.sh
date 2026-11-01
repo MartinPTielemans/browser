@@ -704,7 +704,8 @@ expect "^browser: outline $c\$" "⇧⌘Z didn't delete the folder again: $(outli
 # shows, titled by its name.
 t=$(today)
 ../tools/window-screenshot.sh "$pid" "$out/drop-before.png" || fail "no window to capture"
-send dragover 100 150 file "$(cd "$out" && pwd)/site/notes.txt"
+# As Explorer would drag it on Windows, D:/a/..., which Chrome's file URL finds (#997).
+send dragover 100 150 file "$(app_path "$(cd "$out" && pwd)/site/notes.txt")"
 expect '^browser: drag over HostUIView taken$' "the list didn't take a file dragged over it"
 expect '^browser: drop line in pinned 0$' "no line marked the file's place above the pinned tab"
 ../tools/window-screenshot.sh "$pid" "$out/drop-line.png" || fail "no window to capture"
