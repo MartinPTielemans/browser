@@ -1383,8 +1383,8 @@ void Next() {
 }
 
 // While Windows' system drag runs (host_drag_file), OLE's modal loop reads only the input and the
-// messages other threads send, so the driver's steps and their timer would wait in the queue until
-// the drag ends, and only the driver's release ends it. A thread sends the window kPump meanwhile,
+// messages other threads send, so the driver's commands, steps and step timer would wait in the
+// queue until the drag ends, and only the driver's release ends it. A thread sends the window kPump meanwhile,
 // which runs the waiting step once OLE has read the input the step before posted, so each step's
 // input reaches the drag before the next. It's the drag's generation, so a thread stops with its
 // drag.
@@ -1403,7 +1403,9 @@ void Pump(HWND hwnd) {
     return;
   }
   held_since = 0;
-  if (PeekMessageW(&message, hwnd, kStep, kStep, PM_REMOVE) ||
+  // The next command, as it comes in, and the next step, which follow each other.
+  static_assert(kStep == kCommand + 1);
+  if (PeekMessageW(&message, hwnd, kCommand, kStep, PM_REMOVE) ||
       PeekMessageW(&message, hwnd, WM_TIMER, WM_TIMER, PM_REMOVE)) {
     DispatchMessageW(&message);
   }
