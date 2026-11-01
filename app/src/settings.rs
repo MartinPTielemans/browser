@@ -1127,31 +1127,13 @@ impl Settings {
         detailed_row(row.title(), row.detail(), make.map(IntoElement::into_any_element))
     }
 
-    /// A pop-up button showing `label`. It opens on a press, as a pop-up button does, and shows
-    /// pressed while its menu is open.
-    /// Logs where the element it fills is drawn, its centre in the window, as "browser: settings
-    /// `what` at x y", each time it moves, for check.sh to click it there. Put it in a relative one.
+    /// Logs where the element it fills is drawn (settings_rows::drawn). Put it in a relative one.
     fn drawn(&self, what: String) -> gpui::Canvas<()> {
-        let logged = self.drawn_logged.clone();
-        canvas(
-            |_, _, _| {},
-            move |bounds, _, _, _| {
-                let (x, y) = (f32::from(bounds.center().x), f32::from(bounds.center().y));
-                let line = format!("browser: settings {what} at {x:.0} {y:.0}");
-                let mut logged = logged.borrow_mut();
-                // Once a place: forget where it was drawn before.
-                let at = format!("browser: settings {what} at ");
-                if !logged.contains(&line) {
-                    log!("{line}");
-                    logged.retain(|each| !each.starts_with(&at));
-                    logged.push(line);
-                }
-            },
-        )
-        .absolute()
-        .inset_0()
+        browser::settings_rows::drawn(what, self.drawn_logged.clone())
     }
 
+    /// A pop-up button showing `label`. It opens on a press, as a pop-up button does, and shows
+    /// pressed while its menu is open.
     fn popup(
         &self,
         which: Popup,

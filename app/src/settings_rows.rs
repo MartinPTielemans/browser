@@ -1,7 +1,10 @@
 //! The Settings window's boxes of rows and their controls, which the views it shows from the
 //! library, such as the import, draw with too.
 
-use gpui::{Rgba, SharedString, div, prelude::*, px, rgb, svg};
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use gpui::{Rgba, SharedString, canvas, div, prelude::*, px, rgb, svg};
 
 use crate::tokens::settings::{
     BOX, BOX_LINE, CHECK_BOX, CHECK_GAP, CHECK_GLYPH, CHECK_RADIUS, CHEVRONS, CONTROL,
@@ -10,6 +13,29 @@ use crate::tokens::settings::{
     ON_SWITCH_OFF, PADDING, RADIUS, SWITCH_HEIGHT, SWITCH_OFF, SWITCH_WIDTH, TEXT, TILE, TILE_GAP,
     TILE_GLYPH, TILE_GLYPH_COLOR, TILE_RADIUS,
 };
+
+/// Fills the relative element it's put in and logs where that is drawn, its centre in the window,
+/// as "browser: settings `what` at x y", each time it moves, for check.sh to click it there.
+/// `logged` holds the lines logged, one a control; emptied, each is logged again where it's drawn.
+pub fn drawn(what: String, logged: Rc<RefCell<Vec<String>>>) -> gpui::Canvas<()> {
+    canvas(
+        |_, _, _| {},
+        move |bounds, _, _, _| {
+            let (x, y) = (f32::from(bounds.center().x), f32::from(bounds.center().y));
+            let line = format!("browser: settings {what} at {x:.0} {y:.0}");
+            let mut logged = logged.borrow_mut();
+            // Once a place: forget where it was drawn before.
+            let at = format!("browser: settings {what} at ");
+            if !logged.contains(&line) {
+                crate::log!("{line}");
+                logged.retain(|each| !each.starts_with(&at));
+                logged.push(line);
+            }
+        },
+    )
+    .absolute()
+    .inset_0()
+}
 
 /// A switch is 36 by 16, with a knob 21 by 13, 1.5 in, that slides across over 150 ms (ours).
 pub const SLIDE: f32 = 0.15;
