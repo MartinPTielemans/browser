@@ -1647,6 +1647,39 @@ void TakeTitleBar(void* ui_view) {
   });
 }
 
+// Windows' memory resource notifications, which it keeps signaled while the system is short of
+// memory, and while it has plenty. The host waits for the low one on the thread pool, tells the
+// UI, then waits for the high one before the low one again, so the UI hears once a spell, as the
+// Mac's warning comes once.
+struct MemoryWatch {
+  HANDLE low = nullptr;
+  HANDLE high = nullptr;
+  HANDLE wait = nullptr;
+  void (*pressed)(void) = nullptr;
+};
+MemoryWatch g_memory;
+
+void WaitForMemory(bool low);
+
+void CALLBACK MemoryChanged(PVOID low, BOOLEAN) {
+  // On the pool's thread: the rest is the UI thread's.
+  Later([low = low != nullptr] {
+    if (low) {
+      g_memory.pressed();
+    }
+    WaitForMemory(!low);
+  });
+}
+
+void WaitForMemory(bool low) {
+  if (g_memory.wait) {
+    UnregisterWaitEx(g_memory.wait, nullptr);
+    g_memory.wait = nullptr;
+  }
+  RegisterWaitForSingleObject(&g_memory.wait, low ? g_memory.low : g_memory.high, MemoryChanged,
+                              low ? &g_memory : nullptr, INFINITE, WT_EXECUTEONLYONCE);
+}
+
 }  // namespace
 
 extern "C" {
@@ -2497,8 +2530,20 @@ void host_hide_hover_card(void) {
   Hide(g_card);
 }
 
-// shortcut: the pictures stay until their tabs unload or close.
-void host_watch_memory_pressure(void (*)(void)) {}
+void host_watch_memory_pressure(void (*pressed)(void)) {
+  if (g_memory.pressed) {
+    return;
+  }
+  g_memory.low = CreateMemoryResourceNotification(LowMemoryResourceNotification);
+  g_memory.high = CreateMemoryResourceNotification(HighMemoryResourceNotification);
+  if (!g_memory.low || !g_memory.high) {
+    return;
+  }
+  g_memory.pressed = pressed;
+  // Later's window is made here, on the UI thread, before the pool's thread posts to it.
+  Later([] {});
+  WaitForMemory(true);
+}
 
 void host_add_link_target(void* link_view, double margin, void (*pointer)(double x, double y)) {
   Adopt(g_link_target, link_view, true, nullptr);
