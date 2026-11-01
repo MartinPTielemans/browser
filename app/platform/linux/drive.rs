@@ -1949,8 +1949,7 @@ fn run_command(line: &str) -> Option<()> {
         // The window's content and the views the X server has in it: GPUI's, and the overlays
         // and floats over it, with a tab's dialog, which the core reports, as the Mac's lists its
         // child windows. The floats, such as the zoom HUD, take no input, so they're left out of
-        // overlay_views. shortcut: the pages are aura windows in Chromium's window, which the X
-        // server doesn't see, so they aren't listed.
+        // overlay_views. The pages are where the UI lays them out (pages).
         "layout" => {
             let browser = driven()?;
             let [_, _, width, height] = frame(browser.window)?;
