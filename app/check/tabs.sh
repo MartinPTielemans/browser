@@ -345,6 +345,21 @@ expect '^browser: menu window at ' "the menu didn't take the keyboard"
 send click $page_point
 expect '^browser: menu closed$' "a click outside didn't close the menu"
 expect '^browser: menu window hidden$' "a click outside left the menu's window up"
+# A right-click elsewhere opens that menu in its place: on the next row, left of the menu, which
+# opens right of the pointer. ↓ shows the new one has the keys, not closed as it opened.
+post rightclick $(row 0)
+expect "^browser: menu shown $(cased 'Copy Link, ')" "a right-click on the top Today row didn't show its menu"
+expect '^browser: menu window at ' "the menu didn't take the keyboard"
+set -- $(row 1)
+post rightclick $(($1 - 60)) $2
+expect "^browser: menu shown $(cased 'Copy Link, ')" \
+  "a right-click on the next row with the menu up didn't show that row's menu"
+expect '^browser: menu window at ' "the next row's menu didn't take the keyboard"
+send key down
+expect "^browser: menu highlights $(cased 'Copy Link') at " \
+  "the next row's menu closed as it opened, or didn't take ↓"
+send key escape
+expect '^browser: menu closed$' "escape didn't close the next row's menu"
 
 # Before anything is typed, the bar lists the Space's other tabs, as Arc's does: those shown most
 # recently first, then the rest, such as favorites never shown.
@@ -467,6 +482,7 @@ expect "^$c_page\$" "c's tab came back without its history: $(grep "^browser: pa
 # reached it.
 send menu Settings…
 expect '^browser: settings shown General$' "Settings… didn't show General"
+settings_drew General
 # Where Settings drew the switch, which differs by OS: it logs that once a place.
 await '^browser: settings switch unload idle tabs at ' || fail "Settings didn't draw Unload tabs' switch"
 unload_switch=$(sed -n 's/^browser: settings switch unload idle tabs at //p' "$log" | tail -1)
@@ -482,6 +498,7 @@ expect 'browser: idle tabs checked$' "showing a tab didn't check for tabs unseen
 since $aged | grep -q "browser: tab $c without its page\$" && fail "a tab let go of its page with the switch off"
 send menu Settings…
 expect '^browser: settings shown General$' "Settings… didn't bring Settings back to the front"
+settings_drew General
 send clickkey $unload_switch
 expect '^browser: unload idle tabs on$' "a click on Unload tabs' switch didn't turn it on"
 expect "browser: tab $c without its page\$" "turning the switch on didn't unload the tab unseen 2 hours"
@@ -501,6 +518,7 @@ send state
 if windows; then
   send menu Settings…
   expect '^browser: settings shown General$' "Settings… didn't show General after its close button"
+  settings_drew General
   post key f4 ctrl
   expect '^browser: settings hidden$' "Alt+F4 didn't hide Settings"
   await "^browser: drive $step done" || fail "the driver didn't finish Alt+F4 in Settings"
@@ -741,6 +759,13 @@ go_on() {
   send click $page_point
   expect "^browser: page $h back 1 forward 0 loading 0 ${site}$1\$" \
     "a click on the page's link didn't go on to $1 in its tab"
+  # A click hits the buttons the window drew last, where back was dimmed as the page before had
+  # nowhere to go back to. Off the Mac that frame can come after the driver's click (#1048, #1179).
+  for _ in $(seq 100); do
+    [ "$(last 'nav back drawn')" = on ] && return
+    sleep 0.1
+  done
+  fail "the header didn't draw back on once the page had gone on to $1"
 }
 drawn back
 go_on next.html

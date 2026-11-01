@@ -90,6 +90,10 @@ cleanup() {
 fail() {
   echo "FAIL: $1" >&2
   grep -v '^$' "$log" | tail -5 >&2
+  # What the window showed, for a failure the log doesn't explain, as on CI.
+  if [ -n "${pid:-}" ] && [ -n "${out:-}" ] && kill -0 "$pid" 2>/dev/null; then
+    ../tools/window-screenshot.sh "$pid" "$out/failed.png" > /dev/null 2>&1 || true
+  fi
   exit 1
 }
 # The app ended by itself.
@@ -111,15 +115,26 @@ await_load() {
   await '^browser: load' || fail "the page didn't finish loading"
   grep -q '^browser: loaded' "$log" || fail "the page didn't load"
 }
+# The last quit stage the core logged (main_delegate.cc), or that it logged none.
+stage() {
+  grep '^browser: quit: ' "$log" | tail -1 | cut -c16- | grep . || echo "none"
+}
 # Waits up to $1 seconds (10) for the app to exit and checks that no Chromium process outlives it.
 # On the Mac, sample records the app's last 2 s before the limit in hang.txt, with what it said in
 # hang-sample.txt: started after the limit, it found no app to attach to when the app went just
 # then (#960).
 exited() {
+  # The driver's pipe goes with the app, so the next launch's is a new one: under Git Bash a native
+  # app opening it while the last writer is still open reads that writer's pipe, which ends as
+  # `exec 3>` replaces it, and the relaunched app never gets a command.
+  exec 3>&-
   ticks=$((${1:-10} * 2))
   sampler=
+  stopping=
   for tick in $(seq "$ticks"); do
     kill -0 "$pid" 2>/dev/null || break
+    # The tick Chromium said it was stopping, so a slow end says how long its rest took (#959).
+    [ -n "$stopping" ] || ! grep -q '^browser: stopping$' "$log" || stopping=$tick
     if [ "$tick" = $((ticks - 3)) ] && [ "$(uname)" = Darwin ]; then
       sample "$pid" 2 -file "$out/hang.txt" > "$out/hang-sample.txt" 2>&1 &
       sampler=$!
@@ -145,6 +160,10 @@ exited() {
       ! windows || python3 -I check/app-windows.py list "$(cat "/proc/$pid/winpid")" \
         > "$out/hang.txt" 2>&1 || true
     fi
+    # The stage it stopped at, as the sample shows only where it was once the check gave up (#959).
+    if [ -n "$stopping" ]; then
+      why="$why; after stopping, its last stage was $(stage)"
+    fi
     if [ -s "$out/hang.txt" ]; then
       fail "$why. Where it was: $out/hang.txt"
     elif [ -n "$sampler" ]; then
@@ -153,6 +172,11 @@ exited() {
     fail "$why"
   fi
   wait "$pid" || fail "the app exited with status $?"
+  # A quit in time but slow says so, with its last stage: #959's bar is 2 s after stopping, to the
+  # half second the ticks see. It doesn't fail the run, as the bar is new.
+  if [ -n "$stopping" ] && [ $((tick - stopping)) -gt 4 ]; then
+    echo "slow quit: the app ended $(((tick - stopping) * 500)) ms after stopping, its last stage $(stage)"
+  fi
   for _ in $(seq 10); do
     pgrep -f "$procs" > /dev/null || break
     sleep 0.5
@@ -250,6 +274,11 @@ logged() {
 # for again, as the app may have logged it as it went.
 exited_without() {
   [ -z "${pid:-}" ] || kill -0 "$pid" 2>/dev/null || logged "$1" "${3:-}" || fail "the app exited: $2"
+}
+# Settings has drawn its tab $1, or whichever it shows, since the last command, on showing or on a
+# change of tab: until it has, a click in it finds nothing to land on (#1101, #1133).
+settings_drew() {
+  expect "^browser: settings drew ${1:-.*}\$" "Settings didn't draw ${1:-its tab}"
 }
 # Where Settings last drew its control $1, "x y" for clickkey, once it has: it logs each place it
 # draws one ("browser: settings $1 at x y").
@@ -471,6 +500,15 @@ expect_lists() {
   expect "^browser: pinned $1\$" "$3: the pinned tabs are \"$(pinned)\", not \"$1\""
   expect "^browser: today $2\$" "$3: Today is \"$(today)\", not \"$2\""
 }
+# What the footer's + menu ends with to add from the desktop: one item where the system's open
+# panel picks files and folders together, the Mac's, else one for each.
+plus_adds() {
+  if [ "$(uname)" = Darwin ]; then
+    echo 'Add File or Folder…'
+  else
+    echo 'Add Files…, Add Folder…'
+  fi
+}
 # The centre of pinned row $1, counting from 0, under the Space's name, and of the ✕ it shows
 # under the pointer.
 pinned_row() {
@@ -502,6 +540,39 @@ with open(sys.argv[1], "w") as f:
 ' "$prefs" || fail "the profile's sites for Safari's engine couldn't be reset"
 }
 
+# Starts the app on the page $1 with the profile $2, and check/cdp.py attached to the page whose
+# address ends in $3, logging to $log and $cdp_log, with the driver on fd 3 and cdp.py's commands
+# on fd 5, through fifos in $scratch. Sets $pid and $helper.
+start_with_cdp() {
+  mkfifo "$scratch/cdp"
+  if windows; then
+    # Chrome on Windows takes its DevTools pipe as handles, which Git Bash can't give it, so
+    # DevTools listens on a loopback port instead, which the browser says on its standard error. A
+    # native program can't read Git Bash's fifo, so cat passes cdp.py its commands, and the page is
+    # named without its slash, which Git Bash would make a path of Git's own.
+    BROWSER_DRIVE=1 BROWSER_URL="$1" BROWSER_PROFILE_DIR="$2" \
+      "$browser" --remote-debugging-port=0 < "$out/drive" > "$log" 2>&1 &
+    pid=$!
+    exec 3> "$out/drive"
+    await '^DevTools listening on ws://' || fail "DevTools didn't say where it listens"
+    socket=$(grep -m1 '^DevTools listening on ws://' "$log" | cut -d' ' -f4 | tr -d '\r')
+    cat "$scratch/cdp" | python3 -I -u check/cdp.py --socket "$socket" "${3#/}" \
+      > "$cdp_log" 2>&1 &
+  else
+    mkfifo "$scratch/to-browser" "$scratch/from-browser"
+    # Each end of a pipe waits for the other to open, in this order: the driver's, the browser's
+    # DevTools pipe, then cdp.py's input.
+    BROWSER_DRIVE=1 BROWSER_URL="$1" BROWSER_PROFILE_DIR="$2" \
+      "$browser" --remote-debugging-pipe < "$out/drive" 3< "$scratch/to-browser" \
+      4> "$scratch/from-browser" > "$log" 2>&1 &
+    pid=$!
+    python3 -I -u check/cdp.py "$scratch/to-browser" "$scratch/from-browser" "$3" \
+      < "$scratch/cdp" > "$cdp_log" 2>&1 &
+    exec 3> "$out/drive"
+  fi
+  helper=$!
+  exec 5> "$scratch/cdp"
+}
 # Starts the check's web server, in site.sh, unless a run before has. Its pages are at $site.
 serve() {
   [ -n "${site:-}" ] || . check/site.sh
@@ -511,6 +582,7 @@ serve() {
 # pasteboard is the run's own, which nothing else reads, so it passes there, as under Xvfb.
 clipboard_holds() {
   case "${BROWSER_HEADLESS:-xvfb}" in xvfb) return 0 ;; esac
+  command -v wl-paste > /dev/null || fail "reading the clipboard needs wl-clipboard's wl-paste"
   for _ in $(seq 30); do
     [ "$(WAYLAND_DISPLAY="$BROWSER_HEADLESS" wl-paste -n 2>/dev/null)" = "$1" ] && return 0
     sleep 0.1

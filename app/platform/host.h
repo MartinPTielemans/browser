@@ -130,6 +130,14 @@ void host_watch_resigning_active(void (*resigning)(void));
 // Settings.
 void host_watch_active(void (*became_active)(void));
 
+// Whether the system asks apps to reduce motion: the Mac's Reduce Motion, Windows' "Show
+// animations in Windows" turned off. Linux's desktop says so through its settings portal, which
+// platform/linux/reduce_motion.rs reads instead.
+bool host_reduce_motion(void);
+
+// Calls |changed| on the UI thread each time that setting changes.
+void host_watch_reduce_motion(void (*changed)(void));
+
 // Whether the system opens http and https links with this app: whether it's the default browser.
 bool host_is_default_browser(void);
 
@@ -583,6 +591,10 @@ bool host_copy_secret(const char* text, uint32_t seconds);
 // Clears the secret host_copy_secret put on the clipboard if it's still there, as the app quits
 // before its |seconds| are up.
 void host_forget_secret(void);
+
+// Whether the key event being handled now is the key repeating as it's held, not a press. False
+// where the host can't tell.
+bool host_key_repeated(void);
 
 // Copies the text host_copy's clipboard or pasteboard holds into |text|, |capacity| bytes with its
 // NUL, and returns its whole length in bytes without the NUL, 0 if it holds none.

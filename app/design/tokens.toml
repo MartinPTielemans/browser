@@ -947,6 +947,13 @@ window-button-glyph = 0x00000080
 window-button-close = 0xe0604f
 window-button-minimize = 0xf3bf12
 window-button-zoom = 0x58bb18
+# On Windows they're Windows' own (ours, #1244): minimize, maximize and close in Windows' order, in
+# the same three places, as glyphs in the header buttons' ink (nav) on a plate under the pointer
+# (nav-hovered, at nav-radius), close's plate Windows' red with a white glyph. Settings' close is
+# the same, in its title bar's top right corner.
+windows-button-plate = 22.0
+windows-button-glyph = 10.0
+windows-close-hovered = 0xc42b1c
 
 [shell.agent-pointer]
 # Ours (#365), as Arc and Dia have no agents in pages: while an agent clicks or types in the page

@@ -6,6 +6,7 @@ import("//build/config/sanitizers/sanitizers.gni")
 import("//mojo/public/tools/bindings/mojom.gni")
 import("//testing/test.gni")
 import("//third_party/protobuf/proto_library.gni")
+import("//ui/base/ui_features.gni")
 
 # What a page tells the core about the key system it asks for. Blink's encrypted media module calls
 # it (engine/patches/ours/chromium-drm-request.patch), so it has a Blink variant.
@@ -117,6 +118,8 @@ source_set("browser_core") {
   sources = [
     "ad_block.cc",
     "ad_block.h",
+    "address_import.cc",
+    "address_import.h",
     "agent_autofill.cc",
     "agent_autofill.h",
     "agent_page.cc",
@@ -130,6 +133,8 @@ source_set("browser_core") {
     "auto_archive.h",
     "autofill_data.cc",
     "autofill_data.h",
+    "autofill_offer.cc",
+    "autofill_offer.h",
     "browser_window_stand_in.cc",
     "browser_window_stand_in.h",
     "capture.cc",
@@ -470,6 +475,7 @@ source_set("browser_core") {
       "platform/linux/window_views.cc",
     ]
     deps += [
+      "//chrome/browser/ui/views:native_widget_factory",
       "//third_party/wayland:wayland_client",
       "//ui/aura",
       "//ui/base/ime",
@@ -514,4 +520,11 @@ test("browser_core_unittests") {
     "//components/variations:test_support",
     "//testing/gtest",
   ]
+  if (use_xkbcommon) {
+    sources += [ "xkb_no_keymap_unittest.cc" ]
+    deps += [
+      "//ui/events:dom_keycode_converter",
+      "//ui/events/ozone/layout",
+    ]
+  }
 }

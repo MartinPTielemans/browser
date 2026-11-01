@@ -1,5 +1,6 @@
 # Applied in order after ungoogled-chromium's own series. One patch per line, relative to engine/patches/.
-# Sections: helium/ (picks), ardia/ (picks), ours/.
+# Sections: upstream/ (Chromium backports), helium/ (picks), ardia/ (picks), ours/.
+upstream/chromium-xkb-no-state-guard.patch
 ardia/chromium-component-updater-security-only.patch
 ardia/chromium-extension-omaha-attributes.patch
 ours/chromium-core-link.patch
@@ -57,3 +58,4 @@ ours/chromium-core-cast-dialog.patch
 ours/chromium-core-page-link-drag.patch
 ours/chromium-center-selection.patch
 ours/chromium-core-alt-click-split.patch
+ours/chromium-core-address-offer.patch

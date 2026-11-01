@@ -13,7 +13,7 @@ store="https://chromewebstore.google.com/detail/$store_id?hl=en"
 profile_dir="$PWD/$out/store/profile"
 mkdir -p "$profile_dir/Default"
 printf '{"download": {"default_directory": "%s", "prompt_for_download": false}}' \
-  "$PWD/$out/downloads" > "$profile_dir/Default/Preferences"
+  "$(native_path "$PWD/$out/downloads" | sed 's/\\/\\\\/g')" > "$profile_dir/Default/Preferences"
 # Chromium's log of the update checks, which an official build writes only when asked.
 updates="--enable-logging=stderr --vmodule=extension_downloader=2,extension_updater=2"
 # Launches the app on the store's page for the extension, with the log $1.

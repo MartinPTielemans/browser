@@ -121,6 +121,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // that the docked DevTools of |inspected|, a tab of |browser|, opened, laid out again or closed.
   static bool CanDockDevTools(BrowserWindowInterface* browser);
   static void UpdateDevTools(BrowserWindowInterface* browser, content::WebContents* inspected);
+  // As those DevTools show, their frontend loaded: they take the keyboard once laid out past the
+  // page.
+  static void ShowDevTools(BrowserWindowInterface* browser, content::WebContents* inspected);
   // From Chrome's page context menu, once filled in: takes out the items Arc's doesn't have and
   // those |browser|'s window can't do, if it's one of the core's.
   static void TrimPageMenu(BrowserWindowInterface* browser, ui::SimpleMenuModel& menu);
@@ -412,7 +415,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // aren't, as Chrome's browser view does for its one Browser.
   void ReportActiveBrowser();
 
-  // Gives the page shown the keyboard if the window is key and its keyboard is the page's.
+  // Gives the page shown the keyboard if the window is key and its keyboard is the page's, or
+  // gives it to DevTools that have just shown.
   void FocusPageSoon();
   void FocusPage();
 
@@ -461,6 +465,11 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Whether the keyboard was the page's as the window went out of sight, which hid the page, or is
   // the page shown's once the window is active again.
   bool page_had_keyboard_ = false;
+  // DevTools that showed docked, until they're laid out past the page, and then until FocusPage
+  // gives them the keyboard. A covered page view is hidden, and Chromium drops each key it doesn't
+  // handle, as F12 to close them (#1120).
+  base::WeakPtr<content::WebContents> devtools_to_show_;
+  base::WeakPtr<content::WebContents> devtools_to_focus_;
   // The tab selected as an overlay took the keyboard, while it has it.
   bc_id selected_under_overlay_ = 0;
   // What hears the answer AskAboutDownloads waits for.
