@@ -32,6 +32,7 @@ class CommandLine;
 class BrowserWindowInterface;
 class GoogleServiceAuthError;
 class ExtensionInstallPromptShowParams;
+class VideoOverlayWindowViews;
 class RenderViewContextMenuBase;
 class GURL;
 class LoginHandler;
@@ -46,6 +47,10 @@ class WebContents;
 
 namespace extensions {
 class InstallPromptData;
+}
+
+namespace media_router {
+class MediaRouterDialogController;
 }
 
 namespace mojo {
@@ -74,12 +79,19 @@ class SyncService;
 }
 
 namespace ui {
+class Event;
 class SimpleMenuModel;
 }
 
 // chrome/browser/ui/navigator/browser_navigator.cc: changes where a navigation opens, before Chrome
 // picks the Browser for it.
 extern void (*g_browser_core_adjust_navigate)(NavigateParams& params);
+
+// chrome/browser/ui/views/chrome_browser_main_extra_parts_views.cc: |contents|'s Cast dialog, the
+// core's, which Chrome's page menu Cast…, a page asking to cast and bc_tab_cast show, in place of
+// the Views one. Chrome sets its media router's factory to it once, as the profile starts.
+extern media_router::MediaRouterDialogController* (*g_browser_core_cast_dialog)(
+    content::WebContents* contents);
 
 // chrome/browser/devtools/devtools_window.cc: the core docks DevTools in its windows, which have no
 // DevtoolsUIController. Whether |browser|'s window can, and the call as the docked DevTools of
@@ -255,5 +267,16 @@ extern bool (*g_browser_core_no_autofill)(content::WebContents* contents);
 // the passkey request of |contents|'s page, which |asks| the user in Chrome's dialog, once it
 // knows how it would show. Not asked of one that shows only in autofill's suggestions.
 extern bool (*g_browser_core_refuse_passkey)(content::WebContents* contents, bool asks);
+
+// chrome/browser/ui/views/overlay/video_overlay_window_views.cc: a mouse, scroll or gesture event
+// on a video's Picture in Picture window, the Mini Player, before Chrome handles it. Returns true
+// once the core has handled it. While it's set, the window's background isn't a draggable caption,
+// which would keep a double-click from it, and the core moves the window itself.
+extern bool (*g_browser_core_mini_player_event)(VideoOverlayWindowViews* window, ui::Event* event);
+
+// chrome/browser/ui/browser_web_contents_delegate/browser_web_contents_delegate.cc: |contents|
+// asked to be the tab shown, as Picture in Picture's way back to its tab does, once Chrome has made
+// it its Browser's active tab, before it activates the window.
+extern void (*g_browser_core_activate_contents)(content::WebContents* contents);
 
 #endif  // BROWSER_CORE_HOOKS_H_

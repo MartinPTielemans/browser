@@ -499,12 +499,14 @@ impl Shell {
         // window or display.
         if !(0. ..CARD_INSET).contains(&x) {
             self.reveal_wait = None;
-            // A question keeps it out until it's answered, and its menu until it closes.
+            // A question keeps it out until it's answered, the Cast card and its menu until
+            // they close.
             if x > held
                 && self.revealed
                 && !self.pointer_on_card
                 && self.question().is_none()
                 && self.agent_question.is_none()
+                && self.cast.is_none()
                 && !self.menu_open
             {
                 self.set_revealed(false, cx);

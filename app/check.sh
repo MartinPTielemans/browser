@@ -3,9 +3,9 @@
 # Each run's file in check/ says what it checks. ./check.sh tabs spaces does only those runs, in
 # that order, and ./check.sh all of them:
 #   load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear
-#   split favorites cards extensions adblock adblock-lists windows private capture passwords
-#   links preview access trouble dialogs crash import quit onboarding passkeys mcp appearance
-#   about sync sync-account
+#   split favorites cards extensions adblock adblock-lists windows private capture media
+#   passwords links preview access trouble dialogs crash import quit onboarding passkeys mcp
+#   appearance about sync sync-account
 # The store run installs from Google's Web Store, adblock-live blocks Google's ad servers with
 # uBlock Origin's own lists and widevine, Linux's alone, downloads Google's Widevine module, so they
 # need the network and run only when named: ./check.sh store.
@@ -65,8 +65,8 @@ if [ "$(uname)" = Linux ] && [ -z "${BROWSER_HEADLESS:-}" ]; then
   exec ../tools/headless.sh --x11 --run ./check.sh "$@"
 fi
 runs="load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear"
-runs="$runs split favorites cards extensions adblock adblock-lists windows private capture passwords"
-runs="$runs links preview access trouble dialogs crash import quit onboarding passkeys mcp"
+runs="$runs split favorites cards extensions adblock adblock-lists windows private capture media"
+runs="$runs passwords links preview access trouble dialogs crash import quit onboarding passkeys mcp"
 runs="$runs appearance about sync sync-account"
 named="store adblock-live widevine updates keychain"
 for run in "$@"; do
@@ -121,8 +121,9 @@ saved="$profile_dir/Spaces.json"
 # The frame the launch window opens at, which the app keeps next to them. A run that starts without
 # the Spaces starts without it too, so its launch window isn't at the last run's frame.
 launch_frame="$(dirname "$saved")/launch-frame"
-# The mcp run turns agents on with a token of its own, which a failed one left.
-rm -f "$(dirname "$saved")/Agents"
+# The mcp run turns agents on with a token of its own, which a failed one left. The keys run gives
+# Go to Space 1 ⌃⌘1 and leaves the favorites out of ⌘1–⌘8, which a failed one left for the runs after.
+rm -f "$(dirname "$saved")/Agents" "$(dirname "$saved")/Shortcuts"
 # DevTools open where the profile last had them, so an undocked try would leave them in a window.
 # The find run docks them, so they start on the right. The restore run's download goes in the
 # check's own folder, never the user's Downloads. A failed extensions run may have left one of its
@@ -187,6 +188,9 @@ check_profile_dir=$profile_dir
 for run in ${*:-$runs}; do
   profile_dir=$check_profile_dir
   only_default
+  # Rules a run made, as import's from Arc, would send a later run's links to another Space and
+  # put their rows under its clicks, so each run starts without them, as it does without Spaces.
+  rm -f "$profile_dir/Link rules"
   # The windows and clear runs keep 127.0.0.1 for Safari's engine, whose pages would then open there
   # in a later run if one failed, and clear the note it closed and the listed host it turned off.
   forget_engine_sites

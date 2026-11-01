@@ -95,7 +95,7 @@ if [ "$driven" = 1 ]; then
   front=$(cased "The Space in Front")
   send key , cmd
   expect '^browser: settings shown General$' "⌘, didn't show Settings on its General tab"
-  send clickkey $(drawn "tab Links")
+  send clickkey $(drawn "toolbar Links")
   expect '^browser: settings tab Links$' "a click on Links didn't show its tab"
   expect "$(rules_drawn none "$front")" "the Links tab didn't draw its empty box"
   ../tools/window-screenshot.sh "$pid" "$out/links-rules-empty.png" || fail "no window to capture"

@@ -15,7 +15,8 @@ use browser::import::sources::{Os, Roots};
 use browser::log;
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState,
-    Folders, Match, MenuBar, MenuEntry, Page, Shell, SpaceEntry, Split, Trouble, WindowButton,
+    Folders, Match, MediaAction, MenuBar, MenuEntry, Page, Shell, SpaceEntry, Split, Trouble,
+    WindowButton,
 };
 use browser::command_bar::{self, Suggestion};
 use browser::dialog;
@@ -692,6 +693,45 @@ impl Browser for Fake {
         });
     }
 
+    // The made-up pages share nothing.
+    fn share_instead(&self, _: u64, _: &mut App) {}
+
+    fn media(&self, tab: u64, action: MediaAction, cx: &mut App) {
+        self.later(cx, move |shell, cx| {
+            let media_playing = match action {
+                MediaAction::Play => true,
+                MediaAction::Pause => false,
+                MediaAction::Next => shell.page(tab).media_playing,
+                MediaAction::PictureInPicture => shell.page(tab).media_playing,
+            };
+            // A made-up page floats nothing, but its player's button goes as a real one's would.
+            let media_picture_in_picture = (shell.page(tab).media_picture_in_picture)
+                && action != MediaAction::PictureInPicture;
+            let page = Page { media_playing, media_picture_in_picture, ..shell.page(tab) };
+            shell.set_page(tab, page, cx);
+        });
+    }
+
+    fn cast(&self, tab: u64, cx: &mut App) {
+        self.later(cx, move |shell, cx| {
+            let device = shell::CastDevice {
+                id: "cast:preview".into(),
+                name: "Living Room TV".into(),
+                state: shell::CastState::Available,
+                status: "".into(),
+            };
+            let cast = shell::Cast { header: "Cast tab".into(), devices: vec![device] };
+            shell.set_cast(tab, Some(cast), cx);
+        });
+    }
+
+    fn cast_close(&self, _: &mut App) {}
+
+    // Casting starting closes the dialog, as the core's does.
+    fn cast_to(&self, tab: u64, _: SharedString, cx: &mut App) {
+        self.later(cx, move |shell, cx| shell.set_cast(tab, None, cx));
+    }
+
     fn can_use_system_engine(&self) -> bool {
         true
     }
@@ -1135,6 +1175,10 @@ impl Browser for Fake {
 
     // The preview leaves the clipboard alone, and shares nothing.
     fn copy(&self, _: &str, _: &mut App) {}
+
+    fn pasted(&self, _: &App) -> Option<String> {
+        None
+    }
 
     fn share_services(&self, _: &str) -> Vec<SharedString> {
         Vec::new()

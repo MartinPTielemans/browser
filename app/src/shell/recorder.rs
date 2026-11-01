@@ -14,8 +14,8 @@ use gpui::{App, Bounds, Pixels, Point, RenderImage, SharedString, Size, WeakEnti
 use crate::theme::Appearance;
 
 use super::{
-    Answer, BarTab, Browser, DownloadAction, MenuBar, MenuEntry, PageReply, ShownPageDialog,
-    browser::WindowButton,
+    Answer, BarTab, Browser, DownloadAction, MediaAction, MenuBar, MenuEntry, PageReply,
+    ShownPageDialog, browser::WindowButton,
 };
 
 /// What the core shares between its windows, as it keeps them: the Spaces deleted and the archive's
@@ -389,6 +389,26 @@ impl Browser for Recorder {
     }
 
     fn set_muted(&self, _: u64, _: bool, _: &mut App) {}
+
+    fn share_instead(&self, tab: u64, _: &mut App) {
+        self.record(format!("share instead {tab}"));
+    }
+
+    fn media(&self, tab: u64, action: MediaAction, _: &mut App) {
+        self.record(format!("media {tab} {action:?}"));
+    }
+
+    fn cast(&self, tab: u64, _: &mut App) {
+        self.record(format!("cast {tab}"));
+    }
+
+    fn cast_close(&self, _: &mut App) {
+        self.record("cast close".to_owned());
+    }
+
+    fn cast_to(&self, tab: u64, id: SharedString, _: &mut App) {
+        self.record(format!("cast to {tab} {id}"));
+    }
 
     fn clear(&self, _: &mut App) -> u64 {
         let id = self.core.ticket();
@@ -952,6 +972,11 @@ impl Browser for Recorder {
     fn copy(&self, text: &str, _: &mut App) {
         self.copied.borrow_mut().push(text.to_owned());
         self.record(format!("copy {text}"))
+    }
+
+    /// The host's clipboard holds what was copied last.
+    fn pasted(&self, _: &App) -> Option<String> {
+        self.copied.borrow().last().cloned()
     }
 
     fn share_services(&self, _: &str) -> Vec<SharedString> {

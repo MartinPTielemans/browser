@@ -649,6 +649,8 @@ knob = 0xe1e2e2
 knob-on = 0xe1ebfe
 haptics-tile = 0x3f8ff7
 link-previews-tile = 0x30b0c7
+# Ours: the Mini Player's, on System Settings' indigo.
+mini-player-tile = 0x5e5ce6
 # Ours: the sidebar's ⌥ switch, in System Settings' Desktop & Dock indigo.
 option-reveal-tile = 0x5e5ce6
 restore-windows-tile = 0x5856d6
@@ -722,6 +724,19 @@ tile-height = 41.0
 tile-gap = 6.0
 tile-min = 48.0
 tile-radius = 12.0
+# A favorite's mark in its tile's top right, while its page uses the camera or microphone, shares
+# or is shared, or plays sound (ours).
+tile-mark = 12.0
+tile-mark-inset = 4.0
+# The players at the sidebar's foot for tabs playing out of sight, as Arc's mini player and media
+# tray (ours: Arc's aren't measured): each a row's height on a tile's fill, 6 apart and over the
+# footer, its title 13 pt over its artist at 11, and buttons a row's ✕ square holding 14 pt glyphs.
+media-height = 40.0
+media-gap = 6.0
+media-title = 13.0
+media-artist = 11.0
+media-button = 24.0
+media-glyph = 14.0
 # Favorites taller than this much of the window scroll with the list instead of staying put
 # (Ardia), so they never leave the rows too little room.
 tall-favorites = 0.4
@@ -1255,6 +1270,15 @@ buttons-top = 12.0
 close = 22.0
 close-inset = 7.0
 close-glyph = 12.0
+
+[shell.cast]
+# Ours, as Chrome's dialog has Chrome's look: the Cast card is the question's, and each device a
+# row in it, its glyph before its name over what it's doing.
+row = 40.0
+row-gap = 2.0
+glyph = 16.0
+name = 13.0
+status = 11.0
 
 [shell.picture]
 # Ours: the picture is fitted to this much of the card, which reads as a page that isn't live.

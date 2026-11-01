@@ -57,7 +57,7 @@ await 'browser: sync service disabled, not signed in$' ||
   fail "signed out, sync isn't disabled for want of an account"
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
-send clickkey $(drawn "tab Sync")
+send clickkey $(drawn "toolbar Sync")
 expect '^browser: settings tab Sync$' "a click on Sync didn't show its tab"
 at=$(drawn "sync sign-in") || fail "Settings › Sync didn't draw Sign In"
 ../tools/window-screenshot.sh "$pid" "$out/sync-signed-out.png" || fail "no window to capture"

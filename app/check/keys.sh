@@ -340,7 +340,7 @@ in_browser RenderWidgetHostViewCocoa "after the history tab closed"
 # records the next keys pressed.
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
-send clickkey $(drawn "tab Shortcuts")
+send clickkey $(drawn "toolbar Shortcuts")
 expect '^browser: settings tab Shortcuts$' "a click on Shortcuts didn't show its tab"
 send clickkey 300 120
 send type new tab
@@ -359,8 +359,8 @@ expect '^browser: shortcuts search "copy" finds ' "the search for copy didn't en
 # Every command the user can give keys has a row (#1062), these among them.
 for name in "Duplicate Current Tab" "Favorite Tab" "Rename Current Tab" Share "Capture Full Page" \
   "Site Controls" "Export Space as Markdown" "View Media" "About $app_name" "Check for Updates" \
-  "Import from Other Browsers" Passwords "Site Search Settings" "Welcome to $app_name" \
-  "Help Center" "What's New" "Report a Problem" "Copy Build Info"; do
+  "Import from Other Browsers" "Privacy Policy" Passwords "Site Search Settings" \
+  "Welcome to $app_name" "Help Center" "What's New" "Report a Problem" "Copy Build Info"; do
   # The Mac's driver types only lowercase letters, dots and spaces, and the search ignores case.
   query=$(printf '%s' "$name" | tr 'A-Z' 'a-z' | sed "s/[^a-z. ].*//; s/ *\$//")
   send key a cmd
@@ -444,7 +444,7 @@ in_browser RenderWidgetHostViewCocoa "after the command bar closed"
 # the page, and Restore Defaults gives F6 back, which does the same.
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
-send clickkey $(drawn "tab Shortcuts")
+send clickkey $(drawn "toolbar Shortcuts")
 expect '^browser: settings tab Shortcuts$' "a click on Shortcuts didn't show its tab"
 send clickkey 300 120
 send type sidebar
@@ -638,6 +638,13 @@ fi
 expect "^browser: shortcut select-space-1 $space_key\$" "⌃⌘1 didn't become Go to Space 1's key"
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
+# Off the Mac, Settings is a window of its own, and the window manager gives the browser's the
+# keyboard back a moment after it's gone.
+for _ in $(seq 100); do
+  [ "$key" = BrowserCoreNSWindow ] && break
+  sleep 0.1
+  send state
+done
 in_browser AccessKitSubclassOfGPUIView "in the second Space, which has no page"
 send key 1 ctrl
 pressed=$step
@@ -677,8 +684,11 @@ expect '^browser: settings shown Shortcuts$' \
 send clickkey 300 120
 send key a cmd
 send type include favorites
-expect '^browser: shortcuts search "include favorites" finds Include Favorites in ⌘1–⌘8$' \
-  "the search didn't find Include Favorites in ⌘1–⌘8"
+# The row names the keys as its OS does, Ctrl+1–Ctrl+8 off the Mac.
+numbered='⌘1–⌘8'
+[ "$(uname)" = Darwin ] || numbered='Ctrl+1–Ctrl+8'
+expect "^browser: shortcuts search \"include favorites\" finds Include Favorites in $numbered\$" \
+  "the search didn't find Include Favorites in $numbered"
 at=$(drawn "switch favorites numbered") || fail "Include Favorites has no switch"
 send clickkey $at
 expect '^browser: favorites numbered off$' "a click on Include Favorites didn't turn it off"

@@ -85,6 +85,16 @@ pub trait Browser {
     fn back_to_pinned_url(&self, tab: u64, cx: &mut App);
     /// Mutes `tab`, or unmutes it.
     fn set_muted(&self, tab: u64, muted: bool, cx: &mut App);
+    /// Has the page sharing a tab share `tab` in its place.
+    fn share_instead(&self, tab: u64, cx: &mut App);
+    /// Plays, pauses or skips `tab`'s media.
+    fn media(&self, tab: u64, action: MediaAction, cx: &mut App);
+    /// Opens `tab`'s Cast dialog, which the core reports with `Shell::set_cast`.
+    fn cast(&self, tab: u64, cx: &mut App);
+    /// Closes the Cast dialog.
+    fn cast_close(&self, cx: &mut App);
+    /// A click on the device `id` in `tab`'s Cast dialog: casts to it, or stops it casting.
+    fn cast_to(&self, tab: u64, id: SharedString, cx: &mut App);
     /// Closes the Today tabs of the Space shown, but the one shown, unless it shows them all, and
     /// returns the id of the clear, or 0 if it closed none.
     fn clear(&self, cx: &mut App) -> u64;
@@ -393,6 +403,8 @@ pub trait Browser {
     fn watch_control(&self, cx: &mut App);
     /// Puts `text` on the clipboard.
     fn copy(&self, text: &str, cx: &mut App);
+    /// The clipboard's text, from where `copy` puts it, or None if it holds none.
+    fn pasted(&self, cx: &App) -> Option<String>;
     /// Whether the platform can open a page in Safari, which plays the protected video ilo can't.
     /// Where it can't, the UI offers no button for it.
     fn can_open_in_safari(&self) -> bool {
@@ -670,8 +682,35 @@ pub struct Page {
     pub trouble: Trouble,
     /// Safari's engine shows the page, in place of Chromium.
     pub system_engine: bool,
+    /// The page uses the camera, or the microphone.
+    pub camera: bool,
+    pub microphone: bool,
+    /// The page shares a screen, a window or another tab, as a call does.
+    pub sharing: bool,
+    /// Another page shares this tab.
+    pub shared: bool,
+    /// Another page shares a tab, and `share_instead` would have it share this one.
+    pub share_instead: bool,
+    /// The page has media the browser can play, pause and skip, as Chrome's media controls do:
+    /// whether it's playing, its title and artist, each empty without one, whether it has a next
+    /// track, and whether it can float in Picture in Picture while nothing of the page floats.
+    pub media: bool,
+    pub media_playing: bool,
+    pub media_title: SharedString,
+    pub media_artist: SharedString,
+    pub media_next: bool,
+    pub media_picture_in_picture: bool,
     /// The tab shows its page in Developer Mode, for its site or as localhost.
     pub developer_mode: bool,
+}
+
+/// What the sidebar's player does to a page's media.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MediaAction {
+    Play,
+    Pause,
+    Next,
+    PictureInPicture,
 }
 
 /// What's wrong with a tab's page, as the core says (BC_PAGE_ in browser_core.h). Agents read the
