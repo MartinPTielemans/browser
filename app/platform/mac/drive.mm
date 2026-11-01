@@ -514,13 +514,14 @@ void Convert(NSWindow* from, NSWindow* to, double* x, double* y) {
 // picks it: the top one there, such as the sidebar reveal over the browser window's edge. A window
 // that clicks pass through, such as the command bar's shadow, is skipped, as the server skips it.
 // Another app's window is skipped too, such as a notification over the top right corner, since the
-// driver posts only to the app's own windows.
+// driver posts only to the app's own windows. So is one on another desktop space, which AppKit
+// still finds there, such as a second browser window behind one full screen (#1090).
 NSWindow* WindowAt(NSWindow* browser, double x, double y) {
   NSPoint screen = [browser convertPointToScreen:NSMakePoint(x, NSHeight(browser.frame) - y)];
   NSInteger number = 0;
   while ((number = [NSWindow windowNumberAtPoint:screen belowWindowWithWindowNumber:number])) {
     NSWindow* window = [NSApp windowWithWindowNumber:number];
-    if (!window) {
+    if (!window || !window.onActiveSpace) {
       continue;
     }
     if (!window.visible) {
