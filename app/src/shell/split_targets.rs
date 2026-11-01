@@ -177,6 +177,25 @@ impl Shell {
             return false;
         };
         let card = self.page_frame(self.viewport).0;
+        // A file's row, past the trigger, hands its file to the system's drag to upload it to the
+        // page, as a download's row does, in place of the targets, and the row goes back.
+        let into_page = position.x > card.left() + px(TARGET_TRIGGER);
+        let listed = matches!(drag.from, Place::List(..)) && !self.sidebar_hidden;
+        let tab = drag.tab;
+        if let Some(path) = (into_page && listed).then(|| self.file_of_row(tab)).flatten()
+            && self.browser.drag_file(&path, cx)
+        {
+            // check.sh waits for this line.
+            log!("browser: tab {tab} file drag");
+            if let Some(drag) = &mut self.drag {
+                drag.moving = true;
+            }
+            self.cancel_drag(cx);
+            return true;
+        }
+        let Some(drag) = &self.drag else {
+            return false;
+        };
         // The sidebar shown while hidden lies over the page, so a row dragged in it is over the
         // page from the start and would show the targets at once.
         let with = match drag.from {

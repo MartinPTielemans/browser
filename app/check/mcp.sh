@@ -552,8 +552,9 @@ BAR
   # A bank's site asks first, in a card in the window, and Allow Once opens it.
   bank="{\"url\":\"bank.localhost:$port/fields.html\"}"
   asks='^browser: agent mcp-client asks [0-9]*: open bank\.localhost$'
-  # Opens the bank's site, which asks, and answers $1 with a click at the card's foot: Allow Once
-  # in the middle of the buttons' row, Always Allow at its right end. Sets allowed to the answer.
+  # Opens the bank's site, which asks, and answers $1 with a click: Always Allow is the card's last
+  # row, across its width, and Allow Once the right of the row above, beside Never. Sets allowed
+  # to the answer.
   answer_bank() {
     before=$(grep -c "$asks" "$log" || true)
     request open_tab "$bank" >&4
@@ -564,8 +565,9 @@ BAR
 $(grep "^browser: agent question $q at " "$log" | tail -1 | cut -d' ' -f6-)
 CARD
     ../tools/window-screenshot.sh "$pid" "$out/agent-question.png" || fail "no window to capture"
-    case "$1" in Once) x=$((qw / 2)) ;; Always) x=$((qw - 16)) ;; esac
-    send click $((qx + x)) $((qy + qh - 26))
+    # A button is 28 high and 8 from the next row.
+    case "$1" in Once) x=$((qw * 3 / 4)) y=$((qh - 26 - 36)) ;; Always) x=$((qw / 2)) y=$((qh - 26)) ;; esac
+    send click $((qx + x)) $((qy + y))
     await_log "^browser: agent mcp-client answered $q $1\$" "$1 didn't answer the question"
     allowed=$(next_answer) || fail "the browser didn't answer the bank's open_tab"
     allowed=$(printf '%s\n' "$allowed" | answered)
@@ -617,9 +619,11 @@ if [ "$driven" = 1 ]; then
   await_more "$hello" "$hellos" || fail "the app didn't hear the second client's hello"
   send menu Settings…
   expect '^browser: settings shown ' "Settings… didn't show Settings"
+  settings_drew
   # The seventh tab, and the switch at the end of the first row.
-  send clickkey 461 60
+  send clickkey $(drawn "toolbar Agents")
   expect '^browser: settings tab Agents$' "a click on Agents didn't show its tab"
+  settings_drew Agents
   ../tools/window-screenshot.sh "$pid" "$out/settings-agents.png" || fail "no window to capture"
   send clickkey 592 134
   expect '^browser: agents off$' "a click on the switch didn't turn agents off"

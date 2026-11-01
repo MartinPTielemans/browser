@@ -32,6 +32,12 @@ for file in chrome chrome_100_percent.pak chrome_200_percent.pak chrome_crashpad
   v8_context_snapshot.bin vk_swiftshader_icd.json; do
   cp -r "$out/$file" "$stage/Chromium/"
 done
+# Chromium's version, which Settings › About reads beside chrome (app/src/build_info.rs), as
+# Windows's build names a manifest after it.
+version=$(sed -n 's/^\(MAJOR\|MINOR\|BUILD\|PATCH\)=//p' "$1/src/chrome/VERSION" | paste -sd.)
+[[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
+  fail "src/chrome/VERSION gave no version: $version"
+echo "$version" >"$stage/Chromium/VERSION"
 # Qt's shims, for the system's file dialogs on KDE, where the build made them.
 for file in libqt5_shim.so libqt6_shim.so; do
   [ ! -e "$out/$file" ] || cp "$out/$file" "$stage/Chromium/"

@@ -626,6 +626,11 @@ username-size = 11.0
 rule-condition = 135.0
 rule-gap = 8.0
 field-padding = 6.0
+# Ours, for the Sync tab: the recovery words down 4 columns, each after its number in the
+# detail grey, in a column as wide as "24" and a gap, with 6 between the rows.
+words-columns = 4
+word-number = 24.0
+word-gap = 6.0
 bar = 0x282a2a
 bar-line = 0x303131
 background = 0x202222
@@ -644,6 +649,8 @@ knob = 0xe1e2e2
 knob-on = 0xe1ebfe
 haptics-tile = 0x3f8ff7
 link-previews-tile = 0x30b0c7
+# Ours: the Mini Player's, on System Settings' indigo.
+mini-player-tile = 0x5e5ce6
 # Ours: the sidebar's ⌥ switch, in System Settings' Desktop & Dock indigo.
 option-reveal-tile = 0x5e5ce6
 restore-windows-tile = 0x5856d6
@@ -717,6 +724,19 @@ tile-height = 41.0
 tile-gap = 6.0
 tile-min = 48.0
 tile-radius = 12.0
+# A favorite's mark in its tile's top right, while its page uses the camera or microphone, shares
+# or is shared, or plays sound (ours).
+tile-mark = 12.0
+tile-mark-inset = 4.0
+# The players at the sidebar's foot for tabs playing out of sight, as Arc's mini player and media
+# tray (ours: Arc's aren't measured): each a row's height on a tile's fill, 6 apart and over the
+# footer, its title 13 pt over its artist at 11, and buttons a row's ✕ square holding 14 pt glyphs.
+media-height = 40.0
+media-gap = 6.0
+media-title = 13.0
+media-artist = 11.0
+media-button = 24.0
+media-glyph = 14.0
 # Favorites taller than this much of the window scroll with the list instead of staying put
 # (Ardia), so they never leave the rows too little room.
 tall-favorites = 0.4
@@ -927,6 +947,13 @@ window-button-glyph = 0x00000080
 window-button-close = 0xe0604f
 window-button-minimize = 0xf3bf12
 window-button-zoom = 0x58bb18
+# On Windows they're Windows' own (ours, #1244): minimize, maximize and close in Windows' order, in
+# the same three places, as glyphs in the header buttons' ink (nav) on a plate under the pointer
+# (nav-hovered, at nav-radius), close's plate Windows' red with a white glyph. Settings' close is
+# the same, in its title bar's top right corner.
+windows-button-plate = 22.0
+windows-button-glyph = 10.0
+windows-close-hovered = 0xc42b1c
 # The bar over a Little ilo window's card (Arc's Little Arc): its row centred on the window
 # buttons, with the card's inset under it, and its favicon past them. Ours, until Arc's is measured.
 little-bar = 44.0
@@ -1229,16 +1256,15 @@ swatch-pitch = 40.0
 swatch-gap = 28.0
 swatch-ring = 2.0
 swatch-edge = 0.12
-# The import step holds the import view as wide as Settings' boxes, on the flow's ground, its
-# boxes this much of the ink over it.
+# The import and account steps hold Settings' own views as wide as its boxes, on the flow's
+# ground, their boxes this much of the ink over it.
 import-width = 556.0
 import-surface = 0.05
-# The opt-ins step's switches, Settings' own, a row each under its line: the switch's name over its
-# one sentence, at body, and the switch at the row's end.
+# The opt-ins step's switches, Settings' own, in one box under its line, a row each of the switch's
+# name over its one sentence, at body, and the switch at the box's right edge; Settings' padding
+# and lines between rows.
 opt-in-width = 420.0
-opt-in-gap = 20.0
 opt-in-line = 18.0
-opt-in-switch-gap = 24.0
 
 [shell.permission]
 # Ours, as Arc's wasn't recorded: under the URL field, as wide as it, with the dialog's corners
@@ -1254,6 +1280,15 @@ buttons-top = 12.0
 close = 22.0
 close-inset = 7.0
 close-glyph = 12.0
+
+[shell.cast]
+# Ours, as Chrome's dialog has Chrome's look: the Cast card is the question's, and each device a
+# row in it, its glyph before its name over what it's doing.
+row = 40.0
+row-gap = 2.0
+glyph = 16.0
+name = 13.0
+status = 11.0
 
 [shell.picture]
 # Ours: the picture is fitted to this much of the card, which reads as a page that isn't live.

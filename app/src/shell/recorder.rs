@@ -14,8 +14,8 @@ use gpui::{App, Bounds, Pixels, Point, RenderImage, SharedString, Size, WeakEnti
 use crate::theme::Appearance;
 
 use super::{
-    Answer, BarTab, Browser, DownloadAction, MenuBar, MenuEntry, PageReply, ShownPageDialog,
-    browser::WindowButton,
+    Answer, BarTab, Browser, DownloadAction, MediaAction, MenuBar, MenuEntry, PageReply,
+    ShownPageDialog, browser::WindowButton,
 };
 
 /// What the core shares between its windows, as it keeps them: the Spaces deleted and the archive's
@@ -181,6 +181,10 @@ pub(super) struct Recorder {
     pub(super) agent_permissions: RefCell<super::AgentGrants>,
     /// What the Library button's hover leaves out, none at first, as the core's default.
     hover_kinds_off: Cell<u32>,
+    /// The account's core, as the first launch's account step asks it, in a build that names a
+    /// sync server, which a test says; one that names none at first.
+    pub(super) account: Rc<Account>,
+    pub(super) sync_server: Cell<bool>,
     /// The videos opened that haven't given their first frame yet.
     videos_starting: RefCell<Vec<u64>>,
 }
@@ -219,6 +223,15 @@ impl Recorder {
     pub(super) fn choose(&self, title: &str, cx: &mut App) {
         let at = self.menus.borrow().last().and_then(|items| {
             items.iter().position(|(each, enabled)| each.as_ref() == title && *enabled)
+        });
+        let answer = self.answer.borrow_mut().take().expect("a menu to choose from");
+        answer(Some(at.unwrap_or_else(|| panic!("no {title} in the menu"))), cx);
+    }
+
+    /// Chooses the last item titled `title`, for a title that's in two submenus.
+    pub(super) fn choose_last(&self, title: &str, cx: &mut App) {
+        let at = self.menus.borrow().last().and_then(|items| {
+            items.iter().rposition(|(each, enabled)| each.as_ref() == title && *enabled)
         });
         let answer = self.answer.borrow_mut().take().expect("a menu to choose from");
         answer(Some(at.unwrap_or_else(|| panic!("no {title} in the menu"))), cx);
@@ -305,6 +318,10 @@ impl Browser for Recorder {
         Default::default()
     }
 
+    fn open_behind(&self, urls: &[String], pinned: bool, folder: u64, index: usize, _: &mut App) {
+        self.record(format!("open behind {} {pinned} {folder} {index}", urls.join(" ")));
+    }
+
     fn create_folder(&self, space: u64, name: &str, folder: u64, index: usize, _: &mut App) -> u64 {
         let made = self.make();
         self.edit(format!("folder {made} {space} {name} {folder} {index}"));
@@ -380,6 +397,26 @@ impl Browser for Recorder {
     }
 
     fn set_muted(&self, _: u64, _: bool, _: &mut App) {}
+
+    fn share_instead(&self, tab: u64, _: &mut App) {
+        self.record(format!("share instead {tab}"));
+    }
+
+    fn media(&self, tab: u64, action: MediaAction, _: &mut App) {
+        self.record(format!("media {tab} {action:?}"));
+    }
+
+    fn cast(&self, tab: u64, _: &mut App) {
+        self.record(format!("cast {tab}"));
+    }
+
+    fn cast_close(&self, _: &mut App) {
+        self.record("cast close".to_owned());
+    }
+
+    fn cast_to(&self, tab: u64, id: SharedString, _: &mut App) {
+        self.record(format!("cast to {tab} {id}"));
+    }
 
     fn clear(&self, _: &mut App) -> u64 {
         let id = self.core.ticket();
@@ -812,6 +849,11 @@ impl Browser for Recorder {
         self.edit(format!("rename profile {profile} {name}"));
     }
 
+    fn account_host(&self) -> Option<Rc<dyn crate::account::Host>> {
+        let account: Rc<dyn crate::account::Host> = self.account.clone();
+        self.sync_server.get().then_some(account)
+    }
+
     // The import's made-up Arc, so the first launch has a browser to import from, unless a test
     // says there's none.
     fn import_host(&self) -> std::rc::Rc<dyn crate::import::Host> {
@@ -945,6 +987,11 @@ impl Browser for Recorder {
         self.record(format!("copy {text}"))
     }
 
+    /// The host's clipboard holds what was copied last.
+    fn pasted(&self, _: &App) -> Option<String> {
+        self.copied.borrow().last().cloned()
+    }
+
     fn share_services(&self, _: &str) -> Vec<SharedString> {
         self.share_services.borrow().clone()
     }
@@ -981,7 +1028,7 @@ impl Browser for Recorder {
     fn toast_button(
         &self,
         text: &str,
-        _: (&'static str, &'static str),
+        _: (Option<&'static str>, &'static str),
         run: Rc<dyn Fn(&mut App)>,
         _: Duration,
         _: &mut App,
@@ -1239,5 +1286,75 @@ impl Browser for Recorder {
 
     fn open_in_main_window(&self, tab: u64, home: u64, _: &mut App) {
         self.record(format!("open in main window {tab} {home}"))
+    }
+}
+
+/// The account's core, recording what the account step asks of it.
+#[derive(Default)]
+pub(super) struct Account {
+    pub(super) calls: RefCell<Vec<String>>,
+}
+
+impl crate::account::Host for Account {
+    fn set_server(&self, server: &str) -> bool {
+        self.calls.borrow_mut().push(format!("server {server}"));
+        true
+    }
+
+    fn sign_in(&self) {
+        self.calls.borrow_mut().push("sign in".into());
+    }
+
+    fn cancel(&self) {
+        self.calls.borrow_mut().push("cancel".into());
+    }
+
+    fn sign_out(&self) {
+        self.calls.borrow_mut().push("sign out".into());
+    }
+
+    fn recovery_words(&self) -> String {
+        self.calls.borrow_mut().push("recovery words".into());
+        "abandon ability able about above absent absorb abstract absurd abuse access accident \
+         account accuse achieve acid acoustic acquire across act action actor actress actual"
+            .into()
+    }
+
+    fn enter_recovery_words(&self, _: &str) -> bool {
+        self.calls.borrow_mut().push("words".into());
+        true
+    }
+
+    fn start_over(&self) {
+        self.calls.borrow_mut().push("start over".into());
+    }
+
+    fn request_pairing(&self) {
+        self.calls.borrow_mut().push("request pairing".into());
+    }
+
+    fn read_devices(&self) {
+        self.calls.borrow_mut().push("read devices".into());
+    }
+
+    fn remove_device(&self, id: &str) {
+        self.calls.borrow_mut().push(format!("remove {id}"));
+    }
+
+    fn copy_secret(&self, _: &str, _: Duration, _: &mut App) {
+        self.calls.borrow_mut().push("copy secret".into());
+    }
+
+    fn confirm(
+        &self,
+        message: String,
+        _: String,
+        _: &'static str,
+        _: crate::dialog::Return,
+        _: Box<dyn FnOnce(&mut App)>,
+        _: &mut gpui::Window,
+        _: &mut App,
+    ) {
+        self.calls.borrow_mut().push(format!("ask {message}"));
     }
 }
