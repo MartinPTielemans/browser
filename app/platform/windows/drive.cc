@@ -633,20 +633,33 @@ void LogLayout(HWND root) {
   fprintf(stderr, "%s\n", line.c_str());
 }
 
-// A browser window's frame, its content's, in points from the main display's top-left, as place
-// takes it.
+// A browser window's frame in points from the main display's top-left, as place takes it: its
+// window rectangle, invisible resize borders and all, which the app logs and saves as the Mac's
+// frame (host_window_frame), not its content.
 void LogFrame(const char* name, HWND root) {
-  RECT client;
-  GetClientRect(root, &client);
-  POINT origin{0, 0};
-  ClientToScreen(root, &origin);
+  RECT frame;
+  GetWindowRect(root, &frame);
   const double scale = Scale(root);
-  fprintf(stderr, "browser: frame %s %.0f %.0f %.0f %.0f\n", name, origin.x / scale,
-          origin.y / scale, client.right / scale, client.bottom / scale);
+  fprintf(stderr, "browser: frame %s %.0f %.0f %.0f %.0f\n", name, frame.left / scale,
+          frame.top / scale, (frame.right - frame.left) / scale,
+          (frame.bottom - frame.top) / scale);
 }
 
-// Sets the driven window's content to |width| by |height| points, at |x|, |y| unless |keep|.
-bool PlaceContent(bool keep, double x, double y, double width, double height) {
+// Puts the driven window's frame, in LogFrame's terms, at |x|, |y|, |width| by |height| points.
+bool PlaceFrame(double x, double y, double width, double height) {
+  HWND root = Driven();
+  if (!root) {
+    return false;
+  }
+  const double scale = Scale(root);
+  SetWindowPos(root, nullptr, static_cast<int>(x * scale), static_cast<int>(y * scale),
+               static_cast<int>(width * scale), static_cast<int>(height * scale),
+               SWP_NOZORDER | SWP_NOACTIVATE);
+  return true;
+}
+
+// Sets the driven window's content to |width| by |height| points, where it is.
+bool ResizeContent(double width, double height) {
   HWND root = Driven();
   if (!root) {
     return false;
@@ -654,16 +667,12 @@ bool PlaceContent(bool keep, double x, double y, double width, double height) {
   RECT frame, client;
   GetWindowRect(root, &frame);
   GetClientRect(root, &client);
-  POINT origin{0, 0};
-  ClientToScreen(root, &origin);
   const double scale = Scale(root);
   const int extra_width = (frame.right - frame.left) - client.right;
   const int extra_height = (frame.bottom - frame.top) - client.bottom;
-  SetWindowPos(root, nullptr, static_cast<int>(x * scale) - (origin.x - frame.left),
-               static_cast<int>(y * scale) - (origin.y - frame.top),
-               static_cast<int>(width * scale) + extra_width,
+  SetWindowPos(root, nullptr, 0, 0, static_cast<int>(width * scale) + extra_width,
                static_cast<int>(height * scale) + extra_height,
-               SWP_NOZORDER | SWP_NOACTIVATE | (keep ? SWP_NOMOVE : 0));
+               SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE);
   return true;
 }
 
@@ -1134,11 +1143,11 @@ bool Run(const std::string& line) {
   }
   if (action == "resize") {
     double width, height;
-    return words >> width >> height && PlaceContent(true, 0, 0, width, height);
+    return words >> width >> height && ResizeContent(width, height);
   }
   if (action == "place") {
     double x, y, width, height;
-    return words >> x >> y >> width >> height && PlaceContent(false, x, y, width, height);
+    return words >> x >> y >> width >> height && PlaceFrame(x, y, width, height);
   }
   if (action == "order") {
     std::string order;
