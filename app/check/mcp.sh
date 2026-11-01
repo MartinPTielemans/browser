@@ -621,7 +621,7 @@ if [ "$driven" = 1 ]; then
   expect '^browser: settings shown ' "Settings… didn't show Settings"
   settings_drew
   # The seventh tab, and the switch at the end of the first row.
-  send clickkey 461 60
+  send clickkey $(drawn "toolbar Agents")
   expect '^browser: settings tab Agents$' "a click on Agents didn't show its tab"
   settings_drew Agents
   ../tools/window-screenshot.sh "$pid" "$out/settings-agents.png" || fail "no window to capture"

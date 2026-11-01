@@ -7,7 +7,7 @@ use std::{
 
 use gpui::{Entity, Focusable, Modifiers, TestAppContext, VisualTestContext, point, px};
 
-use super::{Drawn, END_FADE, INTRO_END, OptIn, STEP_MOTION, Step};
+use super::{Drawn, END_FADE, INTRO_END, OptIn, STEP_MOTION, STILL_END, STILL_FADE, Step};
 use crate::import::ImportEvent;
 use crate::theme::Theme;
 use crate::theme_picker::SWATCHES;
@@ -137,6 +137,31 @@ fn the_intro_goes_on_by_itself(cx: &mut TestAppContext) {
     later(&shell, cx, INTRO_END - 0.5);
     assert_eq!(step(&shell, cx), Some(Step::Intro), "it holds after it's drawn");
     later(&shell, cx, 0.5);
+    assert_eq!(step(&shell, cx), Some(Step::Import));
+}
+
+/// With the system's Reduce Motion, the intro is the still one, all there once its line has faded
+/// in, long before the drawn one's line comes, and goes on at its shorter end. Turned off while it
+/// shows, as the system says it changed, the intro holds until the full one's end.
+#[gpui::test]
+fn reduce_motion_gives_the_still_intro(cx: &mut TestAppContext) {
+    let (shell, cx, _) = first_window(cx);
+    cx.update(|_, cx| cx.set_reduce_motion(true));
+    started(&shell, cx);
+    let settled = |shell: &Entity<Shell>, cx: &VisualTestContext| {
+        shell.read_with(cx, |shell, _| shell.onboarding.as_ref().is_some_and(|o| o.settled))
+    };
+    later(&shell, cx, STILL_FADE);
+    assert!(settled(&shell, cx), "the still intro is all there once its line fades in");
+    later(&shell, cx, STILL_END - STILL_FADE);
+    assert_eq!(step(&shell, cx), Some(Step::Import));
+
+    started(&shell, cx);
+    cx.update(|_, cx| cx.set_reduce_motion(false));
+    cx.run_until_parked();
+    later(&shell, cx, STILL_END);
+    assert_eq!(step(&shell, cx), Some(Step::Intro), "it holds past the still one's end");
+    later(&shell, cx, INTRO_END - STILL_END);
     assert_eq!(step(&shell, cx), Some(Step::Import));
 }
 
