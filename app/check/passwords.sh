@@ -31,7 +31,8 @@ if windows; then
   # listens on a loopback port instead, as in the passkeys run, which the browser says on its
   # standard error. A native program can't read Git Bash's fifo, so cat passes cdp.py its commands.
   BROWSER_DRIVE=1 BROWSER_URL="${site}login.html" BROWSER_PROFILE_DIR="$passwords_profile" \
-    "$browser" --remote-debugging-port=0 < "$out/drive" > "$log" 2>&1 &
+    "$browser" --remote-debugging-port=0 --enable-logging=stderr --vmodule=window_views=1 \
+    < "$out/drive" > "$log" 2>&1 &
   pid=$!
   exec 3> "$out/drive"
   await '^DevTools listening on ws://' || fail "DevTools didn't say where it listens"
