@@ -54,7 +54,7 @@ to_bmp() {
       $image.Save($env:OUT, [System.Drawing.Imaging.ImageFormat]::Bmp)
       $image.Dispose()'
 }
-# Turns Windows' "Show animations in Windows" on with 1 and off with 0, for this session alone, as
+# Turns Windows' "Show animations in Windows" on with 1 and off with 0, in the profile, as
 # Settings' switch does: the system's, so only a check VM's runs turn it.
 windows_animations() {
   ON="$1" powershell.exe -NoProfile -NonInteractive -Command '
@@ -63,8 +63,9 @@ windows_animations() {
 public static extern bool SystemParametersInfoW(
   uint action, uint param, System.IntPtr value, uint ini);
 "@
-    # SPI_SETCLIENTAREAANIMATION, its value the pointer itself, and SPIF_SENDCHANGE.
-    if (-not [Check.User32]::SystemParametersInfoW(0x1043, 0, [System.IntPtr][int]$env:ON, 2)) {
+    # SPI_SETCLIENTAREAANIMATION, its value the pointer itself, and SPIF_UPDATEINIFILE with
+    # SPIF_SENDCHANGE, as Windows broadcasts WM_SETTINGCHANGE only once the profile has the value.
+    if (-not [Check.User32]::SystemParametersInfoW(0x1043, 0, [System.IntPtr][int]$env:ON, 3)) {
       exit 1
     }'
 }
