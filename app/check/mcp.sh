@@ -298,6 +298,7 @@ const tell = () => {
 const tick = () => { ticks++; tell(); requestAnimationFrame(tick); };
 new IntersectionObserver(([entry]) => { seen = entry.isIntersecting ? "in view" : "out of view"; tell(); })
   .observe(document.body);
+addEventListener("click", (event) => parent.postMessage(`cross heard a click on ${event.target.localName}`, "*"), true);
 addEventListener("load", () => {
   requestAnimationFrame(tick);
   setTimeout(() => parent.postMessage(`cross after 3 s: ${innerWidth}x${innerHeight} ${document.visibilityState}, ${ticks} animation frames, ${seen}`, "*"), 3000);
@@ -310,7 +311,9 @@ addEventListener('message', (event) => {
     document.title = \`\${event.data}, page at \${innerWidth}x\${innerHeight} \${document.visibilityState}\`;
   if (event.data === 'drawn') { drawn = true; document.title = 'frames'; }
   if (event.data === 'extension frame') document.title = 'frames with extension';
-});</script>" > "$out/site/frames.html"
+  if (String(event.data).startsWith('cross heard ')) document.title = event.data;
+});
+addEventListener('click', (event) => document.title = \`page heard a click on \${event.target.localName}\`, true);</script>" > "$out/site/frames.html"
   outline=$(call open_tab "{\"url\":\"localhost:$port/frames.html\"}")
   printf '%s\n' "$outline" > "$out/mcp-frames.txt"
   case "$outline" in
@@ -328,7 +331,13 @@ addEventListener('message', (event) => {
   clicked=$(call click "{\"tab\":$frames_tab,\"ref\":\"$cross\"}")
   case "$clicked" in
     "Clicked button “Cross button”."*"cross clicked"*) ;;
-    *) fail "clicking in the other site's frame answered: $clicked" ;;
+    *) fail "clicking in the other site's frame answered: $(printf '%s\n' "$clicked" | head -1) $(
+      grep -E "^browser: title $frames_tab (cross|page) heard " "$log" | cut -d' ' -f4- | paste -sd, - |
+        grep . || echo "neither frame heard a click")$(
+      case $(call snapshot "{\"tab\":$frames_tab}") in
+        *"cross clicked"*) echo ", and a snapshot after has its change" ;;
+        *) echo ", and a snapshot after hasn't its change either" ;;
+      esac)" ;;
   esac
   await_log "^browser: agent activity mcp-client $frames_tab click\$" \
     "the click in the frame didn't reach the activity log"
