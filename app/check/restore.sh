@@ -43,7 +43,8 @@ if command -v sqlite3 > /dev/null && [ -f "$history_db" ]; then
     delete from downloads_slices;" || { echo "FAIL: the downloads wouldn't clear" >&2; exit 1; }
 fi
 BROWSER_DRIVE=1 BROWSER_URL="$site" "$browser" --log-net-log="$(app_path "$PWD/$out/netlog.json")" \
-  --net-log-capture-mode=Everything < "$out/drive" > "$log" 2>&1 &
+  --net-log-capture-mode=Everything --vmodule='*download*=2,*quarantine*=2,*attachment*=2' \
+  < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load
@@ -69,6 +70,9 @@ if grep -q '^browser: download [0-9]* failed notes.txt$' "$log"; then
   quit
   # Proof for #872: the History database's downloads table keeps Chromium's interrupt reason.
   cp "$history_db" "$out/History" || true
+  cp "$prefs" "$out/Preferences" || true
+  ls -laR "$out/downloads" > "$out/downloads-ls.txt" 2>&1
+  powershell.exe -NoProfile -NonInteractive -Command 'Get-MpComputerStatus | Format-List RealTimeProtectionEnabled,AntivirusEnabled; Get-MpThreatDetection | Format-List; Get-WinEvent -LogName "Microsoft-Windows-Windows Defender/Operational" -MaxEvents 20 | Format-List TimeCreated,Id,Message' > "$out/defender.txt" 2>&1
   fail "the page's download didn't finish"
 fi
 [ -f "$out/downloads/notes.txt" ] || fail "the download isn't in the check's folder"
