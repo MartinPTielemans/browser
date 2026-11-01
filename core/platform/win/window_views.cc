@@ -633,8 +633,11 @@ void ShowPages(views::Widget* widget,
       Hold(parent, devtools, hidden);
       slot.page_in_devtools = pane.devtools->page_frame;
     }
-    if (slot.page != pane.page && VLOG_IS_ON(1)) {
-      // What Chrome's dropdown takes for the page's window, and the window it keeps within.
+    const bool arrived = slot.page != pane.page;
+    Hold(parent, pane.page, hidden);
+    if (arrived && VLOG_IS_ON(1)) {
+      // What Chrome's dropdown takes for the page's window, and the window it keeps within, once
+      // the page is in its pane: before, it's in no window.
       views::Widget* top = views::Widget::GetTopLevelWidgetForNativeView(pane.page);
       views::Widget* root = top;
       while (root && root->parent()) {
@@ -644,7 +647,6 @@ void ShowPages(views::Widget* widget,
               << (top ? top->GetName() : std::string("none")) << ", in "
               << (root ? root->GetName() : std::string("none"));
     }
-    Hold(parent, pane.page, hidden);
     if (devtools) {
       if (pane.devtools->page_under) {
         parent->StackChildBelow(pane.page, devtools);
