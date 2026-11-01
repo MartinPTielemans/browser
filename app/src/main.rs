@@ -60,7 +60,7 @@ mod drive_wayland;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/drops.rs"]
 mod drops;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 #[path = "../platform/linux/emoji.rs"]
 mod emoji;
 #[cfg(target_os = "linux")]
@@ -4047,7 +4047,7 @@ fn open_window_as(
         });
         window.focus(&shell.focus_handle(cx), cx);
         CX.set(Some(cx.to_async()));
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
         emoji::keep(cx);
         // In front, as it's about to be key, or a saved one behind the others.
         WINDOWS.with_borrow_mut(|windows| {

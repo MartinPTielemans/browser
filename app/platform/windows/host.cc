@@ -2089,11 +2089,7 @@ void host_set_overlay_height(int overlay, double height) {
   fprintf(stderr, "browser: %s height %g\n", kOverlayNames[overlay], height);
 }
 
-// shortcut: Segoe UI Emoji is taken to draw every emoji; check with DirectWrite's glyphs when an
-// older Windows shows blanks in the icon picker.
-bool host_can_draw_emoji(const char*) {
-  return true;
-}
+// host_can_draw_emoji is the app's, from GPUI's text system (platform/linux/emoji.rs).
 
 void host_hide_overlay(int overlay) {
   HideOverlay(overlay);
