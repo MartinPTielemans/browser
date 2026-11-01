@@ -548,10 +548,9 @@ void Hold(aura::Window* parent, aura::Window* view, bool hidden) {
 }  // namespace
 
 views::NativeWidget* NewNativeWidget(views::Widget* widget, base::RepeatingClosure) {
-  // shortcut: keeps Windows' title bar, where the Mac's UI fills it; give the window a custom frame
-  // with the app's caption buttons when the header row is ported. Windows has no full screen of
-  // its own, so the window leaves it only when Chrome or the app (bc_window_toggle_full_screen)
-  // asks, each through Window::LeaveFullScreen.
+  // The app takes Windows' title bar away (host.cc's TakeTitleBar): its header draws the window's
+  // buttons and moves it. Windows has no full screen of its own, so the window leaves it only when
+  // Chrome or the app (bc_window_toggle_full_screen) asks, each through Window::LeaveFullScreen.
   return new views::DesktopNativeWidgetAura(widget);
 }
 
