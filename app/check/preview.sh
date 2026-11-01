@@ -1,12 +1,12 @@
 # The link preview. A link to another site in a pinned tab's page opens in a card over the window,
 # its page in a tab of no Space, and the pinned tab stays on its page. Esc closes it and its page.
 # ⌘↩ keeps it as the top Today tab, shown, without loading it again. A click on the dim closes it,
-# and the page behind doesn't get the click. ⌘W with its page focused closes it, and not the tab
-# behind. ⌘Z reopens a closed one over its tab at its page, and so does ⇧⌘T while no tab has closed
-# since. A favorite's link opens it too. A call's link, such as Google Meet's, opens as a tab
-# instead. With the Settings switch off, the link goes in the pinned tab. Back on, a link rule to
-# another Space sends the link there as a tab instead. Reports how long the first preview took to
-# draw its first frame.
+# and the page behind doesn't get the click, and so does Settings taking the keyboard. ⌘W with its
+# page focused closes it, and not the tab behind. ⌘Z reopens a closed one over its tab at its page,
+# and so does ⇧⌘T while no tab has closed since. A favorite's link opens it too. A call's link, such
+# as Google Meet's, opens as a tab instead. With the Settings switch off, the link goes in the
+# pinned tab. Back on, a link rule to another Space sends the link there as a tab instead. Reports
+# how long the first preview took to draw its first frame.
 
 serve
 # The test page's top 40% is a link to the same server under another name, localhost, which is
@@ -145,6 +145,18 @@ send click $dim_point
 in_order "after a click on the dim" '^browser: link preview closing (click outside)$' \
   "^browser: tab $p closed\$"
 none_since "^browser: title $a pressed" || fail "the click on the dim reached the page behind"
+
+# Settings taking the keyboard is the user leaving it for another window, which closes it, and
+# Settings keeps the keyboard.
+open_preview "for Settings"
+# The preview's page takes no window's keys but its own, so Settings comes from the menu.
+send menu Settings…
+expect '^browser: settings shown General$' "Settings… didn't show Settings over the preview"
+in_order "after Settings took the keyboard" '^browser: link preview released$' \
+  '^browser: link preview closing (dismissed)$' "^browser: tab $p closed\$"
+send key w cmd
+expect '^browser: settings hidden$' "⌘W didn't hide Settings, so it didn't keep the keyboard"
+none_since '^browser: command close-tab' || fail "⌘W after Settings left the preview closed a tab"
 
 # ⌘W in its page closes it, not the pinned tab behind.
 open_preview "for ⌘W"
