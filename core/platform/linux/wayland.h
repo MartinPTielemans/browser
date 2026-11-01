@@ -73,6 +73,12 @@ void SetUITextInput(views::Widget* widget, std::optional<gfx::Rect> caret);
 // (bc_answer_clipboard_requests). In window_views.cc.
 void AnswerClipboardRequests();
 
+// From now on, on X11, a bubble of Chrome's on a page's Picture in Picture window, such as its
+// automatic picture-in-picture prompt, is a window of its own, as it is on Wayland, not a child
+// clipped to the Picture in Picture window, which Chrome would then grow to hold it (#1161). In
+// window_views.cc.
+void FloatPictureInPictureBubbles();
+
 }  // namespace browser_core::platform
 
 #endif  // BROWSER_CORE_PLATFORM_LINUX_WAYLAND_H_
