@@ -306,7 +306,7 @@ if [ -n "$arc" ]; then
   ../tools/window-screenshot.sh "$pid" "$out/import-personal.png" || fail "no window to capture"
 fi
 quit
-[ -n "$arc" ] || echo "skip: import's Arc steps. The fixture's Arc is the Mac's, so it's found there alone."
+[ -n "$arc" ] || echo "skip: import's Arc steps. The fixture's Arc is the Mac's, found there alone."
 echo "ok: Settings › Import finds the fixture's Arc, Chrome and Firefox. From Arc come its Spaces,"
 echo "  one in a new profile, their pinned tabs and folders, and its favorites; from Chrome and"
 echo "  Firefox their bookmarks as a Space and their history; and a second import of each adds nothing."
