@@ -4866,10 +4866,12 @@ extern "C" fn finished_launching() {
 extern "C" fn dock_little() -> c_int {
     WINDOWS.with_borrow(|windows| {
         let mut little = windows.iter().filter(|w| w.little.is_some()).peekable();
-        match little.peek() {
-            None => 0,
-            Some(_) if little.any(|w| unsafe { platform::host_window_shown(w.ui_view) }) => 1,
-            Some(_) => 2,
+        if little.peek().is_none() {
+            0
+        } else if little.any(|w| unsafe { platform::host_window_shown(w.ui_view) }) {
+            1
+        } else {
+            2
         }
     })
 }
