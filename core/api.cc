@@ -272,6 +272,22 @@ bool bc_window_keyboard_page(bc_id id, bc_rect* frame) {
 #endif
 }
 
+int bc_window_page_frames(bc_id id, bc_rect* frames, int count) {
+#if BUILDFLAG(IS_LINUX)
+  views::Widget* widget = OpenWidget(id);
+  const std::vector<gfx::Rect> pages =
+      widget ? browser_core::platform::PageFrames(widget) : std::vector<gfx::Rect>();
+  for (int i = 0; i < count && i < static_cast<int>(pages.size()); ++i) {
+    const gfx::Rect& page = pages[i];
+    frames[i] = {static_cast<double>(page.x()), static_cast<double>(page.y()),
+                 static_cast<double>(page.width()), static_cast<double>(page.height())};
+  }
+  return static_cast<int>(pages.size());
+#else
+  return 0;
+#endif
+}
+
 bool bc_window_focus_ring(bc_id id, bc_rect* frame) {
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
   views::Widget* widget = OpenWidget(id);

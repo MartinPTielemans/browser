@@ -1248,6 +1248,26 @@ std::optional<gfx::Rect> KeyboardPageFrame(views::Widget* widget) {
   return std::nullopt;
 }
 
+std::vector<gfx::Rect> PageFrames(views::Widget* widget) {
+  std::vector<gfx::Rect> frames;
+  WindowViews* views = ViewsOf(widget);
+  if (!views) {
+    return frames;
+  }
+  for (Slot& slot : views->panes()) {
+    if (!slot.holder || !slot.page || !slot.holder->IsVisible()) {
+      continue;
+    }
+    const gfx::Vector2d origin = slot.holder->bounds().OffsetFromOrigin();
+    for (aura::Window* view : {slot.devtools.get(), slot.page.get()}) {
+      if (view && view->IsVisible()) {
+        frames.push_back(view->bounds() + origin);
+      }
+    }
+  }
+  return frames;
+}
+
 std::u16string ChildTitle(views::Widget* widget) {
   if (!KeyboardInChild(widget)) {
     return {};

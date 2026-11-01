@@ -6,6 +6,7 @@
 
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
@@ -56,6 +57,10 @@ bool KeyboardInChild(views::Widget* widget);
 // The frame of |widget|'s pane whose page has the keyboard, in its window's content, or none
 // (bc_window_keyboard_page). In window_views.cc.
 std::optional<gfx::Rect> KeyboardPageFrame(views::Widget* widget);
+
+// The frames of |widget|'s page views in its window's content, each pane's docked DevTools before
+// its page (bc_window_page_frames). In window_views.cc.
+std::vector<gfx::Rect> PageFrames(views::Widget* widget);
 
 // The title of the window of Chromium's own in |widget|'s with the keys (KeyboardInChild), such as
 // a tab's dialog, or an empty one. In window_views.cc.

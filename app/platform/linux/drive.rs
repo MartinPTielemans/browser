@@ -999,30 +999,27 @@ fn stacked() -> Option<Vec<Browser>> {
     )
 }
 
-/// The pages of browser window `id`, as drive.mm lists their views: from the bottom-left corner of
-/// content `width` by `height`, with the radius of their corners if they're round.
-/// shortcut: where the shell lays them out and the radius it gives their corners, which the core
-/// follows. They're Aura's windows in Chromium's one X window, and no core call says where they
-/// are or how round.
+/// The page views of browser window `id`, each pane's docked DevTools before its page, as drive.mm
+/// lists their views: from the bottom-left corner of content `width` by `height`, with the radius
+/// the shell gives their corners if they're round. They're Aura's windows in Chromium's one X
+/// window, which the core says where they are.
 pub(super) fn pages(id: bc::bc_id, width: f64, height: f64) -> Option<String> {
     let shell = WINDOWS.with_borrow(|windows| {
         windows.iter().find(|w| w.id == id).map(|w| w.shell.clone())
     })?;
     let cx = CX.with_borrow(Clone::clone)?;
     let viewport = gpui::size(gpui::px(width as f32), gpui::px(height as f32));
-    let (pages, (_, radius)) = cx.update(|cx| {
-        let shell = shell.upgrade()?;
-        let shell = shell.read(cx);
-        Some((shell.shown_pages(), shell.page_frame(viewport)))
-    })?;
-    let views = pages.into_iter().map(|(_, page)| {
-        let [x, bottom, width, high] =
-            [page.left(), page.bottom(), page.size.width, page.size.height].map(f32::from);
-        let y = height - f64::from(bottom);
+    let (_, radius) = cx.update(|cx| Some(shell.upgrade()?.read(cx).page_frame(viewport)))?;
+    let none = bc::bc_rect { x: 0., y: 0., width: 0., height: 0. };
+    let mut frames = [none; 8];
+    let count = unsafe { bc::bc_window_page_frames(id, frames.as_mut_ptr(), frames.len() as i32) };
+    let views = frames.iter().take(count.clamp(0, frames.len() as i32) as usize).map(|frame| {
+        let y = height - (frame.y + frame.height);
         let round = match radius > 0. {
             true => format!(" radius {radius:.0}"),
             false => String::new(),
         };
+        let (x, width, high) = (frame.x, frame.width, frame.height);
         format!(", WebContentsViewCocoa {x:.0},{y:.0} {width:.0}x{high:.0}{round}")
     });
     Some(views.collect())

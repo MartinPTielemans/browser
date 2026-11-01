@@ -966,6 +966,11 @@ BC_EXPORT bool bc_window_keyboard_in_child(bc_id window);
 // the view with the keyboard.
 BC_EXPORT bool bc_window_keyboard_page(bc_id window, bc_rect* frame);
 
+// On Linux, the frames of |window|'s page views, each pane's docked DevTools before its page, in
+// |frames|, up to |count| of them, from the top-left of the window's content; returns how many
+// there are. For the test driver, as the Mac's lists the pages' views.
+BC_EXPORT int bc_window_page_frames(bc_id window, bc_rect* frames, int count);
+
 // On Linux and Windows, where the core draws a split view's ring around the focused page: whether
 // it shows in |window|, and if so its frame in |frame|, from the top-left of the window's content.
 // For the test driver, which sees the Mac's ring as a view.
