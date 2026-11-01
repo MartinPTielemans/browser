@@ -51,7 +51,7 @@ jobs:
         extensions capture popup pinned about windows dialogs trouble cards passwords updates
         restore favorites keys
       # The runs that pass on Wayland so far, in the headless sway session.
-      WAYLAND_RUNS: tabs
+      WAYLAND_RUNS: tabs private
       # The runs that don't apply to Linux, a line each with why, which the summary gives. They're
       # skipped even when named.
       LINUX_SKIPS: |
