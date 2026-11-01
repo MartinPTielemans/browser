@@ -181,12 +181,17 @@ LRESULT CALLBACK FloatingProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpa
         return 0;
       }
       break;
-    case WM_GETMINMAXINFO: {
-      // Windows keeps a window with a caption and a sizing border, as GPUI's are, at least about 39
-      // pixels high, which the find bar's 32 is under. An overlay is the size the UI gives it.
+    case WM_WINDOWPOSCHANGING: {
+      // Windows keeps a window with a caption, as GPUI's are, at least 39 pixels high, which the
+      // find bar's 32 is under, and a smaller least size in WM_GETMINMAXINFO doesn't lower it. An
+      // overlay is the size the UI gives it.
+      auto* pos = reinterpret_cast<WINDOWPOS*>(lparam);
+      const int width = pos->cx, height = pos->cy;
       const LRESULT result = DefSubclassProc(hwnd, message, wparam, lparam);
-      auto* info = reinterpret_cast<MINMAXINFO*>(lparam);
-      info->ptMinTrackSize = {1, 1};
+      if (!(pos->flags & SWP_NOSIZE)) {
+        pos->cx = width;
+        pos->cy = height;
+      }
       return result;
     }
     case WM_NCHITTEST:
