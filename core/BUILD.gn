@@ -438,6 +438,9 @@ test("browser_core_unittests") {
   ]
   if (use_xkbcommon) {
     sources += [ "xkb_no_keymap_unittest.cc" ]
-    deps += [ "//ui/events/ozone/layout" ]
+    deps += [
+      "//ui/events:dom_keycode_converter",
+      "//ui/events/ozone/layout",
+    ]
   }
 }
