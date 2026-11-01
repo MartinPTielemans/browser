@@ -522,7 +522,7 @@ impl account::Host for CoreAccount {
             let returns = on_return == dialog::Return::Action;
             cx.spawn(async move |cx| {
                 if crate::ask(&message, &detail, &[action, "Cancel"], returns) == 0 {
-                    cx.update(confirmed).ok();
+                    cx.update(confirmed);
                 }
             })
             .detach();
@@ -2006,7 +2006,7 @@ impl Settings {
         {
             let _ = window;
             cx.spawn(async move |_, _| {
-                if crate::ask(&message, &detail, &["Remove", "Cancel"]) == 0 {
+                if crate::ask(&message, &detail, &["Remove", "Cancel"], true) == 0 {
                     remove();
                 }
             })
