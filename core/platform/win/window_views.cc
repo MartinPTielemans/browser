@@ -43,6 +43,7 @@
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_observer.h"
 #include "ui/views/win/hwnd_util.h"
+#include "ui/views/window/non_client_view.h"
 
 // Aura draws every view of a widget into its one HWND, so a page can't go over a native view in it
 // the way an NSView goes over the app's on the Mac. Here the app's UI is a child HWND that fills the
@@ -744,6 +745,24 @@ std::optional<gfx::Rect> FocusRingFrame(views::Widget* widget) {
     if (slot.widget && views->ring().In(slot.widget->GetNativeView())) {
       gfx::Rect frame(views->ContentSize());
       frame.Inset(slot.insets);
+      return frame;
+    }
+  }
+  return std::nullopt;
+}
+
+std::optional<gfx::Rect> DialogFrame(views::Widget* widget) {
+  // A tab's dialog is a window of its own that the browser window owns (PageDialogsInOwnWindow),
+  // as the panes' widgets aren't, and the only one that's modal.
+  for (views::Widget* dialog : views::Widget::GetAllOwnedWidgets(widget->GetNativeView())) {
+    if (dialog->IsVisible() && dialog->IsModal()) {
+      // Inside the border and shadow views draws in its window: what Chromium puts at the page's
+      // top (UpdateWidgetModalDialogPosition), as a Mac's sheet's frame is.
+      gfx::Rect frame = dialog->GetWindowBoundsInScreen();
+      frame.Offset(-widget->GetClientAreaBoundsInScreen().OffsetFromOrigin());
+      if (dialog->non_client_view() && dialog->non_client_view()->frame_view()) {
+        frame.Inset(dialog->non_client_view()->frame_view()->GetInsets());
+      }
       return frame;
     }
   }
