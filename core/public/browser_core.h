@@ -458,11 +458,14 @@ typedef struct bc_side_panel {
 } bc_side_panel;
 
 // What a tab's offer offers: to save the password of a login its page submitted, or to update the
-// password saved for it.
+// password saved for it; or to save an address or a card the page's form submitted.
 #define BC_OFFER_KIND_PASSWORD 0
 #define BC_OFFER_KIND_PASSWORD_UPDATE 1
+#define BC_OFFER_KIND_ADDRESS 2
+#define BC_OFFER_KIND_CARD 3
 
-// An offer from Chrome's password manager, in Chrome's words. The password stays in the core.
+// An offer from Chrome's password manager or its autofill, in Chrome's words. The password stays
+// in the core, and a card's number but its last four digits.
 typedef struct bc_offer {
   // A BC_OFFER_KIND_ kind.
   int kind;
@@ -481,6 +484,10 @@ typedef struct bc_offer {
   const char* accept;
   const char* decline;
   const char* never;
+  // An address's or a card's: what it saves, as Chrome's bubble lists it, a line each with '\n'
+  // between, such as the card's name and last four digits, then its expiry. "" for a password's,
+  // whose |username| and |password_length| say it, as theirs are "" and 0.
+  const char* details;
 } bc_offer;
 
 // What a page's own dialog asks, in tab_dialog: its alert(), confirm() or prompt(), whether to
@@ -739,10 +746,10 @@ typedef struct bc_host {
   void (*tab_media_unsupported)(void* context, bc_id tab, const char* key_system);
   // Google's Widevine module is now |state|, a BC_WIDEVINE_ value (bc_widevine).
   void (*widevine_changed)(void* context, int state);
-  // The tab's offer changed: Chrome's password manager offers |offer|, or with null, it no longer
-  // does: it was answered, or another tab was shown or the tab closed. Show it while the tab is,
-  // and answer with bc_tab_answer_offer. A tab shown again doesn't get it back. The user's alone:
-  // agents hear none, as it names the user's login.
+  // The tab's offer changed: Chrome's password manager or its autofill offers |offer|, or with
+  // null, it no longer does: it was answered, or another tab was shown or the tab closed. Show it
+  // while the tab is, and answer with bc_tab_answer_offer. A tab shown again doesn't get it back.
+  // The user's alone: agents hear none, as it names the user's login, address or card.
   void (*tab_offer_changed)(void* context, bc_id tab, const bc_offer* offer);
   // The tab's key icon changed: what Chrome's password manager has for its page, a BC_PASSWORDS_
   // value, as Chrome's toolbar would show its key for it. The user's alone: agents hear none.
@@ -2124,15 +2131,16 @@ BC_EXPORT void bc_tab_picture_in_picture(bc_id tab);
 // the browser's own pages have.
 BC_EXPORT void bc_tab_show_certificate(bc_id tab);
 
-// Answers to the offer tab_offer_changed made: save or update the password; never save one for the
-// site; or not now.
+// Answers to the offer tab_offer_changed made: save or update the password, the address or the
+// card; never save a password for the site, which only a password's save offers; or not now.
 #define BC_OFFER_ACCEPT 0
 #define BC_OFFER_NEVER 1
 #define BC_OFFER_NOT_NOW 2
 
 // Answers the tab's offer with |answer|, a BC_OFFER_ answer, with the username as the user left it,
-// or null to keep the offer's, if the offer is still open. Then tab_offer_changed. The user's:
-// agents get none, as saving a password is the user's to decide.
+// or null to keep the offer's, if the offer is still open; an address's or a card's ignores it.
+// Then tab_offer_changed. The user's: agents get none, as saving a password, an address or a card
+// is the user's to decide, and an agent's tab is offered none of them.
 BC_EXPORT void bc_tab_answer_offer(bc_id tab, int answer, const char* username);
 
 // What tab_passwords_changed says Chrome's password manager has for a tab's page, as its key icon:
