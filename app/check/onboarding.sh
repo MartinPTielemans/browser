@@ -4,9 +4,9 @@
 # Linux), never the Mac's own browsers; Esc or Skip goes on from a step, the colour step's Return
 # gives the first Space the swatch picked, and the last step leaves the flow for the first Space's
 # welcome with the command bar up and a line under it. The default browser's step shows only while
-# ilo isn't the default, and the opt-ins' always, with the agents' switch, as every build has
-# their server; both are only ever skipped, so the run changes neither the Mac's default browser
-# nor a switch. Help › Welcome to ilo
+# ilo isn't the default, and is only ever skipped, so the run never changes the Mac's default
+# browser. The opt-ins' shows always, with the agents' switch, as every build has their server,
+# and the dark pass turns it on in its new profile and sees the server start. Help › Welcome to ilo
 # plays it again, in the window while it shows no page and in a new window while it shows one. A
 # launch that brings Spaces back never starts it. Every other run sets BROWSER_ONBOARDING=skip
 # (check.sh); this one sets the appearance instead.
@@ -178,6 +178,12 @@ expect '^browser: onboarding picked color f0eae5$' "dark: → and Return didn't 
 expect '^browser: onboarding left color via return$' "dark: Return didn't leave the colour step"
 expect '^browser: onboarding step opt-ins settled$' "dark: the opt-ins step didn't come"
 capture_step dark-opt-ins
+# The agents' row, the one switch a build without a crash collector offers, is a click anywhere
+# along it. The column is centred, so the row's middle is (title + line - 24) / 2 under the
+# window's, 18, whatever its sentence wraps to.
+send click $((width / 2)) $((height / 2 + 18))
+expect '^browser: onboarding agents on$' "dark: a click on the agents' row didn't turn them on"
+expect '^browser: agents server on ' "dark: the agents' switch didn't start their server"
 send key escape
 expect '^browser: onboarding left opt-ins via escape$' "dark: Esc didn't leave the opt-ins step"
 expect '^browser: onboarding done$' "dark: the flow didn't end after its last step"
