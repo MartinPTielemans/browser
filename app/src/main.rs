@@ -291,6 +291,9 @@ mod platform {
         pub fn host_video_close(video: *mut c_void);
         #[cfg(not(target_os = "linux"))]
         pub fn host_copy(text: *const c_char);
+        pub fn host_key_repeated() -> bool;
+        #[cfg(not(target_os = "linux"))]
+        pub fn host_paste(text: *mut c_char, capacity: usize) -> usize;
         pub fn host_open_in_safari(url: *const c_char);
         pub fn host_open_full_disk_access();
         pub fn host_share(
@@ -1080,6 +1083,8 @@ extern "C" fn site_controls_dismissed() {
 struct LinkPreviewHost {
     /// The view the host puts the preview's page in.
     holder: Cell<*mut c_void>,
+    /// The browser window it shows over, until that window's page has the keyboard back.
+    over: Cell<u64>,
 }
 
 impl link_preview::Host for LinkPreviewHost {
@@ -1092,6 +1097,7 @@ impl link_preview::Host for LinkPreviewHost {
             windows.iter().find(|each| each.id == window).map(|each| each.ui_view)
         });
         if let Some(ui_view) = ui_view {
+            self.over.set(window);
             unsafe { platform::host_show_link_preview(ui_view) };
         }
     }
@@ -1111,9 +1117,17 @@ impl link_preview::Host for LinkPreviewHost {
 
     fn release(&self) {
         unsafe { platform::host_release_link_preview() };
+        // The window's page has the keyboard back from the preview's, which goes, or no page has
+        // it. Linux's host gives it as it releases; Windows' can't name the window.
+        let window = self.over.replace(0);
+        if cfg!(target_os = "windows") && window != 0 {
+            unsafe { bc::bc_window_focus_page(window) };
+        }
     }
 
     fn hide(&self) {
+        // Released as it left, unless it goes at once.
+        self.release();
         unsafe { platform::host_hide_link_preview() };
     }
 
@@ -2919,6 +2933,21 @@ impl Browser for Engine {
         }
     }
 
+    fn pasted(&self, cx: &App) -> Option<String> {
+        #[cfg(target_os = "linux")]
+        return system::pasted(cx);
+        #[cfg(not(target_os = "linux"))]
+        {
+            _ = cx;
+            // Asked for its length first, then for the text.
+            let length = unsafe { platform::host_paste(std::ptr::null_mut(), 0) };
+            let mut text = vec![0u8; length.checked_add(1)?];
+            unsafe { platform::host_paste(text.as_mut_ptr().cast(), text.len()) };
+            text.truncate(length);
+            Some(String::from_utf8_lossy(&text).into_owned()).filter(|text| !text.is_empty())
+        }
+    }
+
     fn can_open_in_safari(&self) -> bool {
         true
     }
@@ -3387,6 +3416,11 @@ fn run_page_shortcut(tab: bc::bc_id, key: *const bc::bc_key, reserved: bool) -> 
     update_tab_window(tab, |shell, cx| shell.run_for_page(command, cx)).unwrap_or(false)
 }
 
+thread_local! {
+    /// The shortcut a page got first last, which a second press runs ilo's of if the page kept it.
+    static SECOND_PRESS: RefCell<shell::SecondPress> = RefCell::default();
+}
+
 unsafe extern "C" fn tab_key_before_page(
     _: *mut c_void,
     tab: bc::bc_id,
@@ -3417,8 +3451,20 @@ unsafe extern "C" fn tab_key_before_page(
     {
         return true;
     }
-    // The keys typed after ⌘L would reach the page before it hands ⌘L back to open the bar.
     let cx = CX.with_borrow(Clone::clone);
+    // A shortcut the page gets first that it kept, pressed again at once, runs ilo's (Arc's).
+    let shortcut = cx.as_ref().and_then(|cx| {
+        cx.try_read_global(|keys: &shell::UserKeys, _| keys.command_for(&keystroke, false))
+    });
+    let repeat = unsafe { platform::host_key_repeated() };
+    let now = Instant::now();
+    let shortcut = shortcut.flatten().is_some();
+    if SECOND_PRESS.with_borrow_mut(|second| second.press(tab, &keystroke, shortcut, repeat, now)) {
+        // check.sh reads this line.
+        log!("browser: second press {keystroke}");
+        return run_page_shortcut(tab, key, false);
+    }
+    // The keys typed after ⌘L would reach the page before it hands ⌘L back to open the bar.
     let holds = cx.and_then(|cx| {
         cx.try_read_global(|keys: &shell::UserKeys, _| keys.holds_keys(&keystroke))
     });
@@ -3504,6 +3550,7 @@ unsafe extern "C" fn tab_key_unhandled(
     tab: bc::bc_id,
     key: *const bc::bc_key,
 ) -> bool {
+    SECOND_PRESS.with_borrow_mut(|second| second.declined(&keystroke(unsafe { &*key })));
     link_preview_key(tab, key, false).unwrap_or_else(|| run_page_shortcut(tab, key, false))
 }
 
@@ -4292,7 +4339,10 @@ fn finish_opening(
     {
         unsafe { platform::host_add_capture(view, capture_dismissed) };
     }
-    let host = Rc::new(LinkPreviewHost { holder: Cell::new(std::ptr::null_mut()) });
+    let host = Rc::new(LinkPreviewHost {
+        holder: Cell::new(std::ptr::null_mut()),
+        over: Cell::new(0),
+    });
     if let Some(preview) = link_preview::open(host.clone(), cx)
         && let Ok(view) = preview.update(cx, |_, window, _| ns_view(window))
     {
