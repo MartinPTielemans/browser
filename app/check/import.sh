@@ -45,10 +45,19 @@ cat > "$chrome/Default/Bookmarks" << 'EOF'
     {"type": "url", "name": "Docs", "url": "https://docs.example.org/"}]},
   "synced": {"type": "folder", "name": "Mobile bookmarks", "children": []}}, "version": 1}
 EOF
-command -v sqlite3 > /dev/null || fail "no sqlite3 to write Chrome's History with"
+# Python's sqlite3 writes the databases, as Windows's runner has no sqlite3 command (#872).
+sql() {
+  python3 -I -c '
+import sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+db.executescript(sys.argv[2])
+db.commit()
+db.close()
+' "$1" "$2" || fail "couldn't write $1"
+}
 # Chromium counts microseconds from 1601: an hour and two hours ago.
 now=$(( ($(date +%s) + 11644473600) * 1000000 ))
-sqlite3 "$chrome/Default/History" "
+sql "$chrome/Default/History" "
   CREATE TABLE urls(id INTEGER PRIMARY KEY AUTOINCREMENT, url LONGVARCHAR, title LONGVARCHAR,
     visit_count INTEGER DEFAULT 0 NOT NULL, typed_count INTEGER DEFAULT 0 NOT NULL,
     last_visit_time INTEGER NOT NULL, hidden INTEGER DEFAULT 0 NOT NULL);
@@ -61,7 +70,7 @@ printf '[Profile0]\nName=default-release\nIsRelative=1\nPath=Profiles/x.default-
 # Firefox counts microseconds from 1970: its two bookmarks never visited, two pages visited an hour
 # and two hours ago.
 now=$(( $(date +%s) * 1000000 ))
-sqlite3 "$firefox/Profiles/x.default-release/places.sqlite" "
+sql "$firefox/Profiles/x.default-release/places.sqlite" "
   CREATE TABLE moz_places(id INTEGER PRIMARY KEY, url LONGVARCHAR, title LONGVARCHAR,
     visit_count INTEGER DEFAULT 0, hidden INTEGER DEFAULT 0 NOT NULL,
     typed INTEGER DEFAULT 0 NOT NULL, last_visit_date INTEGER, guid TEXT);
