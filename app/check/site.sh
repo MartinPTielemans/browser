@@ -13,6 +13,9 @@
 # to /login, which sends the browser on to welcome.html, as a site that took the login would.
 # signup.html is the same form asking for a new password, which posts to /signup, as /login.
 # /sign-in, with any query, asks for HTTP basic sign-in and takes ada with the password lovelace.
+# address.html and card.html are an address's form and a card's, their first field across the
+# page's top 40%, which post as the login does and put "filled" in the title while Chrome fills
+# that field.
 mkdir "$out/site"
 # A page that a run types into once its title says so sets that title with painted(): Chromium
 # drops a key that comes before a page it loaded first shows, for up to half a second while it
@@ -130,6 +133,29 @@ setInterval(() => {
 </script>' > "$out/site/signup.html"
 printf '%s' '<title>welcome</title><p style="font:24px system-ui">Welcome</p>' \
   > "$out/site/welcome.html"
+# $1 is the form's name, $2 its first field's autocomplete and $3 its other fields'.
+autofill_form() {
+  printf '<title>loading</title><form method="post" action="%s">' "$1"
+  printf '<input id=first name=%s autocomplete=%s style="position:fixed;left:0;top:0;' "$2" "$2"
+  printf 'width:100%%;height:40%%;font:24px system-ui"><div style="position:fixed;top:45%%">'
+  for field in $3; do
+    printf '<input name=%s autocomplete=%s>' "$field" "$field"
+  done
+  printf '</div><button style="position:fixed;right:0;bottom:0;width:1px;height:1px">'
+  printf '</button></form><script>
+requestAnimationFrame(() => setTimeout(() => document.title = "%s"));
+let filled = false;
+setInterval(() => {
+  if (first.matches(":autofill") != filled) {
+    filled = !filled;
+    document.title = filled ? "filled" : "cleared";
+  }
+}, 100);
+</script>' "$1"
+}
+autofill_form address name 'address-line1 address-level2 address-level1 postal-code country email' \
+  > "$out/site/address.html"
+autofill_form card cc-name 'cc-number cc-exp-month cc-exp-year' > "$out/site/card.html"
 # The dialogs page asks with "a" alert(), "c" confirm() and "p" prompt(), each from a key in the
 # page, and puts what the user answered in the title. "u" has it ask before it's left, and "o" goes
 # to a link another app opens: maps:, which macOS opens in Maps, or on Windows, which no longer
