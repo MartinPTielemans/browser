@@ -336,6 +336,19 @@ fn overlay_frame(view: *mut c_void) -> Option<(bc::bc_id, gpui::Bounds<gpui::Pix
     Some((id, bounds))
 }
 
+/// Sway focuses Settings once it has mapped it, which as it first shows can come after the
+/// driver's next click, which then went to the browser window (#1180): the first click after a
+/// show waits for it. Only that one, as a browser window can take the focus while Settings shows.
+fn await_settings_focus() {
+    if !settings_window::take_shown_anew() {
+        return;
+    }
+    let until = Instant::now() + std::time::Duration::from_secs(2);
+    while focused_settings(&ours()).is_none() && Instant::now() < until {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
 /// The origin, in sway's layout, of the window with the keyboard, for clickkey: Settings with
 /// sway's focus, the overlay with the keys in its browser window, or the driven browser window.
 fn key_origin() -> Option<(f64, f64)> {
@@ -594,6 +607,7 @@ pub(crate) fn run(action: &str, line: &str) -> Option<Option<()>> {
         })(),
         "clickkey" | "rightclickkey" | "doubleclickkey" => (|| {
             let (x, y) = drive::point(&mut words)?;
+            await_settings_focus();
             // Settings' close button is the compositor's off the Mac, in its title bar.
             if action == "clickkey"
                 && x.max(y) < drive::CLOSE_CORNER

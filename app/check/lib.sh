@@ -109,6 +109,10 @@ await_load() {
   await '^browser: load' || fail "the page didn't finish loading"
   grep -q '^browser: loaded' "$log" || fail "the page didn't load"
 }
+# The last quit stage the core logged (main_delegate.cc), or that it logged none.
+stage() {
+  grep '^browser: quit: ' "$log" | tail -1 | cut -c16- | grep . || echo "none"
+}
 # Waits up to $1 seconds (10) for the app to exit and checks that no Chromium process outlives it.
 # On the Mac, sample records the app's last 2 s before the limit in hang.txt, with what it said in
 # hang-sample.txt: started after the limit, it found no app to attach to when the app went just
@@ -116,8 +120,11 @@ await_load() {
 exited() {
   ticks=$((${1:-10} * 2))
   sampler=
+  stopping=
   for tick in $(seq "$ticks"); do
     kill -0 "$pid" 2>/dev/null || break
+    # The tick Chromium said it was stopping, so a slow end says how long its rest took (#959).
+    [ -n "$stopping" ] || ! grep -q '^browser: stopping$' "$log" || stopping=$tick
     if [ "$tick" = $((ticks - 3)) ] && [ "$(uname)" = Darwin ]; then
       sample "$pid" 2 -file "$out/hang.txt" > "$out/hang-sample.txt" 2>&1 &
       sampler=$!
@@ -143,6 +150,10 @@ exited() {
       ! windows || python3 -I check/app-windows.py list "$(cat "/proc/$pid/winpid")" \
         > "$out/hang.txt" 2>&1 || true
     fi
+    # The stage it stopped at, as the sample shows only where it was once the check gave up (#959).
+    if [ -n "$stopping" ]; then
+      why="$why; after stopping, its last stage was $(stage)"
+    fi
     if [ -s "$out/hang.txt" ]; then
       fail "$why. Where it was: $out/hang.txt"
     elif [ -n "$sampler" ]; then
@@ -151,6 +162,11 @@ exited() {
     fail "$why"
   fi
   wait "$pid" || fail "the app exited with status $?"
+  # A quit in time but slow says so, with its last stage: #959's bar is 2 s after stopping, to the
+  # half second the ticks see. It doesn't fail the run, as the bar is new.
+  if [ -n "$stopping" ] && [ $((tick - stopping)) -gt 4 ]; then
+    echo "slow quit: the app ended $(((tick - stopping) * 500)) ms after stopping, its last stage $(stage)"
+  fi
   for _ in $(seq 10); do
     pgrep -f "$procs" > /dev/null || break
     sleep 0.5
@@ -248,6 +264,11 @@ logged() {
 # for again, as the app may have logged it as it went.
 exited_without() {
   [ -z "${pid:-}" ] || kill -0 "$pid" 2>/dev/null || logged "$1" "${3:-}" || fail "the app exited: $2"
+}
+# Settings has drawn its tab $1, or whichever it shows, since the last command, on showing or on a
+# change of tab: until it has, a click in it finds nothing to land on (#1101, #1133).
+settings_drew() {
+  expect "^browser: settings drew ${1:-.*}\$" "Settings didn't draw ${1:-its tab}"
 }
 # Where Settings last drew its control $1, "x y" for clickkey, once it has: it logs each place it
 # draws one ("browser: settings $1 at x y").
@@ -469,6 +490,15 @@ expect_lists() {
   expect "^browser: pinned $1\$" "$3: the pinned tabs are \"$(pinned)\", not \"$1\""
   expect "^browser: today $2\$" "$3: Today is \"$(today)\", not \"$2\""
 }
+# What the footer's + menu ends with to add from the desktop: one item where the system's open
+# panel picks files and folders together, the Mac's, else one for each.
+plus_adds() {
+  if [ "$(uname)" = Darwin ]; then
+    echo 'Add File or Folder…'
+  else
+    echo 'Add Files…, Add Folder…'
+  fi
+}
 # The centre of pinned row $1, counting from 0, under the Space's name, and of the ✕ it shows
 # under the pointer.
 pinned_row() {
@@ -509,6 +539,7 @@ serve() {
 # pasteboard is the run's own, which nothing else reads, so it passes there, as under Xvfb.
 clipboard_holds() {
   case "${BROWSER_HEADLESS:-xvfb}" in xvfb) return 0 ;; esac
+  command -v wl-paste > /dev/null || fail "reading the clipboard needs wl-clipboard's wl-paste"
   for _ in $(seq 30); do
     [ "$(WAYLAND_DISPLAY="$BROWSER_HEADLESS" wl-paste -n 2>/dev/null)" = "$1" ] && return 0
     sleep 0.1

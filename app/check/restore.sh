@@ -683,8 +683,10 @@ send key n cmd
 expect '^browser: window opened [0-9]*$' "⌘N didn't open a second window"
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
+settings_drew
 send clickkey 519 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
+settings_drew Advanced
 send clickkey 592 251
 expect '^browser: restore windows off$' \
   "a click on Restore windows from last session didn't turn it off"
