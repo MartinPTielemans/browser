@@ -123,6 +123,10 @@ at=$(grep '^browser: theme picker at' "$log" | tail -1 | cut -d' ' -f5-)
 red_at="x=0.5000 y=0.0000"
 red_color=ff0000
 [ -z "$x11" ] || { red_at="x=0.5030 y=0.0030"; red_color=ff0302; }
+# Windows' clicks land on whole pixels too, from a picker its host puts at a whole pixel.
+case $(uname) in
+MINGW* | MSYS*) red_at="x=0.5029 y=0.0029" red_color=ff0302 ;;
+esac
 rest="intensity=0.810 grain=0.000 appearance=automatic"
 red="$red_at colors=1 $rest"
 send clickkey 276.5 178.5
