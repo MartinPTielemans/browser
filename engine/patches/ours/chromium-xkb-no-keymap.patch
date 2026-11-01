@@ -1,0 +1,19 @@
+A keyboard with no keymap leaves the XKB layout engine with no state, and the modifiers it's then
+sent crashed it in xkb_state_update_mask: on Wayland, a seat whose only keyboard is fcitx5's
+virtual one, which has no keymap until the seat has another keyboard, crashed the app (#1138).
+UpdateModifiers now returns no modifiers without a state, as XkbLookup already looks up no key.
+
+--- a/ui/events/ozone/layout/xkb/xkb_keyboard_layout_engine.cc
++++ b/ui/events/ozone/layout/xkb/xkb_keyboard_layout_engine.cc
+@@ -966,6 +966,11 @@
+                                              uint32_t latched,
+                                              uint32_t locked,
+                                              uint32_t group) {
++  // A Wayland seat's keyboard can come with no keymap, as fcitx5's virtual one does, and its
++  // modifiers then have none to update.
++  if (!xkb_state_) {
++    return 0;
++  }
+   auto* state = xkb_state_.get();
+   xkb_state_update_mask(state, depressed, latched, locked, 0, 0, group);
+   auto component = static_cast<xkb_state_component>(XKB_STATE_MODS_DEPRESSED |

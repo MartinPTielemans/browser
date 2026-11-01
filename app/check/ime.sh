@@ -141,9 +141,9 @@ cat > "$home/bus.conf" <<EOF
 EOF
 # What headless.sh runs: fcitx5 on the session's displays, then the app, in its process group.
 # Under Wayland, first a keyboard on the seat for the whole run, as a desk has: fcitx5's own virtual
-# keyboard takes its keymap from it, and with none the app gets a keyboard with no keymap, on which
-# Chromium crashes. A seat with no keyboard left would also send the app a keyboard leave, which
-# closes an overlay as the user leaving it.
+# keyboard takes its keymap from it, and with none the app gets a keyboard with no keymap, whose keys
+# it can't read (#1138). A seat with no keyboard left would also send the app a keyboard leave,
+# which closes an overlay as the user leaving it.
 cat > "$home/run.sh" <<EOF
 #!/bin/bash
 [ -z "\${WAYLAND_DISPLAY:-}" ] || "$VKBD" --hold 600 &
