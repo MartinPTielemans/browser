@@ -36,6 +36,7 @@
 #include <shlobj.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -71,6 +72,8 @@ namespace {
 UINT const kCommand = WM_APP + 1;
 UINT const kStep = WM_APP + 2;
 UINT_PTR const kStepTimer = 1;
+// Sent to the driver's window while Windows' system drag runs, to run its next step.
+UINT const kPump = WM_APP + 3;
 // Marks the pointer leaving that the driver posts, which its hook lets through.
 LPARAM const kDriverLeave = 0x44524956;
 
@@ -1379,8 +1382,40 @@ void Next() {
   }
 }
 
+// While Windows' system drag runs (host_drag_file), OLE's modal loop reads only the input and the
+// messages other threads send, so the driver's steps and their timer would wait in the queue until
+// the drag ends, and only the driver's release ends it. A thread sends the window kPump meanwhile,
+// which runs the waiting step once OLE has read the input the step before posted, so each step's
+// input reaches the drag before the next. It's the drag's generation, so a thread stops with its
+// drag.
+std::atomic<int> g_system_drag{0};
+bool g_drag_held_said = false;
+
+void Pump(HWND hwnd) {
+  static ULONGLONG held_since = 0;
+  MSG message;
+  if (PeekMessageW(&message, nullptr, WM_MOUSEFIRST, WM_MOUSELAST, PM_NOREMOVE) ||
+      PeekMessageW(&message, nullptr, WM_KEYFIRST, WM_KEYLAST, PM_NOREMOVE)) {
+    held_since = held_since ? held_since : GetTickCount64();
+    if (GetTickCount64() - held_since > 2000 && !std::exchange(g_drag_held_said, true)) {
+      fprintf(stderr, "browser: drive: the system drag left the driver's input unread\n");
+    }
+    return;
+  }
+  held_since = 0;
+  if (PeekMessageW(&message, hwnd, kStep, kStep, PM_REMOVE) ||
+      PeekMessageW(&message, hwnd, WM_TIMER, WM_TIMER, PM_REMOVE)) {
+    DispatchMessageW(&message);
+  }
+}
+
 LRESULT CALLBACK DriverProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
   switch (message) {
+    case kPump:
+      if (g_system_drag.load() == static_cast<int>(wparam)) {
+        Pump(hwnd);
+      }
+      return 0;
     case kCommand: {
       auto* line = reinterpret_cast<std::string*>(lparam);
       g_commands.emplace_back(static_cast<long>(wparam), *line);
@@ -1435,6 +1470,28 @@ LRESULT CALLBACK DropRealPointer(int code, WPARAM wparam, LPARAM lparam) {
 }  // namespace
 
 extern "C" {
+
+// host.cc's, around the system drag's modal loop.
+void drive_system_drag(bool started) {
+  if (!g_driver) {
+    return;
+  }
+  if (!started) {
+    g_system_drag = 0;
+    return;
+  }
+  static int generation = 0;
+  const int drag = ++generation;
+  g_system_drag = drag;
+  g_drag_held_said = false;
+  HWND driver = g_driver;
+  std::thread([driver, drag] {
+    while (g_system_drag.load() == drag) {
+      Sleep(30);
+      SendMessageTimeoutW(driver, kPump, drag, 0, SMTO_NORMAL, 1000, nullptr);
+    }
+  }).detach();
+}
 
 void drive_watch_menus(bool (*menus)(void* ui_view, const char* title, bool bar)) {
   g_menus = menus;
