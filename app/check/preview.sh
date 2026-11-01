@@ -149,8 +149,9 @@ none_since "^browser: title $a pressed" || fail "the click on the dim reached th
 # Settings taking the keyboard is the user leaving it for another window, which closes it, and
 # Settings keeps the keyboard.
 open_preview "for Settings"
-send key , cmd
-expect '^browser: settings shown General$' "⌘, in the preview didn't show Settings"
+# The preview's page takes no window's keys but its own, so Settings comes from the menu.
+send menu Settings…
+expect '^browser: settings shown General$' "Settings… didn't show Settings over the preview"
 in_order "after Settings took the keyboard" '^browser: link preview released$' \
   '^browser: link preview closing (dismissed)$' "^browser: tab $p closed\$"
 send key w cmd
