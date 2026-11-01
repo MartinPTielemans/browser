@@ -54,35 +54,20 @@ grep -q '^browser: drive: ime system 00000000 layout [0-9a-f]*0411$' "$log" ||
 send click 600 300
 in_browser RenderWidgetHostViewCocoa "after a click in the page"
 
-# The keys reach the input method as the window's own, or else only through the system's keyboard
-# input; and it opens with its on key, or else as the field opens it. The first way that composes.
-how=
-for way in "imeon" "open" "send imeon" "send open"; do
-  for word in $way; do
-    case $word in
-      imeon) send key imeon ;;
-      *) send ime "$word" ;;
-    esac
-  done
-  from=$((step + 1))
-  send type ka
-  if titled 'composing か' "$from"; then
-    how=$way
-    break
-  fi
-  echo "note: input: \"$way\" didn't compose か in the page, which shows \"$(page_title)\"; $(ime_state)"
-  send key escape
-  send key a cmd
-  send key backspace
-done
-[ -n "$how" ] || fail "Microsoft's input method composed nothing in the page"
-echo "note: input: the page composes with \"$how\""
+# Microsoft's input method reads keys only from the system's keyboard input, which ime system types
+# through, and opens with its on key, as a Japanese keyboard's 半角/全角 opens it.
+send key imeon
+from=$((step + 1))
+send type ka
+titled 'composing か' "$from" ||
+  fail "Microsoft's input method didn't compose か in the page, which shows \"$(page_title)\"; $(ime_state)"
 
 # The page's textarea.
 ../tools/window-screenshot.sh "$pid" "$out/input-page-composing.png" all || fail "no window to capture"
 from=$((step + 1))
 send key escape
-titled 'value *' "$from" || fail "Escape didn't cancel the page's composition: $(page_title)"
+titled 'value *' "$from" || { send key escape && titled 'value *' "$from"; } ||
+  fail "Escape didn't cancel the page's composition: $(page_title)"
 from=$((step + 1))
 send type nihongo
 titled 'composing にほんご' "$from" || fail "the page didn't compose にほんご: $(page_title)"
@@ -93,6 +78,14 @@ from=$((step + 1))
 send key return
 titled 'value 日本語' "$from" || fail "Enter didn't commit the page's 日本語: $(page_title)"
 
+# Escape, and again if the field still composes: with its predictions showing, Microsoft's input
+# method's first Escape closes them and the second cancels.
+cancel() {
+  send key escape
+  [ "$marked" = none ] || send key escape
+  [ "$marked" = none ] || fail "$1: Escape didn't cancel the composition: marked $marked"
+}
+
 # In ilo's field whose text the app logs as "browser: $1"<text>"", composes か and cancels it, then
 # composes, converts and commits 日本語, and composes か after it, the input method asked for each at
 # the field's caret, which has moved on. Captures the conversion as $2.
@@ -101,8 +94,7 @@ in_field() {
   expect "^browser: $1\"か\"" "$2: the field didn't show the composition か; $(ime_state)"
   [ "$marked" = 0,1 ] || fail "$2: the field didn't mark the composition か: marked $marked"
   first=$(ime_at)
-  send key escape
-  [ "$marked" = none ] || fail "$2: Escape didn't cancel the composition: marked $marked"
+  cancel "$2"
   send type nihongo
   expect "^browser: $1\"にほんご\"" "$2: the field didn't compose にほんご; $(ime_state)"
   send key space
@@ -117,12 +109,12 @@ in_field() {
   size=$(ime_state | sed -n 's/.* in \([0-9]*\)x\([0-9]*\)$/\1 \2/p')
   echo "note: input: $2 asked to compose at $first, then after 日本語 at $second, in $size"
   # shellcheck disable=SC2086 # the numbers
+  name=$2
   set -- $first $second $size
   [ "$#" = 6 ] && [ "$1" -ge 0 ] && [ "$3" -gt "$1" ] && [ "$3" -lt "$5" ] &&
     [ "$2" -ge 0 ] && [ "$2" -lt "$6" ] && [ "$4" -ge 0 ] && [ "$4" -lt "$6" ] ||
     fail "the input method wasn't asked to compose at the caret, at $first then $second in $size"
-  send key escape
-  [ "$marked" = none ] || fail "Escape didn't cancel the composition after 日本語: marked $marked"
+  cancel "$name, after 日本語"
 }
 
 # The command bar, which Enter while composing doesn't send anywhere.
@@ -155,4 +147,4 @@ in_field 'shortcuts search ' settings-search
 send ime off
 exec 3>&-
 quit
-echo "ok: Microsoft's Japanese input method composed, converted, committed and cancelled in the page, the command bar, the find bar and Settings' search, at each field's caret, with \"$how\". Windows: $out/input-*.png"
+echo "ok: Microsoft's Japanese input method composed, converted, committed and cancelled in the page, the command bar, the find bar and Settings' search, at each field's caret. Windows: $out/input-*.png"

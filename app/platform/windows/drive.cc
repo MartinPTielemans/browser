@@ -3,9 +3,9 @@
 // window messages to its own windows only: Chromium's browser windows and their pages, and GPUI's
 // UI and overlays in and over them. Each window's own procedure handles them as it would the
 // device's, so they go through the same hit testing, focus changes and shortcuts, without
-// touching the desktop's pointer or keyboard: only ime send calls SendInput, for keys an input
-// method reads only from the keyboard, and only while one of the app's windows is in front, and
-// nothing takes the foreground. Modifiers are held in the UI thread's own keyboard state, which is what Chromium and
+// touching the desktop's pointer or keyboard: only ime system calls SendInput, for the keys of an
+// input method that reads them only from the keyboard, and only while one of the app's windows is
+// in front, and nothing takes the foreground. Modifiers are held in the UI thread's own keyboard state, which is what Chromium and
 // GPUI read, never the system's.
 //
 // The commands are drive.mm's, with what Windows has: click, doubleclick, rightclick, middleclick,
@@ -21,9 +21,9 @@
 // pick, the UI's; one over a page or an overlay, whose targets are Chromium's and GPUI's, logs as
 // unsupported. ime on types as drive.mm's scripted input method does, in the UI's fields alone, as
 // Linux's driver does. ime system switches the app to Microsoft's Japanese input method, which
-// the check's Windows has, and the keys then go to it; ime send types them through the system's
-// keyboard input, ime open opens the input method in the field with the keys, and ime off goes
-// back to the scripted one and the US keyboard. While the system's is on, each command logs
+// the check's Windows has, and types the keys after it without modifiers through the system's
+// keyboard input, the only keys that input method reads; imeon is the key that turns it on, and
+// ime off goes back to the US keyboard and the window's own keys. While it's on, each command logs
 // "browser: drive: ime open <0|1> conversion <mode> composing "<text>" at <x> <y> candidates <x>
 // <y> in <width>x<height>" before it's done: what it composes for the field with the keys, and
 // where that field asked for its composition and candidates, in its window's client area. fullscreen puts the window full screen or takes it out through the core, as
@@ -494,8 +494,9 @@ HWND KeyTarget() {
   return Driven();
 }
 
-// Whether keys go through the system's keyboard input, while ime send is on.
-bool g_send_input = false;
+// Windows' own Japanese input method, while ime system is on, whose keys go through the system's
+// keyboard input.
+bool g_ime_system = false;
 
 // Sends |vk| going down or up through the system's keyboard input, as the keyboard does, for an
 // input method that reads keys only from there. Only while one of the app's windows is in front,
@@ -519,7 +520,7 @@ void SendKey(UINT vk, bool down) {
 // and without Ctrl, or F10, which Chromium and GPUI each handle.
 void PostKey(UINT vk, int modifiers, bool down, bool repeat = false) {
   HoldKeys(modifiers);
-  if (g_send_input && !(modifiers | g_flags)) {
+  if (g_ime_system && !(modifiers | g_flags)) {
     SendKey(vk, down);
     return;
   }
@@ -561,7 +562,7 @@ void PostModifiers(int from, int to) {
 void AddKey(UINT vk, int modifiers) {
   // A key sent through the system's input reaches the window some time after, not in turn with
   // the driver's posted steps.
-  const UINT wait = g_send_input && !(modifiers | g_flags) ? 50 : 0;
+  const UINT wait = g_ime_system && !(modifiers | g_flags) ? 50 : 0;
   g_steps.push_back({[=] {
     const int held = g_flags | (std::exchange(g_key_ctrl, false) ? kCtrl : 0);
     PostModifiers(held, g_flags | modifiers);
@@ -775,9 +776,6 @@ std::string Marked() {
   return std::to_string(start) + "," + std::to_string(length);
 }
 
-// Windows' own Japanese input method, while ime system is on.
-bool g_ime_system = false;
-
 // Microsoft's Japanese input method, its TSF profile, and TSF's profiles' class.
 const GUID kMsImeJapanese = {
     0x03b5835f, 0xf03c, 0x411b, {0x9c, 0xe2, 0xaa, 0x23, 0xe1, 0x17, 0x1e, 0x36}};
@@ -802,23 +800,6 @@ void UseJapanese() {
   fprintf(stderr, "browser: drive: ime system %08lx layout %08llx\n",
           static_cast<unsigned long>(result),
           static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(GetKeyboardLayout(0))));
-}
-
-// Opens the input method in the field with the keys, typing hiragana from romaji, as its
-// 半角/全角 key does.
-void OpenIme() {
-  HWND focus = KeyTarget();
-  HIMC context = ImmGetContext(focus);
-  if (!context) {
-    fprintf(stderr, "browser: drive: ime has no context to open\n");
-    return;
-  }
-  DWORD conversion = 0, sentence = 0;
-  ImmGetConversionStatus(context, &conversion, &sentence);
-  ImmSetOpenStatus(context, TRUE);
-  ImmSetConversionStatus(context, IME_CMODE_NATIVE | IME_CMODE_FULLSHAPE | IME_CMODE_ROMAN,
-                         sentence);
-  ImmReleaseContext(focus, context);
 }
 
 // The input method's state for the field with the keys, as the header says.
@@ -1448,18 +1429,6 @@ bool Run(const std::string& line) {
       g_steps.push_back({[] { UseJapanese(); }});
       return true;
     }
-    if (state == "send" || state == "open") {
-      if (!g_ime_system) {
-        return false;
-      }
-      g_send_input = g_send_input || state == "send";
-      g_steps.push_back({[state] {
-        if (state == "open") {
-          OpenIme();
-        }
-      }});
-      return true;
-    }
     if (state != "on" && state != "off") {
       return false;
     }
@@ -1467,7 +1436,6 @@ bool Run(const std::string& line) {
     g_ime_on = state == "on";
     g_composition.reset();
     const bool system = std::exchange(g_ime_system, false);
-    g_send_input = false;
     g_steps.push_back({[system] {
       if (system) {
         ActivateKeyboardLayout(reinterpret_cast<HKL>(static_cast<uintptr_t>(0x04090409)),
