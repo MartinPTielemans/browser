@@ -57,6 +57,7 @@ mod empty;
 mod export;
 mod extensions;
 mod favorites;
+mod files;
 mod fly_in;
 mod footer;
 mod keys;
@@ -116,8 +117,8 @@ pub use extensions::{
     pin_menu_item as extension_pin_menu_item,
 };
 pub use keys::{
-    Holder, OFF_THE_MAC, Refused, UserKeys, change_keys, page_keystroke, rebindable, recorded,
-    reserved, shortcut_found, user_keys, view_binding, web_keystroke, written_as,
+    Holder, OFF_THE_MAC, Refused, SecondPress, UserKeys, change_keys, page_keystroke, rebindable,
+    recorded, reserved, shortcut_found, user_keys, view_binding, web_keystroke, written_as,
 };
 pub use history::HistoryPage;
 pub use library::{Archived, Captured, Download, DownloadAction, DownloadState};
@@ -540,12 +541,28 @@ impl Space {
     /// The tabs and folders of its pinned rows and its Today rows: each split's first stands for
     /// the split, and what's in a closed folder has none, but the tab shown's (Arc).
     fn rows(&self) -> (Vec<u64>, Vec<u64>) {
-        let later = |tab: &u64| self.splits.iter().any(|split| split.tabs[1..].contains(tab));
-        let rows = |tabs: &[u64]| tabs.iter().copied().filter(|tab| !later(tab)).collect();
+        let today = self.today.iter().copied().filter(|&tab| !self.later(tab));
+        (self.pinned_rows(self.folders.pinned_shut).collect(), today.collect())
+    }
+
+    /// Its pinned rows, with them collapsed or not: what's in a closed folder has none, but the
+    /// tab shown's (Arc).
+    fn pinned_rows(&self, collapsed: bool) -> impl Iterator<Item = u64> + '_ {
         let shown = self.panes(self.shown)[0];
-        let rows_shown = |row: &u64| !self.shut(*row) || *row == shown;
-        let pinned = self.pinned.iter().copied().filter(|row| !later(row) && rows_shown(row));
-        (pinned.collect(), rows(&self.today))
+        let folded = move |row| collapsed || self.holders(row).any(|folder| !self.is_open(folder));
+        (self.pinned.iter().copied())
+            .filter(move |&row| !self.later(row) && (row == shown || !folded(row)))
+    }
+
+    /// Whether `tab` is in a split after its first, which stands for the split's row.
+    fn later(&self, tab: u64) -> bool {
+        self.splits.iter().any(|split| split.tabs[1..].contains(&tab))
+    }
+
+    /// Whether collapsing its pinned rows hides at least one now, which expanding shows again. The
+    /// tab shown keeps its row, so with only it pinned there's nothing to collapse (#1208).
+    fn collapsing_hides(&self) -> bool {
+        self.pinned_rows(true).count() < self.pinned_rows(false).count()
     }
 
     /// Whether `row`, one of its pinned rows, is in a closed folder or in pinned rows collapsed.
@@ -1258,6 +1275,8 @@ pub struct Shell {
     url_field_drawn: RefCell<SharedString>,
     /// Whether the header last drew reload or stop, for its log line.
     reload_drawn: Cell<Option<Command>>,
+    /// Whether the header last drew back on or dimmed, for its log line.
+    back_drawn: Cell<Option<bool>>,
     /// The tab whose Developer Mode outline last drew, and where, for its log lines.
     developer_outline_drawn: Rc<Cell<Option<(u64, Bounds<Pixels>)>>>,
     /// The pinned actions the window shows, for its tab shown.
@@ -1547,6 +1566,7 @@ impl Shell {
             window_title: SharedString::default(),
             url_field_drawn: RefCell::default(),
             reload_drawn: Cell::default(),
+            back_drawn: Cell::default(),
             developer_outline_drawn: Rc::default(),
             extension_actions: Vec::new(),
             unpinned_actions: Vec::new(),
@@ -3106,7 +3126,7 @@ impl Render for Shell {
         self.step_new_space(window);
         self.step_flight(window);
         self.step_picture(window);
-        self.step_recent_downloads(window);
+        self.step_recent_downloads(window, cx);
         if let Some((_, left)) = &self.leaving_form {
             if left.elapsed().as_secs_f32() < FORM_LEAVE_TITLE + FORM_LEAVE {
                 window.request_animation_frame();
