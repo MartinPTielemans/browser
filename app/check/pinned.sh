@@ -846,7 +846,7 @@ mkdir -p "$notes/sub"
 for file in b.txt A.txt .hidden sub/c.txt; do
   echo "$file" > "$notes/$file"
 done
-send dragdrop 100 150 file "$notes"
+send dragdrop 100 150 file "$(app_path "$notes")"
 expect '^browser: dropped 1 in pinned 0$' "the folder didn't drop above the pinned tabs"
 expect '^browser: folder [0-9]* from disk 1 2 Notes$' \
   "the dropped folder didn't come in with its folder and two files, the hidden one left out"
