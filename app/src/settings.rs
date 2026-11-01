@@ -208,6 +208,9 @@ impl Keys {
     }
 }
 
+/// The choice that has a command's keys reach ilo before the page.
+const PREFER_ILO: &str = concat!("Prefer ", env!("APP_NAME"));
+
 /// The Shortcuts tab, every command the user can give keys, in the menus' order and names.
 const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
     (
@@ -2261,7 +2264,11 @@ impl Settings {
         let refused = (self.refused.as_ref())
             .filter(|(refused, _)| *refused == command)
             .map(|(_, why)| div().text_color(rgb(DETAIL)).child(why.clone()));
-        let restore = user.is_set(command).then(|| {
+        // Who gets the keys first, once the user has chosen ilo, as the menu below says it.
+        let preferred = user.prefers_ilo(command).then(|| {
+            div().text_color(rgb(DETAIL)).child(MenuEntry::label(PREFER_ILO))
+        });
+        let restore = user.changed(command).then(|| {
             div()
                 .id(SharedString::from(format!("restore-{}", command.key_name())))
                 .size(px(CHIP_HEIGHT))
@@ -2281,15 +2288,57 @@ impl Settings {
             .active(|chip| chip.bg(Palette::on_dark(state_alpha(CHIP_ALPHA, STATE_PRESSED))))
             .on_click(cx.listener(move |settings, _, window, cx| {
                 settings.start_recording(command, window, cx)
-            }));
+            }))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |settings, event: &MouseDownEvent, window, cx| {
+                    settings.choose_preference(command, event.position, window, cx)
+                }),
+            )
+            .relative()
+            .child(self.drawn(format!("shortcut {}", command.key_name())));
         div()
             .flex()
             .items_center()
             .gap(px(CHIP_GAP))
             .children(refused)
+            .children(preferred)
             .children(restore)
             .child(chip)
             .into_any_element()
+    }
+
+    /// A right-click on `command`'s chip: who gets its keys first when a page uses them too,
+    /// Prefer Websites, the default, or Prefer ilo, as Arc's Shortcuts offers. A reserved command's
+    /// are always ilo's, which the menu shows. A page that keeps keys still gives them up to a
+    /// second press.
+    fn choose_preference(
+        &mut self,
+        command: Command,
+        at: gpui::Point<gpui::Pixels>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let user = shell::user_keys(cx);
+        let (ilo, can) = (user.before_page(command), UserKeys::can_prefer(command));
+        let items = vec![
+            MenuEntry { checked: !ilo, ..MenuEntry::new("Prefer Websites", can) },
+            MenuEntry { checked: ilo, ..MenuEntry::new(PREFER_ILO, can) },
+        ];
+        let settings = cx.weak_entity();
+        let picked = Box::new(move |picked: Option<usize>, cx: &mut App| {
+            let Some(picked) = picked else {
+                return;
+            };
+            let ilo = picked == 1;
+            shell::change_keys(cx, |keys| keys.set_prefers_ilo(command, ilo));
+            let who = if ilo { "ilo" } else { "websites" };
+            // check.sh waits for this line.
+            log!("browser: shortcut {} prefers {who}", command.key_name());
+            save_shortcuts(cx);
+            settings.update(cx, |_, cx| cx.notify()).ok();
+        });
+        show_menu(ns_view(window), items, at, false, Look::dark(), picked, cx);
     }
 
     /// Takes the next keys pressed for `command`, or stops if it's taking them already.
