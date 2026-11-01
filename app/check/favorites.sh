@@ -79,17 +79,19 @@ send dragto 100 200
 send dragto 114 112
 expect '^browser: drag shape tile$' "a row dragged onto the Space's name didn't turn into a tile"
 send release 114 112
+released=$step
 expect "^browser: dragged $a to favorites 0\$" "the row dragged onto the Space's name didn't go there"
 expect "^browser: favorites $a\$" \
   "the row dragged onto the Space's name didn't make the tab a favorite: \"$(favorites)\""
 expect "^browser: today $b\$" "the favorite is still in Today: Today is \"$(today)\""
 # The tile has only an icon, so after a moment over it its hover card names the favorite, and it
 # goes when the pointer leaves and when the tile is clicked. The pointer let go over the new tile,
-# which the drag had hovered without a card, so its card comes once the tile has settled. It's the
-# tab shown, so its card has no picture, and a favorite's only button takes it out of the favorites.
+# which the drag had hovered without a card, so its card comes once the tile has settled, which may
+# be before the move onto it. It's the tab shown, so its card has no picture, and a favorite's only
+# button takes it out of the favorites.
 send move $tile
 expect "^browser: hover card shown $a unfavorite none\$" \
-  "resting on the tile the row was dropped on didn't show its card"
+  "resting on the tile the row was dropped on didn't show its card" "$released"
 send move 100 400
 expect '^browser: hover card hidden$' "the pointer leaving the tile didn't hide its card"
 # The press showed the favorite, so the click on its tile below has a tab to change from.
