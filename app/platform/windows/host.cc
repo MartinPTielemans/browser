@@ -1293,10 +1293,6 @@ class FileDropSource : public IDropSource {
     return refs;
   }
   HRESULT STDMETHODCALLTYPE QueryContinueDrag(BOOL escape, DWORD keys) override {
-    static int asked = 0;
-    if (++asked <= 40 || asked % 100 == 0) {
-      fprintf(stderr, "browser: proof: file drag asks %d escape %d keys %lx\n", asked, escape, keys);
-    }
     if (escape || (keys & MK_RBUTTON)) {
       return DRAGDROP_S_CANCEL;
     }
@@ -3174,9 +3170,7 @@ bool host_drag_file(const char* path, void (*ended)(bool)) {
     source.Attach(new FileDropSource());
     // On the UI thread GPUI has made an OLE apartment, as Explorer's drag is.
     DWORD effect = DROPEFFECT_NONE;
-    fprintf(stderr, "browser: proof: file drag loop starts\n");
     const HRESULT dropped = DoDragDrop(data.Get(), source.Get(), DROPEFFECT_COPY, &effect);
-    fprintf(stderr, "browser: proof: file drag loop returned %lx effect %lu\n", dropped, effect);
     if (ended) {
       ended(dropped == DRAGDROP_S_DROP && effect != DROPEFFECT_NONE);
     }
