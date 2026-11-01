@@ -292,6 +292,7 @@ mod platform {
         #[cfg(not(target_os = "linux"))]
         pub fn host_copy(text: *const c_char);
         pub fn host_copy_secret(text: *const c_char, seconds: u32) -> bool;
+        pub fn host_forget_secret();
         #[cfg(not(target_os = "linux"))]
         pub fn host_paste(text: *mut c_char, capacity: usize) -> usize;
         pub fn host_open_in_safari(url: *const c_char);
@@ -5090,6 +5091,8 @@ extern "C" fn became_active() {
 
 unsafe extern "C" fn stopping(_: *mut c_void) {
     log!("browser: stopping");
+    // The recovery words a Copy put on the clipboard don't outlast the app (settings.rs).
+    unsafe { platform::host_forget_secret() };
 }
 
 // The next launch's first window opens where the regular window in front is, showing its sidebar

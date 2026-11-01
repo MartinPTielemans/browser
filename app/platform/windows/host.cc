@@ -3002,6 +3002,15 @@ bool host_copy_secret(const char* text, uint32_t seconds) {
   return true;
 }
 
+void host_forget_secret(void) {
+  if (g_secret_sequence && GetClipboardSequenceNumber() == g_secret_sequence &&
+      OpenClipboard(nullptr)) {
+    EmptyClipboard();
+    CloseClipboard();
+  }
+  g_secret_sequence = 0;
+}
+
 size_t host_paste(char* text, size_t capacity) {
   std::string held;
   if (OpenClipboard(nullptr)) {

@@ -32,10 +32,18 @@ actions!(account, [Keep, Leave]);
 const COPIED: Duration = Duration::from_secs(2);
 /// How long the words stay on the clipboard after Copy: long enough to paste them where they're
 /// kept, then gone, as a password manager clears a password it copied.
-pub const WORDS_KEPT: Duration = Duration::from_secs(60);
-/// What the words' panel says while a copy of them is on the clipboard.
+pub const WORDS_KEPT: Duration = Duration::from_secs(90);
+/// What the words' panel says while a copy of them is on the clipboard. The Mac and Windows keep a
+/// copy from their cloud clipboards; Linux has no such mark, as KDE Connect and GSConnect share it.
+#[cfg(not(target_os = "linux"))]
 pub const COPIED_NOTE: &str =
-    "Copied for this device only. The clipboard forgets them in a minute.";
+    "Copied for this device only. The clipboard forgets them in a minute and a half.";
+#[cfg(target_os = "linux")]
+pub const COPIED_NOTE: &str = "Copied. The clipboard forgets them in a minute and a half.";
+/// The metadata that has GPUI's Linux clipboard offer a copy with KDE's password manager hint,
+/// which Klipper and the clipboard managers that follow it don't record (patches/
+/// gpui-linux-embedded.patch).
+pub const SECRET_HINT: &str = "x-kde-passwordManagerHint";
 
 /// Where the account is, as the core says (BC_SYNC_).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -170,10 +178,13 @@ pub fn bind_keys(cx: &mut App) {
     ]);
 }
 
-/// Puts `text` on GPUI's clipboard and takes it off after `kept` if it's still there, for a host
-/// that can't copy a secret itself (Linux). GPUI can't mark it for clipboard managers to skip.
+/// Puts `text` on GPUI's clipboard, marked with SECRET_HINT, and takes it off after `kept` if it's
+/// still there, for a host that can't copy a secret itself (Linux).
 pub fn copy_for(text: &str, kept: Duration, cx: &mut App) {
-    cx.write_to_clipboard(ClipboardItem::new_string(text.to_owned()));
+    cx.write_to_clipboard(ClipboardItem::new_string_with_metadata(
+        text.to_owned(),
+        SECRET_HINT.to_owned(),
+    ));
     let text = text.to_owned();
     cx.spawn(async move |cx| {
         cx.background_executor().timer(kept).await;

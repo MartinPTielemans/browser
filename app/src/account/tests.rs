@@ -286,7 +286,7 @@ fn the_first_device_shows_its_words_once(cx: &mut TestAppContext) {
     tab.set(state(Status::On));
     assert!(tab.showing_words());
     tab.click("copy");
-    assert_eq!(tab.host.take(), ["copy secret 24 60"]);
+    assert_eq!(tab.host.take(), ["copy secret 24 90"]);
     tab.click("done");
     assert!(!tab.showing_words());
     assert_eq!(tab.host.take(), ["read devices"]);
@@ -294,15 +294,15 @@ fn the_first_device_shows_its_words_once(cx: &mut TestAppContext) {
 }
 
 /// Copy puts the words on the clipboard as a secret, for this device alone and off it after a
-/// minute, and says so for as long as they're there (browser#641).
+/// minute and a half, and says so for as long as they're there (browser#641).
 #[gpui::test]
 fn copied_words_say_they_leave_the_clipboard(cx: &mut TestAppContext) {
     let mut tab = shown(state(Status::FirstDevice), cx);
     tab.host.take();
     tab.click("copy");
-    assert_eq!(tab.host.take(), ["copy secret 24 60"]);
+    assert_eq!(tab.host.take(), ["copy secret 24 90"]);
     assert!(tab.drawn("copied"));
-    tab.cx.executor().advance_clock(WORDS_KEPT - Duration::from_secs(1));
+    tab.cx.executor().advance_clock(Duration::from_secs(89));
     tab.cx.run_until_parked();
     assert!(tab.drawn("copied"), "still on the clipboard");
     tab.cx.executor().advance_clock(Duration::from_secs(2));
@@ -310,14 +310,17 @@ fn copied_words_say_they_leave_the_clipboard(cx: &mut TestAppContext) {
     assert!(!tab.drawn("copied"), "the clipboard has let them go");
 }
 
-/// Where the host can't copy a secret (Linux), the words go on GPUI's clipboard and off it after
-/// the minute, unless something else was copied since.
+/// Where the host can't copy a secret (Linux), the words go on GPUI's clipboard with KDE's password
+/// manager hint, which keeps them out of clipboard histories that honour it, and off it after the
+/// minute and a half, unless something else was copied since.
 #[gpui::test]
 fn the_clipboard_lets_the_words_go(cx: &mut TestAppContext) {
     let clipboard = |cx: &mut TestAppContext| cx.read(|cx| cx.read_from_clipboard()?.text());
     cx.update(|cx| copy_for(WORDS, WORDS_KEPT, cx));
     assert_eq!(clipboard(cx).as_deref(), Some(WORDS));
-    cx.executor().advance_clock(WORDS_KEPT - Duration::from_secs(1));
+    let hint = cx.read(|cx| cx.read_from_clipboard()?.metadata().cloned());
+    assert_eq!(hint.as_deref(), Some("x-kde-passwordManagerHint"));
+    cx.executor().advance_clock(Duration::from_secs(89));
     assert_eq!(clipboard(cx).as_deref(), Some(WORDS));
     cx.executor().advance_clock(Duration::from_secs(2));
     assert_eq!(clipboard(cx).unwrap_or_default(), "", "the words have gone");

@@ -580,6 +580,9 @@ void host_copy(const char* text);
 // False, doing nothing, where the clipboard can't be told to keep it to itself, and the app then
 // copies it through GPUI and takes it off after |seconds| itself.
 bool host_copy_secret(const char* text, uint32_t seconds);
+// Clears the secret host_copy_secret put on the clipboard if it's still there, as the app quits
+// before its |seconds| are up.
+void host_forget_secret(void);
 
 // Copies the text host_copy's clipboard or pasteboard holds into |text|, |capacity| bytes with its
 // NUL, and returns its whole length in bytes without the NUL, 0 if it holds none.
