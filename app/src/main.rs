@@ -6404,7 +6404,8 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
     // Where the user's crash reports go if they send them, a default service URL that a fork or a
     // self-hosted collector names in branding/crash-reports. Without one the build sends none, and
     // Settings doesn't offer to. Only the prod build names it, as only it reaches users, so no dev
-    // build or check sends to the product's collector; crash.sh gives the app its own.
+    // build or check sends to the product's collector. crash.sh gives the app its own, and
+    // onboarding.sh one where nothing listens.
     let collector = include_str!("../branding/crash-reports").trim();
     if cfg!(feature = "prod") && !collector.is_empty() {
         args.push(format!("--crash-upload-url={collector}"));

@@ -6,8 +6,9 @@
 # welcome with the command bar up and a line under it. The default browser's step shows only while
 # ilo isn't the default, and is skipped everywhere but a Linux CI VM, where its button makes ilo
 # the default for a moment, so the run never changes a desk's. The opt-ins' shows always, with
-# the agents' switch, as every build has their server, and the dark pass turns it on in its new
-# profile and sees the server start. Help › Welcome to ilo
+# the agents' switch, as every build has their server, and the crash reports', as the launches name
+# a collector, one no report can reach. The dark pass turns crash reports on and off again, then
+# the agents on, and sees their server start. Help › Welcome to ilo
 # plays it again, in the window while it shows no page and in a new window while it shows one. A
 # launch that brings Spaces back never starts it. Every other run sets BROWSER_ONBOARDING=skip
 # (check.sh); this one sets the appearance instead.
@@ -41,13 +42,15 @@ capture_step() {
   ../tools/window-screenshot.sh "$pid" "$out/onboarding-$1.png" || fail "no window to capture"
 }
 # Launches a new profile, whose saved Spaces are gone, in appearance $1, and reads the steps it
-# shows into $steps.
+# shows into $steps. Only a prod build names the real crash collector, so with one named here, a
+# port where nothing listens, the opt-ins step offers crash reports as a release's does, and a
+# report sent could reach nothing.
 launch_new() {
   log="$out/onboarding-$1.log"
   step=0
   rm -f "$saved"
   BROWSER_IMPORT_HOME="$import_home" BROWSER_DRIVE=1 BROWSER_ONBOARDING=$1 \
-    "$browser" < "$out/drive" > "$log" 2>&1 &
+    "$browser" --crash-upload-url=http://127.0.0.1:9/api/1/minidump/ < "$out/drive" > "$log" 2>&1 &
   pid=$!
   exec 3> "$out/drive"
   await '^browser: onboarding step intro settled$' || fail "$1: the intro didn't draw"
@@ -183,10 +186,18 @@ expect '^browser: onboarding picked color f0eae5$' "dark: → and Return didn't 
 expect '^browser: onboarding left color via return$' "dark: Return didn't leave the colour step"
 expect '^browser: onboarding step opt-ins settled$' "dark: the opt-ins step didn't come"
 capture_step dark-opt-ins
-# The agents' row, the one switch a build without a crash collector offers, is a click anywhere
-# along it. The column is centred, so the row's middle is (title + line - 24) / 2 under the
-# window's, 18, whatever its sentence wraps to.
-send click $((width / 2)) $((height / 2 + 18))
+# Each row is a click anywhere along it, the crash reports' over the agents'. The column is
+# centred, so their middles are (title + line - agents' - 44) / 2 and (title + line + crash's - 4)
+# / 2 from the window's: 24 over and 54 under, rows of two or three lines either way. The second
+# click on the crash reports' turns off what the core says is on, so both answers reach it.
+crash_row=$((height / 2 - 24))
+send click $((width / 2)) $crash_row
+expect '^browser: onboarding crash-reports on$' \
+  "dark: a click on the crash reports' row didn't turn them on"
+send click $((width / 2)) $crash_row
+expect '^browser: onboarding crash-reports off$' \
+  "dark: a second click on the crash reports' row didn't turn them off"
+send click $((width / 2)) $((height / 2 + 54))
 expect '^browser: onboarding agents on$' "dark: a click on the agents' row didn't turn them on"
 expect '^browser: agents server on ' "dark: the agents' switch didn't start their server"
 send key escape
