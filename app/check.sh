@@ -25,7 +25,7 @@
 # each run, since one an earlier run left can lack what a run expects, such as its search engines.
 # On Windows it runs under Git Bash, with python3 on the PATH, on the app the engine's chrome.exe
 # runs from build/Browser. The runs need what the Windows driver (platform/windows/drive.cc) does
-# so far: load, tabs, dialogs and crash.
+# so far: load, tabs, dialogs, crash, about and onboarding.
 # On Linux it runs itself in a headless sway session of its own (tools/headless.sh --run), on its
 # Xwayland, and the app's windows and input then never reach the owner's session. Of the runs,
 # load and history pass there so far; the others stop where they need what Linux hasn't yet, such
