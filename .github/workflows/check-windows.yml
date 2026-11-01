@@ -120,18 +120,20 @@ jobs:
           Add-Type -AssemblyName System.Windows.Forms
           "Screen: " + [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 
-      # Probe: the Microsoft Japanese IME on the runner, as the input method runs need.
-      - shell: pwsh
+      # Probe: the Microsoft Japanese IME on the runner, as the input method runs need. Windows
+      # PowerShell's, whose International module pwsh doesn't load.
+      - shell: powershell
+        continue-on-error: true
         run: |
-          $list = Get-WinUserLanguageList
-          $list.Add("ja-JP")
-          Set-WinUserLanguageList $list -Force
+          $ErrorActionPreference = 'Continue'
+          [Environment]::OSVersion.Version
+          try { $list = Get-WinUserLanguageList; $list.Add('ja-JP'); Set-WinUserLanguageList $list -Force } catch { "language list: $_" }
           Get-WinUserLanguageList | Format-List LanguageTag, InputMethodTips
           Get-ChildItem C:\Windows\System32\IME -ErrorAction SilentlyContinue | Select-Object Name
           Get-ChildItem C:\Windows\System32\IME\IMEJP -ErrorAction SilentlyContinue | Select-Object -First 30 Name
-          Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\CTF\TIP\{03B5835F-F03C-411B-9CE2-AA23E1171E36}\LanguageProfile\0x00000411\*' -ErrorAction SilentlyContinue | Format-List
-          Get-WindowsCapability -Online -Name 'Language.*ja-JP*' | Format-Table Name, State
-          (Get-Command Install-Language -ErrorAction SilentlyContinue) | Format-List Name, Source
+          Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\CTF\TIP' -ErrorAction SilentlyContinue | Select-Object -First 40 PSChildName
+          try { Get-WindowsCapability -Online -Name 'Language.*ja-JP*' | Format-Table Name, State } catch { "capabilities: $_" }
+          Get-Command Install-Language -ErrorAction SilentlyContinue | Format-List Name, Source
 
       # Each run alone, so one failing doesn't hide the rest, and each keeps its own build/check.
       - env:
