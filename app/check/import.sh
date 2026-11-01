@@ -11,7 +11,7 @@
 # Passwords tab lists what came in, and the app menu's Import from Other Browsers… shows Import
 # again. With the sidebar hidden, Arc's Spaces say so in a toast. Each step is captured. Arc has no
 # Linux build, so off the Mac the fixture's Arc isn't found, its steps are left out, and Chrome and
-# Firefox are where Linux keeps them.
+# Firefox are where Linux and Windows keep them.
 
 serve
 printf '%s' '<title>import ready</title>' > "$out/site/import.html"
@@ -20,14 +20,19 @@ step=0
 rules_file="$(dirname "$saved")/Link rules"
 rm -f "$saved" "$rules_file"
 # A copy of the fixture's home, with Chrome's History and Firefox's places.sqlite written as SQLite
-# here rather than kept in the repo as binary files.
-home="$out/import-home"
+# here rather than kept in the repo as binary files. The app gets whole paths (app_path), as
+# chrome.exe works in its own folder.
+home="$PWD/$out/import-home"
 rm -rf "$home"
 cp -R src/import/fixture "$home"
 if [ "$(uname)" = Darwin ]; then
   arc=1
   chrome="$home/Library/Application Support/Google/Chrome"
   firefox="$home/Library/Application Support/Firefox"
+elif windows; then
+  arc=
+  chrome="$home/AppData/Local/Google/Chrome/User Data"
+  firefox="$home/AppData/Roaming/Mozilla/Firefox"
 else
   arc=
   chrome="$home/.config/google-chrome"
@@ -90,19 +95,20 @@ touch -t 200001010000 "$chrome/Default/History" "$chrome/Default/Preferences"
 touch -t 199901010000 "$firefox/Profiles/x.default-release/places.sqlite"
 touch "$home/Library/Application Support/Arc/StorableSidebar.json"
 # The file the open panel would give, which a run can't drive: made-up logins, never real ones.
-passwords="$out/passwords.csv"
+passwords="$PWD/$out/passwords.csv"
 printf '%s\n' 'name,url,username,password,note' \
   'login,https://login.example.test/,check@example.test,made-up-one,' \
   'mail,https://mail.example.test/,check@example.test,made-up-two,' > "$passwords"
 # And the bookmarks file, as a browser exports it.
-bookmarks="$out/bookmarks.html"
+bookmarks="$PWD/$out/bookmarks.html"
 printf '%s\n' '<!DOCTYPE NETSCAPE-Bookmark-file-1>' '<TITLE>Bookmarks</TITLE>' \
   '<H1>Bookmarks</H1>' '<DL><p>' '<DT><H3 PERSONAL_TOOLBAR_FOLDER="true">Bookmarks bar</H3>' \
   '<DL><p>' '<DT><A HREF="https://bar.example.test/">Bar &amp; Grill</A>' '</DL><p>' \
   '<DT><H3>Reading</H3>' '<DL><p>' '<DT><A HREF="https://read.example.test/">Read</A>' \
   '</DL><p>' '</DL><p>' > "$bookmarks"
-BROWSER_IMPORT_HOME="$home" BROWSER_IMPORT_PASSWORDS="$passwords" \
-  BROWSER_IMPORT_BOOKMARKS="$bookmarks" BROWSER_DRIVE=1 BROWSER_URL="${site}import.html" \
+BROWSER_IMPORT_HOME="$(app_path "$home")" BROWSER_IMPORT_PASSWORDS="$(app_path "$passwords")" \
+  BROWSER_IMPORT_BOOKMARKS="$(app_path "$bookmarks")" BROWSER_DRIVE=1 \
+  BROWSER_URL="${site}import.html" \
   "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
