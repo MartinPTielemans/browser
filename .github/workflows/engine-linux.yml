@@ -30,7 +30,7 @@ concurrency:
 
 jobs:
   build:
-    if: github.repository == 'MartinPTielemans/browser'
+    if: github.repository == 'MartinPTielemans/ilo'
     runs-on: [self-hosted, linux, x64, ilo-engine]
     # The first build takes 6 to 10 hours on its 8 cores; a point release or a change to the core,
     # much less.
