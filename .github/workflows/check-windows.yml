@@ -15,6 +15,13 @@ on:
       runs:
         description: The runs to do, such as "load tabs", or "all"; empty for the ones Windows passes
         default: ''
+      image:
+        # Server 2022 doesn't round windows, as Windows 10 doesn't; 2025, on Windows 11's build 26100,
+        # is for pictures of what Windows 11 draws.
+        description: The hosted runner's image
+        type: choice
+        options: [windows-2022, windows-2025]
+        default: windows-2022
 
 concurrency:
   group: check-windows-${{ github.ref }}
@@ -58,7 +65,7 @@ jobs:
   check:
     needs: engine
     if: ${{ needs.engine.outputs.found == 'true' }}
-    runs-on: windows-2022
+    runs-on: ${{ inputs.image || 'windows-2022' }}
     timeout-minutes: 120
     defaults:
       run:
