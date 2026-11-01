@@ -6,6 +6,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -1747,8 +1748,13 @@ void Install() {
   g_browser_core_passkey_normal_wording = [](content::WebContents* contents) {
     const Profile* profile =
         contents ? Profile::FromBrowserContext(contents->GetBrowserContext()) : nullptr;
-    return profile && profile->IsOffTheRecord() &&
-           profile->GetOTRProfileID().ToString().starts_with(kSignInProfile);
+    if (!profile || !profile->IsOffTheRecord()) {
+      return false;
+    }
+    // OTRProfileID's ToString is private; its stream operator is the public way to the id.
+    std::ostringstream id;
+    id << profile->GetOTRProfileID();
+    return id.str().starts_with(kSignInProfile);
   };
 }
 
