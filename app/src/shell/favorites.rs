@@ -494,14 +494,14 @@ impl Shell {
         )
     }
 
-    /// Logs the icon `tab`'s tile draws once it's another than the one it drew, so a capture after
-    /// a change waits for the frame that shows it.
+    /// Logs the icon `tab`'s tile draws once it's another than the one it drew, or first draws one,
+    /// as after a relaunch, so a capture waits for the frame that shows it.
     fn icon_drawn(&self, tab: u64) -> impl IntoElement + use<> {
         let (drawn, icon) = (self.tile_icons_drawn.clone(), self.page(tab).icon);
         canvas(
             move |_, _, _| {
                 let before = drawn.borrow_mut().insert(tab, icon.clone());
-                if before.is_some_and(|before| before != icon) {
+                if before.map_or(!icon.is_empty(), |before| before != icon) {
                     // check.sh reads this line.
                     let icon = if icon.is_empty() { "none" } else { &icon };
                     log!("browser: tile {tab} drawn with icon {icon}");

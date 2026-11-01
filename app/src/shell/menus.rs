@@ -6,7 +6,7 @@ use std::sync::Arc;
 use gpui::{App, Context, Hsla, Image, Pixels, Point, Rgba, SharedString, rgb};
 
 use super::{
-    AgentGrants, Command, MAX_PANES, ProfileChoice, Row, Shell, UserKeys, clean_link,
+    AgentGrants, Command, MAX_PANES, ProfileChoice, Row, Shell, UserKeys, clean_link, files,
     commands::markdown_text,
     undo::{Prop, Value},
     user_keys,
@@ -518,7 +518,7 @@ impl Shell {
                 secure: false,
             }],
             check: None,
-            return_cancels: false,
+            on_return: crate::dialog::Return::Action,
         };
         let shell = cx.weak_entity();
         let made = Box::new(move |texts: Vec<String>, cx: &mut App| {
@@ -1225,14 +1225,33 @@ impl Shell {
         ];
         let split = self.selected != 0 && self.panes(self.selected).len() < MAX_PANES;
         let enabled = |command| command != Command::AddSplit || split;
-        let entries =
+        let mut entries: Vec<MenuEntry> =
             items.iter().map(|&(title, command)| MenuEntry::new(title, enabled(command))).collect();
+        // From the desktop, after a line: the Mac's panel picks files and folders together, the
+        // others' one or the other (ours, as Arc adds both from its +).
+        let disk: &[(&str, bool, bool)] = match files::PANEL_PICKS_BOTH {
+            true => &[("Add File or Folder…", true, true)],
+            false => &[("Add Files…", true, false), ("Add Folder…", false, true)],
+        };
+        if !self.private {
+            entries.push(MenuEntry::line());
+            entries.extend(disk.iter().map(|&(title, ..)| MenuEntry::new(title, true)));
+        }
         self.context_menu(
             entries,
             position,
             Box::new(move |chosen, shell, cx| {
-                if let Some(&(_, command)) = chosen.and_then(|at| items.get(at)) {
-                    shell.run(command, "footer", cx);
+                let Some(at) = chosen else {
+                    return;
+                };
+                if let Some(&(_, command)) = items.get(at) {
+                    return shell.run(command, "footer", cx);
+                }
+                // After the line.
+                if let Some(&(title, files, folders)) = disk.get(at - items.len() - 1) {
+                    // check.sh waits for this line.
+                    log!("browser: footer {title}");
+                    shell.add_from_disk(files, folders, cx);
                 }
             }),
             cx,
@@ -1655,7 +1674,7 @@ mod tests {
         let markdown = format!("copy {a}\n[{title}]({b})");
         assert!(host.take().contains(&markdown), "{markdown}");
 
-        cx.write_to_clipboard(gpui::ClipboardItem::new_string("https://d.example/".into()));
+        host.copied.borrow_mut().push("https://d.example/".into());
         tab_menu(&shell, &host, cx, 22);
         host.take();
         cx.update(|cx| host.choose("Paste URL as New Tab", cx));

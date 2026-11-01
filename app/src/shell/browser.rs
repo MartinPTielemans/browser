@@ -43,6 +43,9 @@ pub trait Browser {
     /// first and returns it, or 0 if none opened.
     fn open_at(&self, urls: &[String], pinned: bool, folder: u64, index: usize, cx: &mut App)
     -> u64;
+    /// Opens tabs for `urls` where `open_at` would, each loading once it's shown, and shows none,
+    /// as a folder from the desktop's files come in.
+    fn open_behind(&self, urls: &[String], pinned: bool, folder: u64, index: usize, cx: &mut App);
     /// Makes an open folder named `name` at `index` in `folder`, else in the pinned tabs of
     /// `space`, counted as `move_tab` counts, else at the bottom, and returns it.
     fn create_folder(&self, space: u64, name: &str, folder: u64, index: usize, cx: &mut App)
@@ -310,6 +313,11 @@ pub trait Browser {
     fn rename_profile(&self, profile: u64, name: &str, cx: &mut App);
     /// What the import view (crate::import) reads and adds through, for the first launch's step.
     fn import_host(&self) -> Rc<dyn crate::import::Host>;
+    /// What Settings › Sync's view (crate::account) asks the core through, for the first launch's
+    /// account step; none in a build that names no sync server, and in the preview.
+    fn account_host(&self) -> Option<Rc<dyn crate::account::Host>> {
+        None
+    }
     /// Deletes a profile no Space or favorite is in, with everything the browser keeps in it.
     fn delete_profile(&self, profile: u64, cx: &mut App);
     /// Shows ilo's own menu of `items` at `position` in the window, or in the reveal's panel if
@@ -406,6 +414,8 @@ pub trait Browser {
     fn watch_control(&self, cx: &mut App);
     /// Puts `text` on the clipboard.
     fn copy(&self, text: &str, cx: &mut App);
+    /// The clipboard's text, from where `copy` puts it, or None if it holds none.
+    fn pasted(&self, cx: &App) -> Option<String>;
     /// Whether the platform can open a page in Safari, which plays the protected video ilo can't.
     /// Where it can't, the UI offers no button for it.
     fn can_open_in_safari(&self) -> bool {

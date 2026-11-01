@@ -8,9 +8,9 @@
 # the list, the shown tab's row has a marker at the edge it's past, which scrolls back to it. Away
 # from its URL, a double-click on the tile goes back there. ⌘W unloads it and keeps the tile,
 # showing the top Today tab. The tile's menu hangs the icon picker under the tile, whose pick is the
-# tile's icon until Remove Icon, and duplicates it to the top of Today. Launched
-# again, the app brings the favorite back, shown, and Remove from Favorites in its menu puts it at
-# the top of Today. A row dragged onto the tiles turns into a tile, and a tile dragged into the list
+# tile's icon until Remove Icon, and duplicates it to the top of Today. Launched again, the app
+# brings the favorite back, shown, with the icon it was given before the quit, and Remove from
+# Favorites in its menu puts it at the top of Today. A row dragged onto the tiles turns into a tile, and a tile dragged into the list
 # into a row. Today rows dragged onto the tiles become favorites where they're dropped, a tile
 # dragged across the other goes before it, one dragged into the list goes there, and escape puts a
 # dragged tile back. Tiles taller than 40 % of the window scroll with the list. ⌘, from the page and
@@ -79,17 +79,19 @@ send dragto 100 200
 send dragto 114 112
 expect '^browser: drag shape tile$' "a row dragged onto the Space's name didn't turn into a tile"
 send release 114 112
+released=$step
 expect "^browser: dragged $a to favorites 0\$" "the row dragged onto the Space's name didn't go there"
 expect "^browser: favorites $a\$" \
   "the row dragged onto the Space's name didn't make the tab a favorite: \"$(favorites)\""
 expect "^browser: today $b\$" "the favorite is still in Today: Today is \"$(today)\""
 # The tile has only an icon, so after a moment over it its hover card names the favorite, and it
 # goes when the pointer leaves and when the tile is clicked. The pointer let go over the new tile,
-# which the drag had hovered without a card, so its card comes once the tile has settled. It's the
-# tab shown, so its card has no picture, and a favorite's only button takes it out of the favorites.
+# which the drag had hovered without a card, so its card comes once the tile has settled, which may
+# be before the move onto it. It's the tab shown, so its card has no picture, and a favorite's only
+# button takes it out of the favorites.
 send move $tile
 expect "^browser: hover card shown $a unfavorite none\$" \
-  "resting on the tile the row was dropped on didn't show its card"
+  "resting on the tile the row was dropped on didn't show its card" "$released"
 send move 100 400
 expect '^browser: hover card hidden$' "the pointer leaving the tile didn't hide its card"
 # The press showed the favorite, so the click on its tile below has a tab to change from.
@@ -227,8 +229,8 @@ expect '^browser: drawn at 1000x340$' "the window didn't draw at its new size"
 send scroll 100 200 10 5
 expect '^browser: scroll edge shown$' "the list scrolled past its top didn't show its edge"
 ../tools/window-screenshot.sh "$pid" "$out/scroll-edge.png" || fail "no window to capture"
-edge=$(pixel "$out/scroll-edge.png" 0.1 $(echo "135.5 / 340" | bc -l))
-gap=$(pixel "$out/scroll-edge.png" 0.1 $(echo "133.5 / 340" | bc -l))
+edge=$(pixel "$out/scroll-edge.png" 0.1 $(awk 'BEGIN { print 135.5 / 340 }'))
+gap=$(pixel "$out/scroll-edge.png" 0.1 $(awk 'BEGIN { print 133.5 / 340 }'))
 # A light sidebar, as an opaque window's is, draws its edge darker.
 brighter "$edge" "$gap" || brighter "$gap" "$edge" ||
   fail "the edge is $edge over the sidebar's $gap"
@@ -271,6 +273,7 @@ send click $page_point
 send key , cmd
 expect '^browser: command settings via page$' "⌘, from the page didn't run Settings"
 expect '^browser: settings shown General$' "⌘, didn't show Settings on its General tab"
+settings_drew General
 ../tools/window-screenshot.sh "$pid" "$out/settings.png" || fail "no window to capture"
 send clickkey 592 126
 expect '^browser: warn before quitting off$' "a click on Warn before quitting didn't turn it off"
@@ -284,21 +287,31 @@ expect "^browser: menu shown $(cased "In Every Space, In Each Profile's Spaces (
   "a click on Favorites didn't show the choices, with Each Profile's Spaces chosen"
 send choose "$(cased 'In Each Space')"
 expect "^browser: favorites scope In Each Space\$" "choosing In Each Space in Settings didn't set it"
-send clickkey 519 60
+send clickkey $(drawn "toolbar Advanced")
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
+settings_drew Advanced
 send clickkey 592 126
 expect '^browser: haptics off$' "a click on the haptics switch didn't turn them off"
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 none_since '^browser: command close-tab' || fail "⌘W in Settings closed a tab"
-# The quit leaves the favorite shown.
+# The quit leaves the favorite shown, with an icon, which is kept with it as its name would be.
 send click $tile
 expect "^browser: selected $a\( in .*\)\{0,1\}\$" "a click on the tile didn't show the favorite"
+post rightclick $tile
+expect "^browser: menu shown $(cased 'Back to Favorite URL (disabled), Replace Favorite URL with Current (disabled), Duplicate Tab, Remove from Favorites, Change Icon…, Close Tab')\$" \
+  "a right-click on the tile before the quit didn't offer Change Icon…"
+send choose "$(cased 'Change Icon…')"
+expect '^browser: icon picker shown$' "Change Icon… before the quit didn't show the icon picker"
+send insert glowing star
+send key return
+expect "^browser: page $a icon 🌟\$" "the picker's pick before the quit didn't become the favorite's icon"
+expect '^browser: icon picker hidden$' "picking an emoji before the quit didn't close the icon picker"
 exec 3>&-
 quit
 
-# Launched again, the favorite comes back shown, and Remove from Favorites in its menu puts it at
-# the top of Today.
+# Launched again, the favorite comes back shown, with its icon, which Remove Icon takes out, and
+# Remove from Favorites in its menu puts it at the top of Today.
 log="$out/favorites-restored.log"
 step=0
 BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
@@ -311,6 +324,8 @@ await '^browser: today [0-9][0-9]* [0-9][0-9]*$' || fail "the Today tabs didn't 
 left=$(today)
 await "^browser: selected $a\$" || fail "the relaunch didn't show the favorite shown last"
 await "^browser: loaded $a $site\$" || fail "the favorite didn't load"
+await "^browser: tile $a drawn with icon 🌟\$" ||
+  fail "the relaunch didn't bring back the favorite's icon: $(grep "^browser: tile $a drawn" "$log" | tail -1)"
 ../tools/window-screenshot.sh "$pid" "$out/favorites-restored.png" || fail "no window to capture"
 send click $page_point
 if [ "$active" != 1 ]; then
@@ -321,6 +336,12 @@ if [ "$active" != 1 ]; then
   echo "  the click."
   exit 0
 fi
+post rightclick $tile
+expect "^browser: menu shown $(cased 'Back to Favorite URL (disabled), Replace Favorite URL with Current (disabled), Duplicate Tab, Remove from Favorites, Change Icon…, Remove Icon, Close Tab')\$" \
+  "a right-click on the restored tile didn't offer Remove Icon for the icon it kept"
+send choose "$(cased 'Remove Icon')"
+expect "^browser: page $a icon none\$" "Remove Icon on the restored tile didn't take its icon out"
+expect "^browser: tile $a drawn with icon none\$" "the restored tile didn't draw its favicon again"
 post rightclick $tile
 expect "^browser: menu shown $(cased 'Back to Favorite URL (disabled), Replace Favorite URL with Current (disabled), Duplicate Tab, Remove from Favorites, Change Icon…, Close Tab')\$" \
   "a right-click on the restored tile didn't show the favorite's menu"
@@ -529,6 +550,7 @@ send click $sidebar_point
 send key , cmd
 expect '^browser: command settings via ui$' "⌘, from the UI didn't run Settings"
 expect '^browser: settings shown General$' "⌘, from the UI didn't show Settings"
+settings_drew General
 post clickkey 500 168
 expect '^browser: menu shown 12 hours (default), 24 hours (checked), 7 days, 30 days$' \
   "Settings didn't keep 24 hours across the quit"
@@ -539,8 +561,9 @@ expect "^browser: menu shown $(cased "In Every Space, In Each Profile's Spaces, 
   "Settings didn't keep Each Space across the quit"
 send choose "$(cased "In Each Profile's Spaces")"
 expect "^browser: favorites scope In Each Profile's Spaces\$" "choosing Each Profile's Spaces didn't set it"
-send clickkey 519 60
+send clickkey $(drawn "toolbar Advanced")
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
+settings_drew Advanced
 send clickkey 592 126
 expect '^browser: haptics on$' "Settings didn't keep the haptics off across the quit"
 # The driver's done for a click that closes its window can be lost with the window, as it always
@@ -550,6 +573,7 @@ post clickkey $close
 expect '^browser: settings hidden$' "the close button didn't hide Settings"
 send menu Settings…
 expect '^browser: settings shown Advanced$' "Settings… didn't show Settings on the tab it showed"
+settings_drew Advanced
 # More Settings… sits under Advanced's box of four switch rows, the haptics', the link previews',
 # the Mini Player's and restoring windows', and on the Mac and Linux ⌥'s 42 under them, and the
 # box of Export…'s row. On Linux the box of Widevine's module, which Chromium downloads there, puts

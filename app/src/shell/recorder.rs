@@ -183,6 +183,10 @@ pub(super) struct Recorder {
     pub(super) agent_permissions: RefCell<super::AgentGrants>,
     /// What the Library button's hover leaves out, none at first, as the core's default.
     hover_kinds_off: Cell<u32>,
+    /// The account's core, as the first launch's account step asks it, in a build that names a
+    /// sync server, which a test says; one that names none at first.
+    pub(super) account: Rc<Account>,
+    pub(super) sync_server: Cell<bool>,
     /// The videos opened that haven't given their first frame yet.
     videos_starting: RefCell<Vec<u64>>,
 }
@@ -314,6 +318,10 @@ impl Browser for Recorder {
     ) -> u64 {
         self.record(format!("open {} {pinned} {folder} {index}", urls.join(" ")));
         Default::default()
+    }
+
+    fn open_behind(&self, urls: &[String], pinned: bool, folder: u64, index: usize, _: &mut App) {
+        self.record(format!("open behind {} {pinned} {folder} {index}", urls.join(" ")));
     }
 
     fn create_folder(&self, space: u64, name: &str, folder: u64, index: usize, _: &mut App) -> u64 {
@@ -847,6 +855,11 @@ impl Browser for Recorder {
         self.edit(format!("rename profile {profile} {name}"));
     }
 
+    fn account_host(&self) -> Option<Rc<dyn crate::account::Host>> {
+        let account: Rc<dyn crate::account::Host> = self.account.clone();
+        self.sync_server.get().then_some(account)
+    }
+
     // The import's made-up Arc, so the first launch has a browser to import from, unless a test
     // says there's none.
     fn import_host(&self) -> std::rc::Rc<dyn crate::import::Host> {
@@ -979,6 +992,11 @@ impl Browser for Recorder {
     fn copy(&self, text: &str, _: &mut App) {
         self.copied.borrow_mut().push(text.to_owned());
         self.record(format!("copy {text}"))
+    }
+
+    /// The host's clipboard holds what was copied last.
+    fn pasted(&self, _: &App) -> Option<String> {
+        self.copied.borrow().last().cloned()
     }
 
     fn share_services(&self, _: &str) -> Vec<SharedString> {
@@ -1268,4 +1286,74 @@ impl Browser for Recorder {
     }
 
     fn new_private_window(&self, _: &mut App) {}
+}
+
+/// The account's core, recording what the account step asks of it.
+#[derive(Default)]
+pub(super) struct Account {
+    pub(super) calls: RefCell<Vec<String>>,
+}
+
+impl crate::account::Host for Account {
+    fn set_server(&self, server: &str) -> bool {
+        self.calls.borrow_mut().push(format!("server {server}"));
+        true
+    }
+
+    fn sign_in(&self) {
+        self.calls.borrow_mut().push("sign in".into());
+    }
+
+    fn cancel(&self) {
+        self.calls.borrow_mut().push("cancel".into());
+    }
+
+    fn sign_out(&self) {
+        self.calls.borrow_mut().push("sign out".into());
+    }
+
+    fn recovery_words(&self) -> String {
+        self.calls.borrow_mut().push("recovery words".into());
+        "abandon ability able about above absent absorb abstract absurd abuse access accident \
+         account accuse achieve acid acoustic acquire across act action actor actress actual"
+            .into()
+    }
+
+    fn enter_recovery_words(&self, _: &str) -> bool {
+        self.calls.borrow_mut().push("words".into());
+        true
+    }
+
+    fn start_over(&self) {
+        self.calls.borrow_mut().push("start over".into());
+    }
+
+    fn request_pairing(&self) {
+        self.calls.borrow_mut().push("request pairing".into());
+    }
+
+    fn read_devices(&self) {
+        self.calls.borrow_mut().push("read devices".into());
+    }
+
+    fn remove_device(&self, id: &str) {
+        self.calls.borrow_mut().push(format!("remove {id}"));
+    }
+
+    fn copy_secret(&self, _: &str, _: Duration, _: &mut App) {
+        self.calls.borrow_mut().push("copy secret".into());
+    }
+
+    fn confirm(
+        &self,
+        message: String,
+        _: String,
+        _: &'static str,
+        _: crate::dialog::Return,
+        _: Box<dyn FnOnce(&mut App)>,
+        _: &mut gpui::Window,
+        _: &mut App,
+    ) {
+        self.calls.borrow_mut().push(format!("ask {message}"));
+    }
 }

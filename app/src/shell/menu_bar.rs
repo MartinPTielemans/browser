@@ -18,6 +18,8 @@ pub struct MenuBar {
     pub pinned: Option<bool>,
     /// Whether the Space shown has its pinned rows collapsed.
     pub pinned_shut: bool,
+    /// Whether View's pinned tabs item would show or hide a row now, else it's dimmed.
+    pub pinned_offered: bool,
     /// Whether the page shown is in Developer Mode, or None where it can't change: no web page, or
     /// a private window.
     pub developer_mode: Option<bool>,
@@ -109,6 +111,8 @@ impl Shell {
             sidebar_hidden: self.sidebar_hidden,
             pinned,
             pinned_shut: self.shown_space().is_some_and(|space| space.folders.pinned_shut),
+            pinned_offered: self.offers(Command::CollapsePinned)
+                || self.offers(Command::ExpandPinned),
             developer_mode: self.developer_mode(self.selected),
             tracing: trace::recording(cx),
             profiles: self.profile_choices(self.space).filter(|_| !self.private),

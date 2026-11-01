@@ -8,12 +8,12 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
+use browser::account::{self, Account};
 use browser::agents::{self, Agents, Client};
 use browser::build_info;
 use browser::default_browser::{self, DefaultBrowser, Os};
-#[cfg(target_os = "linux")]
 use browser::dialog;
 use browser::theme::Appearance;
 use browser::import::ImportView;
@@ -47,6 +47,9 @@ use browser::tokens::settings::HEIGHT;
 use browser::tokens::settings::TITLE_BAR;
 use browser::tokens::shell::WINDOW_BUTTON_GLYPH;
 use browser::tokens::shell::WINDOW_BUTTON_SIZE;
+use browser::tokens::shell::WINDOWS_BUTTON_GLYPH;
+use browser::tokens::shell::WINDOWS_BUTTON_PLATE;
+use browser::tokens::shell::WINDOWS_CLOSE_HOVERED;
 use browser::tokens::settings::TOOLBAR;
 use browser::tokens::settings::TAB;
 use browser::tokens::settings::TAB_PADDING;
@@ -122,6 +125,7 @@ pub(crate) fn archive_after_words() -> String {
 enum Tab {
     General,
     Links,
+    Sync,
     Profiles,
     Passwords,
     Import,
@@ -133,9 +137,10 @@ enum Tab {
 }
 
 impl Tab {
-    const ALL: [Tab; 10] = [
+    const ALL: [Tab; 11] = [
         Tab::General,
         Tab::Links,
+        Tab::Sync,
         Tab::Profiles,
         Tab::Passwords,
         Tab::Import,
@@ -157,6 +162,7 @@ impl Tab {
         match self {
             Tab::General => "General",
             Tab::Links => "Links",
+            Tab::Sync => "Sync",
             Tab::Profiles => "Profiles",
             Tab::Passwords => "Passwords",
             Tab::Import => "Import",
@@ -172,6 +178,7 @@ impl Tab {
         match self {
             Tab::General => "icons/settings.svg",
             Tab::Links => "icons/link.svg",
+            Tab::Sync => "icons/cloud.svg",
             Tab::Profiles => "icons/user.svg",
             Tab::Passwords => "icons/key-round.svg",
             Tab::Import => "icons/arrow-down-to-line.svg",
@@ -185,7 +192,7 @@ impl Tab {
 }
 
 /// The keys a row of the Shortcuts tab shows: a command's shortcut, or keys the app binds itself.
-/// Or the switch for whether those keys count the favorites.
+/// Or the switch for whether those keys count the favorites, or whether Last Tab is the ninth.
 enum Keys {
     Of(Command),
     /// Keys no command holds, which can't be changed: a binding's keystroke.
@@ -193,13 +200,14 @@ enum Keys {
     /// A run of them, from the first keystroke to the last.
     Span(&'static str, &'static str),
     FavoritesNumbered,
+    LastTabNinth,
 }
 
 impl Keys {
     /// A row's keys that can't be changed, as a menu shows them, Ctrl+1 – Ctrl+8 off the Mac.
     fn fixed(&self) -> Option<String> {
         match *self {
-            Keys::Of(_) | Keys::FavoritesNumbered => None,
+            Keys::Of(_) | Keys::FavoritesNumbered | Keys::LastTabNinth => None,
             Keys::Fixed(keys) => Some(shell::keystroke_label(keys)),
             Keys::Span(first, last) => {
                 Some(format!("{} – {}", shell::keystroke_label(first), shell::keystroke_label(last)))
@@ -207,6 +215,9 @@ impl Keys {
         }
     }
 }
+
+/// The choice that has a command's keys reach ilo before the page.
+const PREFER_ILO: &str = concat!("Prefer ", env!("APP_NAME"));
 
 /// The Shortcuts tab, every command the user can give keys, in the menus' order and names.
 const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
@@ -229,6 +240,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Tabs 1 to 8", Keys::Span("cmd-1", "cmd-8")),
             ("Include Favorites in ⌘1–⌘8", Keys::FavoritesNumbered),
             ("Last Tab", Keys::Of(Command::SelectLastTab)),
+            ("Last Tab Goes to the Ninth Tab", Keys::LastTabNinth),
             ("Pin/Unpin Tab", Keys::Of(Command::TogglePin)),
             ("Favorite Tab", Keys::Of(Command::FavoriteTab)),
             ("Back to Pinned URL", Keys::Of(Command::BackToPinnedUrl)),
@@ -381,7 +393,7 @@ enum Popup {
 pub struct Settings {
     tab: Tab,
     focus: FocusHandle,
-    /// It was asked to show, and logs the tab it draws next.
+    /// It was asked to show, or changed tab, and logs the tab it draws next.
     shown: bool,
     /// Which switch last changed, and when, for its knob's slide.
     switched: Option<(&'static str, Instant)>,
@@ -398,6 +410,7 @@ pub struct Settings {
     /// The Shortcuts tab's search, which narrows its rows to what it finds.
     search: Entity<TextInput>,
     default_browser: Entity<DefaultBrowser>,
+    account: Entity<Account>,
     /// The sites with ad blocking off, as General last logged them for check.sh.
     off_sites_logged: Option<String>,
     /// Where each control check.sh clicks has been logged, so it logs only where it moves to.
@@ -438,6 +451,135 @@ impl dialog::Host for InWindow {
     fn hide(&self) {}
 }
 
+/// The browser's account, as the Sync tab asks the core for it.
+struct CoreAccount {
+    /// Where it asks before signing out or showing the words on Linux, which has no alert:
+    /// Settings' own dialog, or for a browser window's view, the browser's.
+    #[cfg(target_os = "linux")]
+    dialog: Option<Entity<dialog::Dialog>>,
+}
+
+/// The browser's account for a view of it in a browser window, as the first launch's step, which
+/// asks before starting over in an alert, or on Linux in the browser's dialog.
+pub fn browser_account() -> Rc<dyn account::Host> {
+    Rc::new(CoreAccount {
+        #[cfg(target_os = "linux")]
+        dialog: None,
+    })
+}
+
+impl account::Host for CoreAccount {
+    fn set_server(&self, server: &str) -> bool {
+        let server = CString::new(server).unwrap_or_default();
+        unsafe { bc::bc_sync_set_server(server.as_ptr()) }
+    }
+
+    fn sign_in(&self) {
+        unsafe { bc::bc_sync_sign_in() };
+    }
+
+    fn cancel(&self) {
+        unsafe { bc::bc_sync_cancel() };
+    }
+
+    fn sign_out(&self) {
+        unsafe { bc::bc_sync_sign_out() };
+    }
+
+    fn recovery_words(&self) -> String {
+        // 24 words of at most 8 letters, and the spaces between them.
+        let mut words = [0u8; 256];
+        let length = unsafe { bc::bc_sync_recovery_words(words.as_mut_ptr().cast(), words.len()) };
+        String::from_utf8_lossy(&words[..length.min(words.len() - 1)]).into_owned()
+    }
+
+    fn enter_recovery_words(&self, words: &str) -> bool {
+        let words = CString::new(words).unwrap_or_default();
+        unsafe { bc::bc_sync_enter_recovery_words(words.as_ptr()) }
+    }
+
+    fn start_over(&self) {
+        unsafe { bc::bc_sync_start_over() }
+    }
+
+    fn request_pairing(&self) {
+        unsafe { bc::bc_sync_request_pairing() };
+    }
+
+    fn read_devices(&self) {
+        unsafe { bc::bc_sync_read_devices() };
+    }
+
+    fn remove_device(&self, id: &str) {
+        let id = CString::new(id).unwrap_or_default();
+        unsafe { bc::bc_sync_remove_device(id.as_ptr()) };
+    }
+
+    fn copy_secret(&self, text: &str, kept: Duration, cx: &mut App) {
+        let secret = CString::new(text).unwrap_or_default();
+        let seconds = u32::try_from(kept.as_secs()).unwrap_or(u32::MAX);
+        if unsafe { platform::host_copy_secret(secret.as_ptr(), seconds) } {
+            return;
+        }
+        account::copy_for(text, kept, cx);
+    }
+
+    /// In an alert, or on Linux in Settings' own dialog, as a profile's Delete asks.
+    fn confirm(
+        &self,
+        message: String,
+        detail: String,
+        action: &'static str,
+        on_return: dialog::Return,
+        confirmed: Box<dyn FnOnce(&mut App)>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        #[cfg(target_os = "linux")]
+        match &self.dialog {
+            Some(dialog) => {
+                dialog::ask_in(dialog, message, detail, action, on_return, confirmed, window, cx)
+            }
+            None => crate::with_overlays(
+                move |cx| dialog::ask_returning(message, detail, action, on_return, confirmed, cx),
+                cx,
+            ),
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = window;
+            let returns = on_return == dialog::Return::Action;
+            cx.spawn(async move |cx| {
+                if crate::ask(&message, &detail, &[action, "Cancel"], returns) == 0 {
+                    cx.update(confirmed);
+                }
+            })
+            .detach();
+        }
+    }
+}
+
+/// The browser's account changed: Settings' Sync tab shows it, and the first launch's account
+/// step follows it (account::Synced).
+pub fn sync_changed(state: account::State, cx: &mut App) {
+    cx.set_global(account::Synced(state.clone()));
+    if let Some(window) = cx.try_global::<SettingsWindow>().map(|settings| settings.0) {
+        let changed = move |settings: &mut Settings, _: &mut Window, cx: &mut Context<Settings>| {
+            settings.account.update(cx, |account, cx| account.set_state(state, cx));
+        };
+        window.update(cx, changed).ok();
+    }
+}
+
+/// The account's devices, which the Sync tab asked the core for.
+pub fn devices_changed(devices: Vec<account::Device>, cx: &mut App) {
+    if let Some(window) = cx.try_global::<SettingsWindow>().map(|settings| settings.0) {
+        let changed = move |settings: &mut Settings, _: &mut Window, cx: &mut Context<Settings>| {
+            settings.account.update(cx, |account, cx| account.set_devices(devices, cx));
+        };
+        window.update(cx, changed).ok();
+    }
+}
 /// The activity the Agents tab lists, newest first: the log keeps more, for the run.
 const ACTIVITY_SHOWN: usize = 50;
 
@@ -700,6 +842,10 @@ fn show_now(cx: &mut App) {
         .ok();
     check_default_browser(cx);
     unsafe { platform::host_show_settings() };
+    // check.sh waits for this line, which the Mac's and Linux's hosts log as they show the window.
+    if cfg!(target_os = "windows") {
+        log!("browser: settings shown {}", title());
+    }
 }
 
 /// Looks again for the agent clients on this computer, as the Agents tab shows.
@@ -742,8 +888,8 @@ thread_local! {
     static SHOWN_TAB: Cell<&'static str> = const { Cell::new("") };
 }
 
-/// The window's title, for a host that logs it as the Mac's reads it off the window.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+/// The window's title, logged as the Mac's host reads it off the window.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 pub fn title() -> &'static str {
     SHOWN_TAB.get()
 }
@@ -752,6 +898,8 @@ fn open(cx: &mut App) {
     // ⌘W, pressed as Ctrl+W off the Mac, as the browser's own shortcuts are.
     let close = if crate::shell::OFF_THE_MAC { "ctrl-w" } else { "cmd-w" };
     cx.bind_keys([gpui::KeyBinding::new(close, CloseSettings, Some("Settings"))]);
+    account::bind_keys(cx);
+    let synced = account::synced(cx);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(
             point(px(0.), px(0.)),
@@ -799,6 +947,16 @@ fn open(cx: &mut App) {
                 .detach();
                 dialog
             };
+            let host = CoreAccount {
+                #[cfg(target_os = "linux")]
+                dialog: Some(dialog.clone()),
+            };
+            let account = cx.new(|cx| {
+                let mut account = Account::new(Rc::new(host), cx);
+                account.set_state(synced, cx);
+                account
+            });
+            cx.observe(&account, |_, _, cx| cx.notify()).detach();
             let widevine = cx.new(|_| WidevineRow::new(Rc::new(Module)));
             cx.observe(&widevine, |_, _, cx| cx.notify()).detach();
             let agents = agents::global(cx);
@@ -819,6 +977,7 @@ fn open(cx: &mut App) {
             })
             .detach();
             Settings {
+                account,
                 #[cfg(target_os = "linux")]
                 dialog,
                 default_browser,
@@ -848,7 +1007,13 @@ fn open(cx: &mut App) {
     });
     match window {
         Ok(window) => {
-            if let Ok(view) = window.update(cx, |_, window, _| ns_view(window)) {
+            if let Ok(view) = window.update(cx, |_, window, cx| {
+                let view = ns_view(window);
+                // The link preview over a browser window closes as Settings takes the keyboard.
+                #[cfg(target_os = "linux")]
+                crate::system::watch_settings_activation(window, view, cx);
+                view
+            }) {
                 unsafe { platform::host_add_settings(view) };
                 cx.set_global(SettingsWindow(window));
             }
@@ -867,7 +1032,10 @@ pub fn refresh(cx: &mut App) {
 /// The window's close button, for a window without a frame to draw it: where the browser window's
 /// is on Linux, and in the top right corner on Windows, where Windows puts close. Settings can't be
 /// minimized or zoomed, so it's alone. `at` logs where it's drawn.
-fn close_button(at: gpui::Canvas<()>) -> impl IntoElement {
+fn close_button(at: gpui::Canvas<()>) -> AnyElement {
+    if cfg!(target_os = "windows") {
+        return windows_close_button(at);
+    }
     let (x, colour) = shell::WINDOW_BUTTONS[0];
     let button = div().id("close").absolute();
     let button = match cfg!(target_os = "windows") {
@@ -891,6 +1059,37 @@ fn close_button(at: gpui::Canvas<()>) -> impl IntoElement {
                 .group_hover("close", |style| style.text_color(rgba(WINDOW_BUTTON_GLYPH))),
         )
         .child(at)
+        .into_any_element()
+}
+
+/// Windows' close, as the browser window's (shell.rs's `windows_buttons`): Settings' title's grey
+/// glyph, on Windows' red under the pointer, as far in from the corner as the Mac's is.
+fn windows_close_button(at: gpui::Canvas<()>) -> AnyElement {
+    let (x, _) = shell::WINDOW_BUTTONS[0];
+    div()
+        .id("close")
+        .absolute()
+        .right(px(x - WINDOWS_BUTTON_PLATE / 2.))
+        .top(px((TITLE_BAR - WINDOWS_BUTTON_PLATE) / 2.))
+        .size(px(WINDOWS_BUTTON_PLATE))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(CONTROL_RADIUS))
+        .group("close")
+        .hover(|style| style.bg(rgb(WINDOWS_CLOSE_HOVERED)))
+        // A press here closes the window, and doesn't move it.
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_click(|_, _, cx| hide(cx))
+        .child(
+            svg()
+                .path("icons/window-windows-close.svg")
+                .size(px(WINDOWS_BUTTON_GLYPH))
+                .text_color(rgb(TITLE))
+                .group_hover("close", |style| style.text_color(gpui::white())),
+        )
+        .child(at)
+        .into_any_element()
 }
 
 fn hide(_: &mut App) {
@@ -912,6 +1111,8 @@ impl Settings {
         // check.sh waits for this line.
         log!("browser: settings tab {}", tab.name());
         self.tab = tab;
+        // A tab takes no click until it has drawn, so check.sh waits for its "settings drew".
+        self.shown = true;
         if tab == Tab::Import {
             self.show_import(cx);
         }
@@ -958,6 +1159,9 @@ impl Settings {
                 .when(shown, |plate| {
                     plate.bg(rgb(PLATE_FILL)).border(px(0.5)).border_color(rgb(PLATE_EDGE))
                 })
+                // check.sh clicks a tab where this says, as its labels' widths differ by platform.
+                .relative()
+                .child(self.drawn(format!("toolbar {}", tab.name())))
                 // A press here picks the tab, and doesn't move the window.
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(cx.listener(move |settings, _, window, cx| {
@@ -1108,31 +1312,13 @@ impl Settings {
         detailed_row(row.title(), row.detail(), make.map(IntoElement::into_any_element))
     }
 
-    /// A pop-up button showing `label`. It opens on a press, as a pop-up button does, and shows
-    /// pressed while its menu is open.
-    /// Logs where the element it fills is drawn, its centre in the window, as "browser: settings
-    /// `what` at x y", each time it moves, for check.sh to click it there. Put it in a relative one.
+    /// Logs where the element it fills is drawn (settings_rows::drawn). Put it in a relative one.
     fn drawn(&self, what: String) -> gpui::Canvas<()> {
-        let logged = self.drawn_logged.clone();
-        canvas(
-            |_, _, _| {},
-            move |bounds, _, _, _| {
-                let (x, y) = (f32::from(bounds.center().x), f32::from(bounds.center().y));
-                let line = format!("browser: settings {what} at {x:.0} {y:.0}");
-                let mut logged = logged.borrow_mut();
-                // Once a place: forget where it was drawn before.
-                let at = format!("browser: settings {what} at ");
-                if !logged.contains(&line) {
-                    log!("{line}");
-                    logged.retain(|each| !each.starts_with(&at));
-                    logged.push(line);
-                }
-            },
-        )
-        .absolute()
-        .inset_0()
+        browser::settings_rows::drawn(what, self.drawn_logged.clone())
     }
 
+    /// A pop-up button showing `label`. It opens on a press, as a pop-up button does, and shows
+    /// pressed while its menu is open.
     fn popup(
         &self,
         which: Popup,
@@ -1555,6 +1741,7 @@ impl Settings {
             message,
             detail.into(),
             "Delete",
+            dialog::Return::Action,
             Box::new(move |_| {
                 unsafe { bc::bc_profile_delete(profile) };
             }),
@@ -1565,7 +1752,7 @@ impl Settings {
         {
             let _ = window;
             cx.spawn(async move |_, _| {
-                if crate::ask(&message, detail, &["Delete", "Cancel"]) == 0 {
+                if crate::ask(&message, detail, &["Delete", "Cancel"], true) == 0 {
                     unsafe { bc::bc_profile_delete(profile) };
                 }
             })
@@ -1820,6 +2007,7 @@ impl Settings {
             message,
             detail,
             "Remove",
+            dialog::Return::Action,
             Box::new(move |_| crate::remove_login(profile, &login)),
             window,
             cx,
@@ -1828,7 +2016,7 @@ impl Settings {
         {
             let _ = window;
             cx.spawn(async move |_, _| {
-                if crate::ask(&message, &detail, &["Remove", "Cancel"]) == 0 {
+                if crate::ask(&message, &detail, &["Remove", "Cancel"], true) == 0 {
                     crate::remove_login(profile, &login);
                 }
             })
@@ -1862,6 +2050,7 @@ impl Settings {
             message,
             detail,
             "Remove",
+            dialog::Return::Action,
             Box::new(move |_| remove()),
             window,
             cx,
@@ -1870,7 +2059,7 @@ impl Settings {
         {
             let _ = window;
             cx.spawn(async move |_, _| {
-                if crate::ask(&message, &detail, &["Remove", "Cancel"]) == 0 {
+                if crate::ask(&message, &detail, &["Remove", "Cancel"], true) == 0 {
                     remove();
                 }
             })
@@ -2184,7 +2373,8 @@ impl Settings {
 
     /// The search, then the commands it finds by section, each with its keys in a chip. A click on
     /// a command's chip records its next keys; escape leaves them and ⌫ takes them away. ↺ gives
-    /// a command its default back, and Restore Defaults every command, with the favorites numbered.
+    /// a command its default back, and Restore Defaults every command, with the favorites numbered
+    /// and ⌘9 the last tab.
     fn shortcuts(&self, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
         let typed = self.search.read(cx).text().to_string();
         let found = found(&typed, cx);
@@ -2198,6 +2388,10 @@ impl Settings {
                         (Keys::FavoritesNumbered, _) => {
                             let on = shell::user_keys(cx).favorites_numbered();
                             self.toggle("favorites numbered", on, set_favorites_numbered, accent, cx)
+                        }
+                        (Keys::LastTabNinth, _) => {
+                            let on = shell::user_keys(cx).last_tab_ninth();
+                            self.toggle("last tab ninth", on, set_last_tab_ninth, accent, cx)
                         }
                         (_, text) => chip(text.unwrap_or_default().into(), rgb(DETAIL))
                             .into_any_element(),
@@ -2273,7 +2467,11 @@ impl Settings {
         let refused = (self.refused.as_ref())
             .filter(|(refused, _)| *refused == command)
             .map(|(_, why)| div().text_color(rgb(DETAIL)).child(why.clone()));
-        let restore = user.is_set(command).then(|| {
+        // Who gets the keys first, once the user has chosen ilo, as the menu below says it.
+        let preferred = user.prefers_ilo(command).then(|| {
+            div().text_color(rgb(DETAIL)).child(MenuEntry::label(PREFER_ILO))
+        });
+        let restore = user.changed(command).then(|| {
             div()
                 .id(SharedString::from(format!("restore-{}", command.key_name())))
                 .size(px(CHIP_HEIGHT))
@@ -2283,7 +2481,9 @@ impl Settings {
                 .rounded(px(RESTORE_RADIUS))
                 .hover(|restore| restore.bg(Palette::on_dark(STATE_HOVERED)))
                 .active(|restore| restore.bg(Palette::on_dark(STATE_PRESSED)))
+                .relative()
                 .child("↺")
+                .child(self.drawn(format!("restore {}", command.key_name())))
                 .on_click(cx.listener(move |settings, _, _, cx| settings.restore(command, cx)))
         });
         let chip = chip(keys, color)
@@ -2293,15 +2493,57 @@ impl Settings {
             .active(|chip| chip.bg(Palette::on_dark(state_alpha(CHIP_ALPHA, STATE_PRESSED))))
             .on_click(cx.listener(move |settings, _, window, cx| {
                 settings.start_recording(command, window, cx)
-            }));
+            }))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |settings, event: &MouseDownEvent, window, cx| {
+                    settings.choose_preference(command, event.position, window, cx)
+                }),
+            )
+            .relative()
+            .child(self.drawn(format!("shortcut {}", command.key_name())));
         div()
             .flex()
             .items_center()
             .gap(px(CHIP_GAP))
             .children(refused)
+            .children(preferred)
             .children(restore)
             .child(chip)
             .into_any_element()
+    }
+
+    /// A right-click on `command`'s chip: who gets its keys first when a page uses them too,
+    /// Prefer Websites, the default, or Prefer ilo, as Arc's Shortcuts offers. A reserved command's
+    /// are always ilo's, which the menu shows. A page that keeps keys still gives them up to a
+    /// second press.
+    fn choose_preference(
+        &mut self,
+        command: Command,
+        at: gpui::Point<gpui::Pixels>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let user = shell::user_keys(cx);
+        let (ilo, can) = (user.before_page(command), UserKeys::can_prefer(command));
+        let items = vec![
+            MenuEntry { checked: !ilo, ..MenuEntry::new("Prefer Websites", can) },
+            MenuEntry { checked: ilo, ..MenuEntry::new(PREFER_ILO, can) },
+        ];
+        let settings = cx.weak_entity();
+        let picked = Box::new(move |picked: Option<usize>, cx: &mut App| {
+            let Some(picked) = picked else {
+                return;
+            };
+            let ilo = picked == 1;
+            shell::change_keys(cx, |keys| keys.set_prefers_ilo(command, ilo));
+            let who = if ilo { "ilo" } else { "websites" };
+            // check.sh waits for this line.
+            log!("browser: shortcut {} prefers {who}", command.key_name());
+            save_shortcuts(cx);
+            settings.update(cx, |_, cx| cx.notify()).ok();
+        });
+        show_menu(ns_view(window), items, at, false, Look::dark(), picked, cx);
     }
 
     /// Takes the next keys pressed for `command`, or stops if it's taking them already.
@@ -2449,6 +2691,13 @@ fn about() -> AnyElement {
     if let Some(engine) = build_info::ENGINE_VERSION.as_deref() {
         version = format!("{version}, on Chromium {engine}");
     }
+    // check.sh reads the engine's version here.
+    let line = format!("browser: settings about {version}");
+    ABOUT_LOGGED.with_borrow_mut(|logged| {
+        if logged.insert(line.clone()) {
+            log!("{line}");
+        }
+    });
     let open = |id: &'static str, url: Option<String>| {
         url.map(|url| {
             // check.sh clicks Open where this line says it is.
@@ -2677,7 +2926,7 @@ fn found(typed: &str, cx: &App) -> Vec<&'static str> {
     let found = rows.filter(|(name, keys)| {
         let label = match keys {
             Keys::Of(command) => user.label(*command),
-            Keys::FavoritesNumbered => None,
+            Keys::FavoritesNumbered | Keys::LastTabNinth => None,
             _ => keys.fixed(),
         };
         shell::shortcut_found(typed, &shown(name), label.as_deref())
@@ -2735,6 +2984,12 @@ fn set_favorites_numbered(numbered: bool, cx: &mut App) {
     save_shortcuts(cx);
 }
 
+/// Last Tab Goes to the Ninth Tab, kept with the user's keys.
+fn set_last_tab_ninth(ninth: bool, cx: &mut App) {
+    shell::change_keys(cx, |keys| keys.set_last_tab_ninth(ninth));
+    save_shortcuts(cx);
+}
+
 fn save_shortcuts(cx: &App) {
     if let Err(error) = std::fs::write(shortcuts_path(), shell::user_keys(cx).to_text()) {
         log!("couldn't save the shortcuts: {error}");
@@ -2753,7 +3008,8 @@ impl Render for Settings {
             window.request_animation_frame();
         }
         if std::mem::take(&mut self.shown) {
-            // check.sh waits for this line, the tab each show draws, whichever window was key.
+            // check.sh waits for this line, the tab each show or switch draws, whichever window
+            // was key.
             log!("browser: settings drew {}", self.tab.name());
         }
         let content = match self.tab {
@@ -2767,6 +3023,7 @@ impl Render for Settings {
                 self.focus_field(&profiles, window, cx);
                 self.profiles(&profiles, cx)
             }
+            Tab::Sync => self.account.clone().into_any_element(),
             Tab::Passwords => self.passwords(&profiles(), accent, cx),
             Tab::Shortcuts => self.shortcuts(accent, cx),
             Tab::Privacy => self.privacy(accent, cx),

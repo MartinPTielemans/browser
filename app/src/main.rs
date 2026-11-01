@@ -24,7 +24,7 @@ use browser::flatpak;
 use browser::window_frames::{self, Frame};
 use browser::widevine::Widevine;
 use browser::{
-    capture, command_bar, dialog, dock_dot, elevation::Level, folder_preview, hover_card,
+    account, capture, command_bar, dialog, dock_dot, elevation::Level, folder_preview, hover_card,
     icon_picker, launch, link_preview, link_target, log, menu, offer, passwords, site_controls,
     theme_picker, toast, tooltip, zoom_hud,
 };
@@ -49,6 +49,9 @@ mod drop_targets;
 #[cfg(target_os = "windows")]
 #[path = "../platform/windows/drive_menus.rs"]
 mod drive_menus;
+#[cfg(target_os = "windows")]
+#[path = "../platform/windows/fade.rs"]
+mod fade;
 mod find_bar;
 mod import_host;
 #[cfg(target_os = "linux")]
@@ -60,7 +63,7 @@ mod drive_wayland;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/drops.rs"]
 mod drops;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 #[path = "../platform/linux/emoji.rs"]
 mod emoji;
 #[cfg(target_os = "linux")]
@@ -90,6 +93,9 @@ mod popovers;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/previews.rs"]
 mod previews;
+#[cfg(target_os = "linux")]
+#[path = "../platform/linux/reduce_motion.rs"]
+mod reduce_motion;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/reveal_window.rs"]
 mod reveal_window;
@@ -190,6 +196,10 @@ mod platform {
         pub fn host_after_menus(apply: extern "C" fn()) -> bool;
         pub fn host_watch_resigning_active(resigning: extern "C" fn());
         pub fn host_watch_active(became_active: extern "C" fn());
+        #[cfg(not(target_os = "linux"))]
+        pub fn host_reduce_motion() -> bool;
+        #[cfg(not(target_os = "linux"))]
+        pub fn host_watch_reduce_motion(changed: extern "C" fn());
         pub fn host_is_default_browser() -> bool;
         pub fn host_make_default_browser(answered: extern "C" fn());
         pub fn host_since_launch() -> f64;
@@ -291,6 +301,12 @@ mod platform {
         pub fn host_video_close(video: *mut c_void);
         #[cfg(not(target_os = "linux"))]
         pub fn host_copy(text: *const c_char);
+        pub fn host_copy_secret(text: *const c_char, seconds: u32) -> bool;
+        pub fn host_forget_secret();
+
+        pub fn host_key_repeated() -> bool;
+        #[cfg(not(target_os = "linux"))]
+        pub fn host_paste(text: *mut c_char, capacity: usize) -> usize;
         pub fn host_open_in_safari(url: *const c_char);
         pub fn host_open_full_disk_access();
         pub fn host_share(
@@ -319,6 +335,7 @@ mod platform {
             detail: *const c_char,
             buttons: *const *const c_char,
             count: usize,
+            returns: bool,
         ) -> i32;
         pub fn host_add_dialog(dialog_view: *mut c_void);
         pub fn host_show_dialog(ui_view: *mut c_void, x: f64, y: f64, width: f64, height: f64);
@@ -470,6 +487,9 @@ thread_local! {
     // The links other apps sent before the first window had brought back the Spaces, which they
     // open over; None after.
     static LAUNCH_LINKS: RefCell<Option<Vec<String>>> = const { RefCell::new(Some(Vec::new())) };
+    // The account as the core last said, which it says first as it starts, before GPUI has: the
+    // first window hands it to Settings.
+    static SYNC_STATE: RefCell<Option<account::State>> = const { RefCell::new(None) };
     // What the menu bar was last built from, so a change to one part rebuilds it with the others.
     static MENUS: RefCell<Menus> = RefCell::default();
     // Whether a menu bar built from MENUS waits for the menu open to close.
@@ -688,6 +708,14 @@ fn update_app_later(change: impl FnOnce(&mut App) + 'static) {
         let executor = cx.foreground_executor().clone();
         executor.spawn(async move { cx.update(change) }).detach();
     }
+}
+
+/// The view of a window the host fades, as the tooltip's: on Windows the app paints its fades.
+fn fading_view(window: &mut Window) -> *mut c_void {
+    let view = ns_view(window);
+    #[cfg(target_os = "windows")]
+    fade::attach(window, view);
+    view
 }
 
 /// The window's NSView, for the host.
@@ -1080,6 +1108,8 @@ extern "C" fn site_controls_dismissed() {
 struct LinkPreviewHost {
     /// The view the host puts the preview's page in.
     holder: Cell<*mut c_void>,
+    /// The browser window it shows over, until that window's page has the keyboard back.
+    over: Cell<u64>,
 }
 
 impl link_preview::Host for LinkPreviewHost {
@@ -1092,6 +1122,7 @@ impl link_preview::Host for LinkPreviewHost {
             windows.iter().find(|each| each.id == window).map(|each| each.ui_view)
         });
         if let Some(ui_view) = ui_view {
+            self.over.set(window);
             unsafe { platform::host_show_link_preview(ui_view) };
         }
     }
@@ -1111,9 +1142,18 @@ impl link_preview::Host for LinkPreviewHost {
 
     fn release(&self) {
         unsafe { platform::host_release_link_preview() };
+        // The window's page has the keyboard back from the preview's, which goes, or no page has
+        // it, unless the user left for another window. Linux's host gives it as it releases;
+        // Windows' can't name the window.
+        let window = self.over.replace(0);
+        if cfg!(target_os = "windows") && window != 0 && !LINK_PREVIEW_LEFT.get() {
+            unsafe { bc::bc_window_focus_page(window) };
+        }
     }
 
     fn hide(&self) {
+        // Released as it left, unless it goes at once.
+        self.release();
         unsafe { platform::host_hide_link_preview() };
     }
 
@@ -1136,12 +1176,16 @@ impl link_preview::Host for LinkPreviewHost {
 }
 
 extern "C" fn link_preview_dismissed() {
+    LINK_PREVIEW_LEFT.set(true);
     update_app(link_preview::dismissed);
+    LINK_PREVIEW_LEFT.set(false);
 }
 
 thread_local! {
     /// Whether the host has a view for a link preview's page.
     static LINK_PREVIEWS: Cell<bool> = const { Cell::new(false) };
+    /// The user left the preview for another window, which keeps the keyboard.
+    static LINK_PREVIEW_LEFT: Cell<bool> = const { Cell::new(false) };
 }
 
 /// A link is dragged over `tab`'s page: the window showing it shows the split view's targets, and
@@ -1988,6 +2032,13 @@ impl Browser for Engine {
         first
     }
 
+    fn open_behind(&self, urls: &[String], pinned: bool, folder: u64, index: usize, _: &mut App) {
+        let tabs = urls.iter().map(|url| open_tab_behind(self.window, url, true));
+        for (at, tab) in tabs.filter(|&tab| tab != 0).enumerate() {
+            unsafe { bc::bc_tab_move(tab, pinned, folder, index + at) };
+        }
+    }
+
     fn create_folder(&self, space: u64, name: &str, folder: u64, index: usize, _: &mut App) -> u64 {
         let name = CString::new(name).unwrap_or_default();
         unsafe { bc::bc_folder_create(space, name.as_ptr(), folder, index) }
@@ -2415,7 +2466,10 @@ impl Browser for Engine {
             also: None,
             fields,
             check: (!asked.check.is_empty()).then(|| asked.check.clone()),
-            return_cancels: asked.kind == shell::DialogKind::OpenApp,
+            on_return: match asked.kind == shell::DialogKind::OpenApp {
+                true => dialog::Return::Cancel,
+                false => dialog::Return::Action,
+            },
         };
         let window = self.window;
         let kind = asked.kind;
@@ -2751,6 +2805,12 @@ impl Browser for Engine {
         Rc::new(import_host::CoreImport)
     }
 
+    fn account_host(&self) -> Option<Rc<dyn browser::account::Host>> {
+        // A build that names no server leaves the first launch's step out, as the address is for
+        // Settings › Sync to ask (main's --sync-url).
+        (!env!("SYNC_SERVER").is_empty()).then(settings::browser_account)
+    }
+
     fn delete_profile(&self, profile: u64, _: &mut App) {
         unsafe { bc::bc_profile_delete(profile) };
     }
@@ -2920,6 +2980,21 @@ impl Browser for Engine {
             _ = cx;
             let text = CString::new(text.replace('\0', "")).unwrap_or_default();
             unsafe { platform::host_copy(text.as_ptr()) };
+        }
+    }
+
+    fn pasted(&self, cx: &App) -> Option<String> {
+        #[cfg(target_os = "linux")]
+        return system::pasted(cx);
+        #[cfg(not(target_os = "linux"))]
+        {
+            _ = cx;
+            // Asked for its length first, then for the text.
+            let length = unsafe { platform::host_paste(std::ptr::null_mut(), 0) };
+            let mut text = vec![0u8; length.checked_add(1)?];
+            unsafe { platform::host_paste(text.as_mut_ptr().cast(), text.len()) };
+            text.truncate(length);
+            Some(String::from_utf8_lossy(&text).into_owned()).filter(|text| !text.is_empty())
         }
     }
 
@@ -3228,6 +3303,19 @@ impl Browser for Engine {
         settings::set_send_crash_reports(on, cx);
     }
 
+    // Every build has the agents' server. The first launch picks its steps before the first
+    // frame, when agents_core makes the Agents, and a new profile's are off until then.
+    fn agents(&self, cx: &App) -> Option<bool> {
+        Some(browser::agents::global(cx).is_some_and(|agents| agents.read(cx).is_on()))
+    }
+
+    fn set_agents(&self, on: bool, cx: &mut App) {
+        agents_core::start(cx);
+        if let Some(agents) = browser::agents::global(cx) {
+            agents.update(cx, |agents, cx| agents.set_on(on, cx));
+        }
+    }
+
     fn agent_activity(&self, cx: &mut App) {
         settings::show_agents(cx);
     }
@@ -3327,7 +3415,7 @@ impl Browser for Engine {
             )),
             fields: Vec::new(),
             check: None,
-            return_cancels: false,
+            on_return: dialog::Return::Action,
         };
         // A Quit as the window comes on screen, before its overlays are made, asks too (#905):
         // with no dialog to ask in, pose would drop it and the app would never quit.
@@ -3336,11 +3424,12 @@ impl Browser for Engine {
     }
 }
 
-/// Asks `message` in an alert with `buttons`, the first the default, and returns the index of the
-/// one chosen, or none if AppKit ended it. It blocks in AppKit's loop until the alert closes, so
-/// it's called in a task. Linux has no alert, and its loop can't wait for one (settings.rs).
+/// Asks `message` in an alert with `buttons`, the first the default if `returns`, and returns the
+/// index of the one chosen, or none if AppKit ended it. It blocks in AppKit's loop until the alert
+/// closes, so it's called in a task. Linux has no alert, and its loop can't wait for one
+/// (settings.rs).
 #[cfg(not(target_os = "linux"))]
-fn ask(message: &str, detail: &str, buttons: &[&str]) -> usize {
+fn ask(message: &str, detail: &str, buttons: &[&str], returns: bool) -> usize {
     let text = |text: &str| CString::new(text).unwrap_or_default();
     let (message, detail) = (text(message), text(detail));
     let buttons: Vec<CString> = buttons.iter().map(|button| text(button)).collect();
@@ -3351,6 +3440,7 @@ fn ask(message: &str, detail: &str, buttons: &[&str]) -> usize {
             detail.as_ptr(),
             pointers.as_ptr(),
             pointers.len(),
+            returns,
         )
     };
     usize::try_from(chosen).unwrap_or(usize::MAX)
@@ -3391,6 +3481,11 @@ fn run_page_shortcut(tab: bc::bc_id, key: *const bc::bc_key, reserved: bool) -> 
     update_tab_window(tab, |shell, cx| shell.run_for_page(command, cx)).unwrap_or(false)
 }
 
+thread_local! {
+    /// The shortcut a page got first last, which a second press runs ilo's of if the page kept it.
+    static SECOND_PRESS: RefCell<shell::SecondPress> = RefCell::default();
+}
+
 unsafe extern "C" fn tab_key_before_page(
     _: *mut c_void,
     tab: bc::bc_id,
@@ -3421,8 +3516,20 @@ unsafe extern "C" fn tab_key_before_page(
     {
         return true;
     }
-    // The keys typed after ⌘L would reach the page before it hands ⌘L back to open the bar.
     let cx = CX.with_borrow(Clone::clone);
+    // A shortcut the page gets first that it kept, pressed again at once, runs ilo's (Arc's).
+    let shortcut = cx.as_ref().and_then(|cx| {
+        cx.try_read_global(|keys: &shell::UserKeys, _| keys.command_for(&keystroke, false))
+    });
+    let repeat = unsafe { platform::host_key_repeated() };
+    let now = Instant::now();
+    let shortcut = shortcut.flatten().is_some();
+    if SECOND_PRESS.with_borrow_mut(|second| second.press(tab, &keystroke, shortcut, repeat, now)) {
+        // check.sh reads this line.
+        log!("browser: second press {keystroke}");
+        return run_page_shortcut(tab, key, false);
+    }
+    // The keys typed after ⌘L would reach the page before it hands ⌘L back to open the bar.
     let holds = cx.and_then(|cx| {
         cx.try_read_global(|keys: &shell::UserKeys, _| keys.holds_keys(&keystroke))
     });
@@ -3508,6 +3615,7 @@ unsafe extern "C" fn tab_key_unhandled(
     tab: bc::bc_id,
     key: *const bc::bc_key,
 ) -> bool {
+    SECOND_PRESS.with_borrow_mut(|second| second.declined(&keystroke(unsafe { &*key })));
     link_preview_key(tab, key, false).unwrap_or_else(|| run_page_shortcut(tab, key, false))
 }
 
@@ -3997,7 +4105,10 @@ fn open_window_as(
         });
         window.focus(&shell.focus_handle(cx), cx);
         CX.set(Some(cx.to_async()));
-        #[cfg(target_os = "linux")]
+        if let Some(state) = SYNC_STATE.with_borrow_mut(Option::take) {
+            settings::sync_changed(state, cx);
+        }
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
         emoji::keep(cx);
         // In front, as it's about to be key, or a saved one behind the others.
         WINDOWS.with_borrow_mut(|windows| {
@@ -4231,6 +4342,11 @@ fn finish_opening(
         platform::host_watch_resigning_active(launch_picture_on_resigning);
         platform::host_watch_active(became_active);
     }
+    follow_reduce_motion(cx);
+    #[cfg(not(target_os = "linux"))]
+    unsafe { platform::host_watch_reduce_motion(reduce_motion_changed) };
+    #[cfg(target_os = "linux")]
+    reduce_motion::watch(cx);
     if let Some(bar) = command_bar::open(Rc::new(Bar), cx)
         && let Ok(view) = bar.update(cx, |_, window, _| ns_view(window))
     {
@@ -4296,7 +4412,10 @@ fn finish_opening(
     {
         unsafe { platform::host_add_capture(view, capture_dismissed) };
     }
-    let host = Rc::new(LinkPreviewHost { holder: Cell::new(std::ptr::null_mut()) });
+    let host = Rc::new(LinkPreviewHost {
+        holder: Cell::new(std::ptr::null_mut()),
+        over: Cell::new(0),
+    });
     if let Some(preview) = link_preview::open(host.clone(), cx)
         && let Ok(view) = preview.update(cx, |_, window, _| ns_view(window))
     {
@@ -4320,7 +4439,7 @@ fn finish_opening(
     // Their windows reach this far past the plate, for its shadow.
     let margin = f64::from(browser::elevation::WINDOW_MARGIN);
     if let Some(tip) = tooltip::open(Rc::new(TooltipHost), cx)
-        && let Ok(view) = tip.update(cx, |_, window, _| ns_view(window))
+        && let Ok(view) = tip.update(cx, |_, window, _| fading_view(window))
     {
         unsafe { platform::host_add_tooltip(view, margin, tooltip_away) };
     }
@@ -4334,7 +4453,7 @@ fn finish_opening(
     }
     if let Some(target) =
         link_target::open(Rc::new(LinkTargetHost), move |cx| look(cx).unwrap_or_default(), cx)
-        && let Ok(view) = target.update(cx, |_, window, _| ns_view(window))
+        && let Ok(view) = target.update(cx, |_, window, _| fading_view(window))
     {
         unsafe { platform::host_add_link_target(view, margin, link_pointer) };
     }
@@ -4409,7 +4528,15 @@ unsafe extern "C" fn started(_: *mut c_void) {
             // GPUI's X11 scale is its own guess otherwise, from Xft.dpi, where Chromium also
             // follows GDK_SCALE.
             true => {
-                gpui_linux::embed_x11(unsafe { bc::bc_display_scale() } as f32);
+                // A click in the UI takes the keyboard there, to keep, as Wayland's does: moving
+                // X's input focus into GPUI's window tells the core nothing while it's there,
+                // as after ⌘W, where the UI holds the keys for the page shown next (#1209).
+                fn pressed(ui_view: *mut c_void) {
+                    if let Some(window) = window_in(ui_view) {
+                        unsafe { bc::bc_window_ui_takes_keyboard(window) };
+                    }
+                }
+                gpui_linux::embed_x11(unsafe { bc::bc_display_scale() } as f32, pressed);
                 // The clipboard's owner can be Chromium, which answers on this thread, so the UI's
                 // read has it answer while it waits (#999).
                 gpui_linux::answer_clipboard_reads_with(|| unsafe {
@@ -4674,7 +4801,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 )),
                 MenuItem::separator(),
                 item(bar.sidebar_title(), Command::ToggleSidebar),
-                item(bar.pinned_item().0, bar.pinned_item().1),
+                item(bar.pinned_item().0, bar.pinned_item().1).disabled(!bar.pinned_offered),
                 MenuItem::separator(),
                 item("Stop Loading", Command::Stop),
                 item("Refresh the Page", Command::Reload),
@@ -5056,11 +5183,39 @@ extern "C" fn became_active() {
     update_app_later(|cx| {
         settings::check_default_browser(cx);
         import_host::became_active(cx);
+        // GTK's settings file, Linux's last word, says nothing as it changes.
+        #[cfg(target_os = "linux")]
+        follow_reduce_motion(cx);
     });
+}
+
+/// Reads the system's Reduce Motion as the first window opens, before its first frame, and again
+/// as the system says it changed.
+fn follow_reduce_motion(cx: &mut App) {
+    #[cfg(not(target_os = "linux"))]
+    set_reduce_motion(unsafe { platform::host_reduce_motion() }, cx);
+    #[cfg(target_os = "linux")]
+    reduce_motion::read(cx);
+}
+
+#[cfg(not(target_os = "linux"))]
+extern "C" fn reduce_motion_changed() {
+    update_app_later(follow_reduce_motion);
+}
+
+/// What GPUI's animations and the UI's own motion follow (`App::reduce_motion`).
+fn set_reduce_motion(reduce: bool, cx: &mut App) {
+    if reduce != cx.reduce_motion() {
+        // check.sh reads this line.
+        log!("browser: reduce motion {}", if reduce { "on" } else { "off" });
+        cx.set_reduce_motion(reduce);
+    }
 }
 
 unsafe extern "C" fn stopping(_: *mut c_void) {
     log!("browser: stopping");
+    // The recovery words a Copy put on the clipboard don't outlast the app (settings.rs).
+    unsafe { platform::host_forget_secret() };
 }
 
 // The next launch's first window opens where the regular window in front is, showing its sidebar
@@ -5229,6 +5384,12 @@ fn show_archive_note(cx: &mut App) {
 unsafe extern "C" fn history_added(_: *mut c_void, profile: bc::bc_id, added: usize) {
     log!("browser: history added {added} to profile {profile}");
     update_app_later(move |cx| import_host::history_added(added, cx));
+}
+
+unsafe extern "C" fn addresses_added(_: *mut c_void, profile: bc::bc_id, added: usize) {
+    // check.sh waits for this line.
+    log!("browser: addresses added {added} to profile {profile}");
+    update_app_later(move |cx| import_host::addresses_added(added, cx));
 }
 
 unsafe extern "C" fn favorites_changed(_: *mut c_void) {
@@ -5660,7 +5821,7 @@ unsafe extern "C" fn window_extension_question(
         also: None,
         fields: Vec::new(),
         check: None,
-        return_cancels: false,
+        on_return: dialog::Return::Action,
     };
     let mut asked = false;
     if window == front().0 {
@@ -5741,7 +5902,7 @@ unsafe extern "C" fn window_downloads_question(
         also: None,
         fields: Vec::new(),
         check: None,
-        return_cancels: true,
+        on_return: dialog::Return::Cancel,
     };
     let answered =
         Box::new(move |cancel, _: &mut App| unsafe { bc::bc_window_answer_downloads(window, cancel) });
@@ -5935,6 +6096,109 @@ unsafe extern "C" fn profile_logins_changed(
     update_app(|cx| settings::logins_changed(profile, list, cx));
 }
 
+/// A string the core passed, for as long as the app keeps it.
+fn core_text(text: *const c_char) -> SharedString {
+    match text.is_null() {
+        true => SharedString::default(),
+        false => unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned().into(),
+    }
+}
+
+/// The browser's account, for Settings. Never logged here: the email is the user's.
+unsafe extern "C" fn sync_changed(_: *mut c_void, state: *const bc::bc_sync_state) {
+    let Some(state) = (unsafe { state.as_ref() }) else {
+        return;
+    };
+    let status = match state.status as u32 {
+        bc::BC_SYNC_SIGNING_IN => account::Status::SigningIn,
+        bc::BC_SYNC_FIRST_DEVICE => account::Status::FirstDevice,
+        bc::BC_SYNC_NEEDS_SECRET => account::Status::NeedsSecret,
+        bc::BC_SYNC_PAIRING => account::Status::Pairing,
+        bc::BC_SYNC_ON => account::Status::On,
+        _ => account::Status::SignedOut,
+    };
+    let problem = match state.problem as u32 {
+        bc::BC_SYNC_PROBLEM_WRONG_WORDS => Some(account::Problem::WrongWords),
+        bc::BC_SYNC_PROBLEM_DECLINED => Some(account::Problem::Declined),
+        bc::BC_SYNC_PROBLEM_EXPIRED => Some(account::Problem::Expired),
+        bc::BC_SYNC_PROBLEM_REMOVED => Some(account::Problem::Removed),
+        bc::BC_SYNC_PROBLEM_SERVER => Some(account::Problem::Server),
+        _ => None,
+    };
+    let state = account::State {
+        status,
+        problem,
+        server: core_text(state.server),
+        default_server: state.default_server,
+        email: core_text(state.email),
+        code: core_text(state.code),
+    };
+    if CX.with_borrow(Option::is_none) {
+        SYNC_STATE.set(Some(state));
+        return;
+    }
+    update_app_later(move |cx| settings::sync_changed(state, cx));
+}
+
+/// Another device asks to be added to the account: the dialog asks over the front window, or
+/// leaves once the request has ended unanswered.
+unsafe extern "C" fn sync_pairing_asked(_: *mut c_void, pairing: *const bc::bc_sync_pairing) {
+    let Some(pairing) = (unsafe { pairing.as_ref() }) else {
+        // check.sh waits for this line.
+        log!("browser: pairing withdrawn");
+        update_app_later(dialog::withdraw_account);
+        return;
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0., |since| since.as_secs_f64() * 1e3);
+    let mut day_starts = [0.; 4];
+    unsafe { platform::host_day_starts(day_starts.as_mut_ptr()) };
+    let asked_at = if pairing.asked_at > 0. { pairing.asked_at } else { now };
+    let signed_in = match pairing.signed_in_at > 0. {
+        true => account::since(now - pairing.signed_in_at),
+        false => String::new(),
+    };
+    let pairing = account::Pairing {
+        id: core_text(pairing.id),
+        name: core_text(pairing.name),
+        os: core_text(pairing.os),
+        code: core_text(pairing.code),
+        asked: account::clock(asked_at, day_starts[0]).into(),
+        signed_in: signed_in.into(),
+    };
+    // check.sh waits for this line.
+    log!("browser: pairing asked");
+    update_app_later(move |cx| {
+        let id = CString::new(pairing.id.as_str()).unwrap_or_default();
+        let answered = Box::new(move |add, _: &mut App| unsafe {
+            bc::bc_sync_answer_pairing(id.as_ptr(), add)
+        });
+        dialog::ask_account(account::pairing_question(&pairing), answered, cx);
+    });
+}
+
+/// The account's devices, which Settings asked the core for.
+unsafe extern "C" fn sync_devices_changed(
+    _: *mut c_void,
+    devices: *const bc::bc_sync_device,
+    count: usize,
+) {
+    let devices = match count {
+        0 => &[][..],
+        count => unsafe { std::slice::from_raw_parts(devices, count) },
+    };
+    let devices = (devices.iter())
+        .map(|device| account::Device {
+            id: core_text(device.id),
+            name: core_text(device.name),
+            os: core_text(device.os),
+            current: device.current,
+        })
+        .collect();
+    update_app_later(move |cx| settings::devices_changed(devices, cx));
+}
+
 /// What came of a passwords file the import gave the core. Never logged: the counts are the
 /// user's.
 unsafe extern "C" fn passwords_imported(
@@ -5994,9 +6258,12 @@ unsafe extern "C" fn tab_offer_changed(
                 .collect(),
         };
         let never = string(offer.never);
+        let details = string(offer.details);
         offer::Offer {
             kind: match offer.kind as u32 {
                 bc::BC_OFFER_KIND_PASSWORD_UPDATE => offer::Kind::Update,
+                bc::BC_OFFER_KIND_ADDRESS => offer::Kind::Address,
+                bc::BC_OFFER_KIND_CARD => offer::Kind::Card,
                 _ => offer::Kind::Save,
             },
             title: string(offer.title),
@@ -6007,6 +6274,7 @@ unsafe extern "C" fn tab_offer_changed(
             accept: string(offer.accept),
             decline: string(offer.decline),
             never: (!never.is_empty()).then_some(never),
+            details: details.lines().map(|line| line.to_string().into()).collect(),
         }
     });
     update_app(|cx| offer::changed(tab, offer, cx));
@@ -6373,6 +6641,14 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
     if cfg!(feature = "prod") && !collector.is_empty() {
         args.push(format!("--crash-upload-url={collector}"));
     }
+    // The sync server the account signs in to until the user names another, a default service URL
+    // a fork or a self-hosted server names in branding/sync-server (build.rs). Without one the
+    // build has none, and Settings › Sync asks for the address. A --sync-url given to the app wins,
+    // as a check's does: on Linux and Windows Chromium has it already, and a second would win.
+    let sync_server = env!("SYNC_SERVER");
+    if !sync_server.is_empty() && !given.iter().any(|arg| arg.starts_with("--sync-url=")) {
+        args.push(format!("--sync-url={sync_server}"));
+    }
     let given = given.into_iter().filter(|arg| {
         !cfg!(feature = "prod") || !(arg.starts_with(TEST_HOST) || arg.starts_with(CRASH_TEST))
     });
@@ -6458,6 +6734,9 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         #[cfg(target_os = "linux")]
         ui_committed: Some(ui_committed),
         history_added: Some(history_added),
+        sync_changed: Some(sync_changed),
+        sync_pairing_asked: Some(sync_pairing_asked),
+        sync_devices_changed: Some(sync_devices_changed),
         tab_text: Some(tab_text),
         agent_page_done: Some(agent_page_done),
         agent_page_element: Some(agent_page_element),
@@ -6467,6 +6746,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         window_activated: Some(window_activated),
         #[cfg(target_os = "linux")]
         window_option_tapped: Some(window_option_tapped),
+        addresses_added: Some(addresses_added),
         ..Default::default()
     };
     (args, host)
@@ -6527,6 +6807,7 @@ unsafe extern "C" fn window_activated(_: *mut c_void, window: bc::bc_id) {
     if let Some(cx) = CX.with_borrow(Clone::clone) {
         let later = async move {
             if let Some(ui_view) = ui_view_of(window) {
+                link_preview_window::took_keyboard(ui_view);
                 key_window_changed(ui_view);
             }
         };

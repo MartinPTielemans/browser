@@ -1219,19 +1219,24 @@ impl Shell {
             Command::RecentTabBack => return self.walk(rows, false, cx),
             Command::NextTab => position.map(|index| (index + 1) % count),
             Command::PreviousTab => position.map(|index| (index + count - 1) % count),
-            Command::SelectTab(index) => {
-                // Past the favorites, which sidebar_rows puts first, if the user left them out.
-                let index = match user_keys(cx).favorites_numbered() {
-                    true => index,
-                    false => index + self.favorites.len(),
-                };
-                (index < count).then_some(index)
-            }
+            Command::SelectTab(index) => self.numbered(index, count, cx),
+            // The ninth, as ⌘1–⌘8 count, if the user chose it: nothing if there are fewer.
+            Command::SelectLastTab if user_keys(cx).last_tab_ninth() => self.numbered(8, count, cx),
             Command::SelectLastTab => count.checked_sub(1),
         };
         if let Some(index) = target {
             self.select(self.row_tab(rows[index]), cx);
         }
+    }
+
+    /// The row ⌘ and `index` + 1 goes to, of `count`: past the favorites, which sidebar_rows puts
+    /// first, if the user left them out.
+    fn numbered(&self, index: usize, count: usize, cx: &App) -> Option<usize> {
+        let index = match user_keys(cx).favorites_numbered() {
+            true => index,
+            false => index + self.favorites.len(),
+        };
+        (index < count).then_some(index)
     }
 
     /// ⌃Tab, as in Arc: shows the Space's tab shown before this one at once, with no switcher.
@@ -1330,7 +1335,8 @@ impl Shell {
 
     /// The clipboard's web link, read now, as one URL to open, or None for anything else.
     pub(super) fn pasted_urls(&self, cx: &App) -> Option<Vec<String>> {
-        let text = cx.read_from_clipboard().and_then(|item| item.text()).unwrap_or_default();
+        // From the host, where Copy Link put it: a driven Mac run's pasteboard is its own.
+        let text = self.browser.pasted(cx).unwrap_or_default();
         // Text that isn't a web link opens nothing here, not a search, as Arc's ⌥⌘V does.
         let urls = dropped_urls([(text.trim(), false)], |_| None);
         if urls.is_empty() {
@@ -1507,12 +1513,14 @@ impl Shell {
             Command::CollapseFolders => self.shown_space().is_some_and(|space| {
                 space.folders.folders.keys().any(|&folder| space.is_open(folder))
             }),
+            // Only when they'd hide or show a row now (docs/ux-principles.md: a control with nothing
+            // to act on is noise).
             Command::CollapsePinned => self.shown_space().is_some_and(|space| {
-                !space.pinned.is_empty() && !space.folders.pinned_shut
+                !space.folders.pinned_shut && space.collapsing_hides()
             }),
-            Command::ExpandPinned => {
-                self.shown_space().is_some_and(|space| space.folders.pinned_shut)
-            }
+            Command::ExpandPinned => self.shown_space().is_some_and(|space| {
+                space.folders.pinned_shut && space.collapsing_hides()
+            }),
             // The Library and a page's full screen keep the sidebar away.
             Command::FocusSidebar => {
                 self.library.is_none() && !self.page_fullscreen && !self.sidebar_rows().is_empty()
@@ -1986,13 +1994,15 @@ mod tests {
     }
 
     /// ⌥⌘V opens the clipboard's web link as a tab at the top of Today, and text that isn't one
-    /// opens nothing, as a drop of it doesn't.
+    /// opens nothing, as a drop of it doesn't. The clipboard is the host's, where Copy Link puts
+    /// it, as a driven Mac run's pasteboard of its own isn't GPUI's.
     #[gpui::test]
     fn paste_url_as_new_tab_opens_only_a_web_link(cx: &mut gpui::TestAppContext) {
         let shell_with = crate::shell::drag::detents::shell_with;
         let (shell, host) = shell_with(cx, &[], &[2], Default::default());
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string("https://example.org/gpui".into()));
         let paste = |text: &str, cx: &mut gpui::TestAppContext| {
-            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.into()));
+            host.copied.borrow_mut().push(text.into());
             host.take();
             shell.update(cx, |shell, cx| shell.run(Command::PasteUrlAsTab, "page", cx));
             host.take().into_iter().filter(|call| call.starts_with("open ")).collect::<Vec<_>>()
