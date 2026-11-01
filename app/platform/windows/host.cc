@@ -2494,22 +2494,6 @@ void host_release_link_preview(void) {
   fprintf(stderr, "browser: link preview released\n");
 }
 
-namespace {
-
-void LinkPreviewForegroundChanged(HWND front) {
-  HWND root = g_link_preview.root;
-  // The browser window's own, and those it owns, such as a page's dialog, aren't another window.
-  if (!root || g_link_preview.floating.mouse_through || GetAncestor(front, GA_ROOTOWNER) == root) {
-    return;
-  }
-  host_release_link_preview();
-  if (void (*dismissed)(void) = g_link_preview.dismissed) {
-    Later([dismissed] { dismissed(); });
-  }
-}
-
-}  // namespace
-
 void host_hide_link_preview(void) {
   host_release_link_preview();
   if (!g_link_preview.root) {
@@ -2865,6 +2849,18 @@ bool host_menu_window_dismiss(void) {
 }  // extern "C"
 
 namespace {
+
+void LinkPreviewForegroundChanged(HWND front) {
+  HWND root = g_link_preview.root;
+  // The browser window's own, and those it owns, such as a page's dialog, aren't another window.
+  if (!root || g_link_preview.floating.mouse_through || GetAncestor(front, GA_ROOTOWNER) == root) {
+    return;
+  }
+  host_release_link_preview();
+  if (void (*dismissed)(void) = g_link_preview.dismissed) {
+    Later([dismissed] { dismissed(); });
+  }
+}
 
 // The task dialog host_ask shows, for host_choose, and its buttons' labels and ids.
 HWND g_alert = nullptr;
