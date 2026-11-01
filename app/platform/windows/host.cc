@@ -2494,6 +2494,8 @@ void host_release_link_preview(void) {
   fprintf(stderr, "browser: link preview released\n");
 }
 
+namespace {
+
 void LinkPreviewForegroundChanged(HWND front) {
   HWND root = g_link_preview.root;
   // The browser window's own, and those it owns, such as a page's dialog, aren't another window.
@@ -2505,6 +2507,8 @@ void LinkPreviewForegroundChanged(HWND front) {
     Later([dismissed] { dismissed(); });
   }
 }
+
+}  // namespace
 
 void host_hide_link_preview(void) {
   host_release_link_preview();
