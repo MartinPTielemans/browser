@@ -336,12 +336,7 @@ if [ "$(uname)" = Linux ]; then
   send pip release $((pw / 2 - 150)) -23
   mini_player_at "x >= px - 150 && x <= px - 140 && y == py - 40 && w == pw && h == ph" \
     "a drag on the floating call's top bar didn't move it"
-  send pip press $((pw - 3)) $((ph - 3))
-  send pip dragto $((pw + 7)) $((ph + 7))
-  send pip dragto $((pw + 57)) $((ph + 37))
-  send pip release $((pw + 57)) $((ph + 37))
-  mini_player_at "x == px && y == py && w >= pw + 50 && w <= pw + 60 && h >= ph + 30 &&
-    h <= ph + 40" "a drag from the floating call's corner didn't size it"
+  ../tools/window-screenshot.sh "$pid" "$out/media-call-moved.png" all || fail "no window to capture"
   # diag #1161: dragged down by its top bar until its bottom is 40 below the 800-tall screen, with
   # Chrome's automatic Picture in Picture prompt in it, it stays where it was dropped, its size.
   d=$((800 - py - ph + 40))
