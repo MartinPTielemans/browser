@@ -8,10 +8,10 @@
 // GPUI read, never the system's.
 //
 // The commands are drive.mm's, with what Windows has: click, doubleclick, rightclick, middleclick,
-// clickkey, doubleclickkey, rightclickkey, drag, press, dragto, release, rightpress, rightdragto,
-// rightrelease, move, key, keydown, keyup, flags, type, insert, scroll, swipe, wheel, resize,
-// place, minimize, window, order, layout, state, title, front, menu, menubar, choose, dismiss,
-// agentspace, agentmayact, agentrelease, agentdisconnect, takeback and age. The Mac's modifiers are
+// clickkey, doubleclickkey, rightclickkey, drag, dragkey, press, dragto, release, rightpress,
+// rightdragto, rightrelease, move, key, keydown, keyup, flags, type, insert, scroll, swipe, wheel,
+// resize, place, minimize, window, order, layout, state, title, pasteboard, front, menu, menubar,
+// choose, dismiss, agentspace, agentmayact, agentrelease, agentdisconnect, takeback and age. The Mac's modifiers are
 // pressed as the app reads them off the Mac (keys.rs): cmd with Ctrl, ctrl with Alt, but Ctrl for
 // ⌃Tab, and alt with both. A trackpad's scrolls and swipes are wheel messages with the pixels in
 // their deltas, as a precision touchpad sends them. choose and dismiss work on ilo's menu and the
@@ -1037,6 +1037,24 @@ bool Run(const std::string& line) {
     g_steps.push_back({[=] { Release(to, MK_LBUTTON, 0); }});
     return true;
   }
+  // A drag in the window with the keyboard, such as Settings', as clickkey clicks there: halfway
+  // first, so the view sees the drag start before it ends.
+  if (action == "dragkey") {
+    double x, y, x2, y2;
+    Target from;
+    if (!(words >> x >> y >> x2 >> y2) || !TargetInKey(x, y, &from)) {
+      return false;
+    }
+    HWND key = GetActiveWindow();
+    const Target half = At(from.hwnd, OnScreen(key, (x + x2) / 2, (y + y2) / 2));
+    const Target to = At(from.hwnd, OnScreen(key, x2, y2));
+    g_steps.push_back({[=] { Move(from, 0, 0); }});
+    g_steps.push_back({[=] { Press(from, MK_LBUTTON, 0, false); }});
+    g_steps.push_back({[=] { Move(half, 0, MK_LBUTTON); }});
+    g_steps.push_back({[=] { Move(to, 0, MK_LBUTTON); }});
+    g_steps.push_back({[=] { Release(to, MK_LBUTTON, 0); }});
+    return true;
+  }
   if (action == "press" || action == "dragto" || action == "release" || action == "rightpress" ||
       action == "rightdragto" || action == "rightrelease") {
     double x, y;
@@ -1161,6 +1179,21 @@ bool Run(const std::string& line) {
     return true;
   }
   if (action == "state") {
+    return true;
+  }
+  // The clipboard's text: the check machine's own, as drive.mm's pasteboard is the run's.
+  if (action == "pasteboard") {
+    std::wstring text;
+    if (OpenClipboard(nullptr)) {
+      if (HANDLE data = GetClipboardData(CF_UNICODETEXT)) {
+        if (const auto* wide = static_cast<const wchar_t*>(GlobalLock(data))) {
+          text = wide;
+          GlobalUnlock(data);
+        }
+      }
+      CloseClipboard();
+    }
+    fprintf(stderr, "browser: pasteboard text %s\n", Utf8(text).c_str());
     return true;
   }
   if (action == "title") {
