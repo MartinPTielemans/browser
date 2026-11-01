@@ -334,6 +334,7 @@ fn add_device(host: &Rc<Recorder>, cx: &mut App) {
         os: "Android".into(),
         code: "312568".into(),
         asked: "15:04".into(),
+        signed_in: "2 minutes ago".into(),
     };
     let host = host.clone();
     let answered = Box::new(move |yes, _: &mut App| {

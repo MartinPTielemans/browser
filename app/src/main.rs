@@ -6006,12 +6006,18 @@ unsafe extern "C" fn sync_pairing_asked(_: *mut c_void, pairing: *const bc::bc_s
         .map_or(0., |since| since.as_secs_f64() * 1e3);
     let mut day_starts = [0.; 4];
     unsafe { platform::host_day_starts(day_starts.as_mut_ptr()) };
+    let asked_at = if pairing.asked_at > 0. { pairing.asked_at } else { now };
+    let signed_in = match pairing.signed_in_at > 0. {
+        true => account::since(now - pairing.signed_in_at),
+        false => String::new(),
+    };
     let pairing = account::Pairing {
         id: core_text(pairing.id),
         name: core_text(pairing.name),
         os: core_text(pairing.os),
         code: core_text(pairing.code),
-        asked: account::clock(now, day_starts[0]).into(),
+        asked: account::clock(asked_at, day_starts[0]).into(),
+        signed_in: signed_in.into(),
     };
     // check.sh waits for this line.
     log!("browser: pairing asked");

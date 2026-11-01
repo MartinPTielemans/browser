@@ -101,8 +101,12 @@ pub struct Pairing {
     pub name: SharedString,
     pub os: SharedString,
     pub code: SharedString,
-    /// When it asked, by this device's clock, as `clock` gives it.
+    /// When it asked, as `clock` gives it: the server's time, or this device's for a server that
+    /// doesn't say.
     pub asked: SharedString,
+    /// How long ago it signed in to the account, by the server's word, as `since` gives it; empty
+    /// from a server that doesn't say.
+    pub signed_in: SharedString,
 }
 
 /// What the view asks of the core, and of the window it's in.
@@ -220,10 +224,15 @@ pub fn pairing_question(pairing: &Pairing) -> Question {
         (false, os) => format!("It calls itself “{name}” on {os}, which nothing checks. "),
     };
     let code = grouped(&pairing.code);
+    let signed_in = match pairing.signed_in.is_empty() {
+        true => String::new(),
+        false => format!("It signed in to your account {}. ", pairing.signed_in),
+    };
     Question {
         icon: None,
         message: format!("Add the device that asked at {}?", pairing.asked).into(),
-        detail: format!("{said}Add it only if the device in front of you shows {code}.").into(),
+        detail: format!("{signed_in}{said}Add it only if the device in front of you shows {code}.")
+            .into(),
         list: Vec::new(),
         action: "Add".into(),
         cancel: "Not me".into(),
@@ -245,6 +254,20 @@ fn given(text: &str) -> String {
         true => format!("{}…", line.chars().take(LONGEST - 1).collect::<String>()),
         false => line,
     }
+}
+
+/// How long ago `past` milliseconds is, as "just now" or "5 minutes ago", for a time the user
+/// weighs rather than reads off a clock: a device that signed in days ago isn't the new one in
+/// their hand.
+pub fn since(past: f64) -> String {
+    let minutes = (past / 60_000.).floor().max(0.) as u64;
+    let (count, unit) = match minutes {
+        0 => return "just now".into(),
+        1..60 => (minutes, "minute"),
+        60..2880 => (minutes / 60, "hour"),
+        _ => (minutes / 1440, "day"),
+    };
+    format!("{count} {unit}{} ago", if count == 1 { "" } else { "s" })
 }
 
 /// The time of day `at` is, in milliseconds since the Unix epoch, as "15:04", with `today` the
