@@ -40,6 +40,7 @@
 #include "ui/gfx/geometry/size_conversions.h"
 #include "ui/views/focus/native_view_focus_manager.h"
 #include "ui/views/widget/desktop_aura/desktop_native_widget_aura.h"
+#include "ui/views/widget/native_widget_aura.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_observer.h"
 #include "ui/views/win/hwnd_util.h"
@@ -284,6 +285,12 @@ class WindowViews : public views::WidgetObserver,
       params.native_widget = new views::DesktopNativeWidgetAura(slot.widget.get());
       params.name = "BrowserCorePane";
       slot.widget->Init(std::move(params));
+      // Chrome finds the window a page is in by walking up its aura windows to a top-level widget,
+      // and its dropdowns, autofill's among them, don't open without one (#1037). A pane is a
+      // control in a host of its own, whose root no widget held, so the walk found nothing: the
+      // root names the browser window's widget, as a page in Chrome's own window reaches it.
+      views::NativeWidgetAura::RegisterNativeWidgetForWindow(
+          widget_->native_widget_private(), slot.widget->GetNativeView()->GetRootWindow());
       // A page taking the keyboard ends the UI's hold on it, as on Linux.
       slot.keyboard = std::make_unique<PaneKeyboard>(
           slot.widget.get(), base::BindRepeating(&WindowViews::set_ui_holds_for_page,
