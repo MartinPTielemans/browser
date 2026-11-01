@@ -1083,13 +1083,28 @@ void Disown(HWND root) {
 
 UINT_PTR const kOwner = 3;
 
+// Keeps the find bars and offers shown over |root| by its content's top right corner.
+void PlaceCorners(HWND root) {
+  for (auto* corners : {&g_find_bars, &g_offers}) {
+    for (auto& [ui_view, corner] : *corners) {
+      if (corner.floating.hwnd && IsWindowVisible(corner.floating.hwnd) && Root(ui_view) == root) {
+        ShowCorner(corner, ui_view, false);
+      }
+    }
+  }
+}
+
 // A browser window the app's windows are over. Windows hides one before it destroys it and the
 // windows it owns, so they leave it as it hides.
 LRESULT CALLBACK OwnerProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR,
                            DWORD_PTR) {
-  if (message == WM_WINDOWPOSCHANGED &&
-      (reinterpret_cast<const WINDOWPOS*>(lparam)->flags & SWP_HIDEWINDOW)) {
+  const UINT flags =
+      message == WM_WINDOWPOSCHANGED ? reinterpret_cast<const WINDOWPOS*>(lparam)->flags : 0;
+  if (flags & SWP_HIDEWINDOW) {
     Disown(hwnd);
+  } else if (message == WM_WINDOWPOSCHANGED && (~flags & (SWP_NOSIZE | SWP_NOMOVE))) {
+    // A window Windows owns stays where it was as its owner moves or resizes.
+    Later([hwnd] { PlaceCorners(hwnd); });
   } else if (message == WM_NCDESTROY) {
     RemoveWindowSubclass(hwnd, OwnerProc, kOwner);
   }
