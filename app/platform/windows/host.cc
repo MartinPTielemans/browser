@@ -587,11 +587,10 @@ void CALLBACK ForegroundChanged(HWINEVENTHOOK, DWORD, HWND hwnd, LONG, LONG, DWO
   DWORD process = 0;
   GetWindowThreadProcessId(hwnd, &process);
   const bool ours = process == GetCurrentProcessId();
+  // Once a browser window has heard of the change (AppActivating), these have already run.
   if (ours && !g_active && g_became_active) {
     g_became_active();
   } else if (!ours && g_active && g_resigning_active) {
-    // shortcut: Windows says so once another app is in front, where AppKit says so just before;
-    // what's shown over the window hides a moment late.
     g_resigning_active();
   }
   MenuForegroundChanged(GetAncestor(hwnd, GA_ROOT), ours);
@@ -599,6 +598,34 @@ void CALLBACK ForegroundChanged(HWINEVENTHOOK, DWORD, HWND hwnd, LONG, LONG, DWO
   if (ours && g_key_window_changed) {
     if (void* ui_view = UiViewOf(GetAncestor(hwnd, GA_ROOT))) {
       g_key_window_changed(ui_view);
+    }
+  }
+}
+
+// Whether |thread| is one of this process's, such as Chromium's file dialogs' own.
+bool OurThread(DWORD thread) {
+  HANDLE handle = OpenThread(THREAD_QUERY_LIMITED_INFORMATION, FALSE, thread);
+  if (!handle) {
+    return false;
+  }
+  const bool ours = GetProcessIdOfThread(handle) == GetCurrentProcessId();
+  CloseHandle(handle);
+  return ours;
+}
+
+// A browser window's WM_ACTIVATEAPP: Windows sends it as another app's window, on |thread|, is
+// about to come to the front, or as one of ours is, before the foreground event, as AppKit's
+// will-resign-active comes before the other app is in front.
+void AppActivating(bool active, DWORD thread) {
+  if (active && !g_active) {
+    g_active = true;
+    if (g_became_active) {
+      g_became_active();
+    }
+  } else if (!active && g_active && !OurThread(thread)) {
+    g_active = false;
+    if (g_resigning_active) {
+      g_resigning_active();
     }
   }
 }
@@ -1621,6 +1648,9 @@ LRESULT CALLBACK FrameProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
         PostMessageW(hwnd, WM_SYSCOMMAND, IsZoomed(hwnd) ? SC_RESTORE : SC_MAXIMIZE, 0);
         return 0;
       }
+      break;
+    case WM_ACTIVATEAPP:
+      AppActivating(wparam, static_cast<DWORD>(lparam));
       break;
     case WM_NCDESTROY:
       WindowButtonsShown().erase(hwnd);
