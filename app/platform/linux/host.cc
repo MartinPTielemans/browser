@@ -436,6 +436,10 @@ void host_release_held_keys(void) {}
 // (platform/linux/system.rs).
 void host_copy(const char* text) {}
 
+bool host_key_repeated(void) {
+  return false;
+}
+
 size_t host_paste(char* text, size_t capacity) {
   if (capacity) {
     text[0] = 0;

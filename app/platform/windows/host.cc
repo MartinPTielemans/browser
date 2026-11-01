@@ -3011,6 +3011,10 @@ void host_forget_secret(void) {
   g_secret_sequence = 0;
 }
 
+bool host_key_repeated(void) {
+  return false;
+}
+
 size_t host_paste(char* text, size_t capacity) {
   std::string held;
   if (OpenClipboard(nullptr)) {

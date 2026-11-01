@@ -224,11 +224,20 @@ case $devices in
 *) fail "the server knows the device as \"$devices\", not by its label" ;;
 esac
 
-# Sign Out, as the account's only device, asks first in Settings' dialog, where return signs out.
+# Sign Out, as the account's only device, asks first, where return signs out: in Settings' dialog
+# on Linux, and elsewhere in the system's alert, with Sign Out its default button. The alert has
+# the keyboard once the driver logs it as a modal, AppKit's and the task dialog's alike.
 post clickkey $(drawn "sync sign-out")
-expect "^browser: dialog shown Sign out of $email?\$" "Sign Out on the only device didn't ask first"
-expect '^browser: dialog settled$' "Settings' dialog didn't settle"
-send key return
+asked="Sign Out on the only device didn't ask first"
+if [ "$(uname)" = Linux ]; then
+  expect "^browser: dialog shown Sign out of $email?\$" "$asked"
+  expect '^browser: dialog settled$' "Settings' dialog didn't settle"
+else
+  [ "$(uname)" != Darwin ] || expect "^browser: alert shown Sign out of $email?\$" "$asked"
+  expect "^browser: modal shown Sign out of $email?, This is the account's only device\\. " "$asked"
+fi
+# Not send: the alert runs its own loop until it closes, so the driver may only finish after.
+post key return
 await '^browser: account SignedOut None$' || fail "Sign Out didn't sign out"
 ../tools/window-screenshot.sh "$pid" "$out/sync-signed-out-again.png" || fail "no window to capture"
 for _ in $(seq 50); do
