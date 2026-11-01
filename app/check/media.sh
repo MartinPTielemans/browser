@@ -86,7 +86,8 @@ server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
 tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 tls.load_cert_chain(sys.argv[2], sys.argv[3])
 server.socket = tls.wrap_socket(server.socket, server_side=True)
-print(server.server_address[1])
+# As bytes: text stdout on Windows ends a line with \r, which the driver typed as return (#1196).
+sys.stdout.buffer.write(b"%d\n" % server.server_address[1])
 sys.stdout.close()
 server.serve_forever()
 ' "$out/site" "$out/tls.pem" "$out/tls.key" > "$out/tls.port" 2> "$out/tls.log" 3>&- 4>&- 5>&- &
