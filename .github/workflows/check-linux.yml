@@ -49,7 +49,7 @@ jobs:
         tabs window find agents spaces crash profiles private quit mcp appearance access history
         load preview import adblock adblock-lists passkeys onboarding links relaunch split
         extensions capture popup pinned about windows dialogs trouble cards passwords updates
-        restore favorites keys clear media store adblock-live widevine sync sync-account
+        restore favorites keys clear media store adblock-live widevine sync sync-account sync-devices
       # The runs that pass on Wayland so far, in the headless sway session.
       WAYLAND_RUNS: tabs private
       # The runs that don't apply to Linux, a line each with why, which the summary gives. They're
@@ -95,7 +95,7 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -yq libclang-dev libfontconfig-dev libwayland-dev \
             libx11-xcb-dev libxkbcommon-x11-dev libvulkan1 mesa-vulkan-drivers libegl1 \
-            libgl1-mesa-dri xvfb xauth openbox imagemagick xdotool ffmpeg sway grim xwayland \
+            libgl1-mesa-dri xvfb xauth openbox imagemagick xdotool xclip ffmpeg sway grim xwayland \
             dbus-daemon at-spi2-core fcitx5 libxkbcommon-tools wl-clipboard
           rustup update stable --no-self-update
           mkdir -p "$RUNNER_TEMP/bin"
@@ -126,22 +126,22 @@ jobs:
       - if: ${{ steps.engine.outputs.found == 'true' }}
         run: ./setup.sh && ./build.sh
 
-      # The sync-account run signs in to an ilo-server of its own, on SQLite with a throwaway
-      # account, never the hosted one: built from the server's repo at the commit ilo's sync was
-      # last checked against.
+      # The sync-account and sync-devices runs sign in to an ilo-server of their own, on SQLite
+      # with a throwaway account, never the hosted one: built from the server's repo at the commit
+      # ilo's sync was last checked against.
       - id: server
-        if: ${{ steps.engine.outputs.found == 'true' && (inputs.runs == '' || inputs.runs == 'all' || contains(format(' {0} ', inputs.runs), ' sync-account ')) }}
+        if: ${{ steps.engine.outputs.found == 'true' && (inputs.runs == '' || inputs.runs == 'all' || contains(format(' {0} ', inputs.runs), ' sync-account ') || contains(format(' {0} ', inputs.runs), ' sync-devices ')) }}
         uses: actions/checkout@v4
         with:
           repository: MartinPTielemans/ilo-server
-          ref: a8f2be475fb8d7a9703c13773c2db8f9d751c29d
+          ref: 882f2736e5a3b228543ae33b821aeeb52f80426d
           path: app/.deps/ilo-server
 
       - if: ${{ steps.server.outcome == 'success' }}
         uses: actions/cache@v4
         with:
           path: app/.deps/ilo-server/target
-          key: ilo-server-a8f2be475fb8d7a9703c13773c2db8f9d751c29d
+          key: ilo-server-882f2736e5a3b228543ae33b821aeeb52f80426d
 
       - if: ${{ steps.server.outcome == 'success' }}
         working-directory: app/.deps/ilo-server
