@@ -3,7 +3,9 @@
 # account. ILO_SERVER names the server's binary, built from its repo (check-linux.yml builds it);
 # without it the run skips. Sign In opens the server's page in the core's window, where the run
 # types the address and the code the server logged, and declines a passkey. The account's first
-# device makes the recovery words, which Done hides, and sync turns on. Then what the server keeps:
+# device makes the recovery words, which Done hides, and sync turns on. On the Mac, Copy puts the
+# words on the run's own pasteboard, the driver's, which holds them no longer 90 s later (#641);
+# Linux's copy is sync-devices', and Windows' is unrun. Then what the server keeps:
 # each item it holds of a type Chromium encrypts is ciphertext alone, nameless or named "encrypted",
 # the Spaces among them, and the device is named by its label, such as "ilo on Linux", not its
 # owner's name. No request in Chromium's net log of the whole run goes to Google's servers. Sign
@@ -118,7 +120,18 @@ if [ "$(uname)" = Linux ]; then
 fi
 at=$(drawn "sync done") || fail "Settings › Sync didn't show the recovery words with Done"
 ../tools/window-screenshot.sh "$pid" "$out/sync-words.png" || fail "no window to capture"
-send clickkey $at
+if [ "$(uname)" = Darwin ]; then
+  send clickkey $(drawn "sync copy")
+  copied_at=$(date +%s)
+  words='^browser: pasteboard text \([^ ][^ ]* \)\{23\}[^ ][^ ]*$'
+  for _ in $(seq 30); do
+    send pasteboard
+    logged "$words" && break
+    sleep 0.1
+  done
+  expect "$words" "Copy didn't put the 24 recovery words on the run's pasteboard"
+fi
+send clickkey $(drawn "sync done")
 await 'browser: sync service active$' ||
   fail "sync's service didn't become active: $(grep 'browser: sync service ' "$log" | tail -1)"
 grep -q 'browser: sync engine ' "$log" || fail "sync's engine made no request"
@@ -223,6 +236,18 @@ case $devices in
 "$label"*) ;;
 *) fail "the server knows the device as \"$devices\", not by its label" ;;
 esac
+
+# The words leave the pasteboard 90 s after the copy, which the pasteboard's own change shows.
+if [ "$(uname)" = Darwin ]; then
+  while [ $(($(date +%s) - copied_at)) -le 100 ]; do
+    send pasteboard
+    logged '^browser: pasteboard text $' && break
+    sleep 1
+  done
+  expect '^browser: pasteboard text $' "the words were on the pasteboard still 100 s after the copy"
+  kept=$(($(date +%s) - copied_at))
+  [ "$kept" -ge 89 ] || fail "the words left the pasteboard $kept s after the copy, not 90 s"
+fi
 
 # Sign Out, as the account's only device, asks first, where return signs out: in Settings' dialog
 # on Linux, and elsewhere in the system's alert, with Sign Out its default button. The alert has
