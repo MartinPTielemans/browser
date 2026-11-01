@@ -6,8 +6,9 @@
 
 use std::path::PathBuf;
 
-use futures::StreamExt;
 use gpui::App;
+// zbus's, as this crate has no futures of its own.
+use zbus::export::futures_core::Stream;
 use zbus::zvariant::OwnedValue;
 
 const PORTAL: &str = "org.freedesktop.portal.Desktop";
@@ -36,10 +37,11 @@ pub fn watch(cx: &mut App) {
         let Ok(proxy) = zbus::Proxy::new(&connection, PORTAL, PATH, SETTINGS).await else {
             return;
         };
-        let Ok(mut changes) = proxy.receive_signal("SettingChanged").await else {
+        let Ok(changes) = proxy.receive_signal("SettingChanged").await else {
             return;
         };
-        while let Some(change) = changes.next().await {
+        let mut changes = std::pin::pin!(changes);
+        while let Some(change) = std::future::poll_fn(|cx| changes.as_mut().poll_next(cx)).await {
             let said = change.body().deserialize::<(String, String, OwnedValue)>();
             let ours = said.is_ok_and(|(namespace, key, _)| {
                 [GNOME, KDE].contains(&(namespace.as_str(), key.as_str()))
