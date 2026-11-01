@@ -59,10 +59,19 @@ step=0
 # its steps go to the Spaces and the Library by key, click and wheel instead. Its clicks land on
 # whole pixels, at scale 1 here.
 x11=
+no_phases=
 if [ "$(uname)" = Linux ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
   x11=1
+  no_phases=1
   echo "skip: two fingers across the sidebar, on X11, which sends no touch phases (#554)."
 fi
+# Nor does GPUI on Windows, where a touchpad's scrolling comes as a wheel's lines (#1212).
+case $(uname) in
+MINGW* | MSYS*)
+  no_phases=1
+  echo "skip: two fingers across the sidebar, on Windows, where GPUI has no touch phases (#1212)."
+  ;;
+esac
 rm -f "$saved" "$launch_frame"
 BROWSER_DRIVE=1 BROWSER_URL="$page" "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
@@ -123,6 +132,10 @@ at=$(grep '^browser: theme picker at' "$log" | tail -1 | cut -d' ' -f5-)
 red_at="x=0.5000 y=0.0000"
 red_color=ff0000
 [ -z "$x11" ] || { red_at="x=0.5030 y=0.0030"; red_color=ff0302; }
+# Windows' clicks land on whole pixels too, from a picker its host puts at a whole pixel.
+case $(uname) in
+MINGW* | MSYS*) red_at="x=0.5029 y=0.0029" red_color=ff0302 ;;
+esac
 rest="intensity=0.810 grain=0.000 appearance=automatic"
 red="$red_at colors=1 $rest"
 send clickkey 276.5 178.5
@@ -263,7 +276,7 @@ expect_tabs "$a" "$a" "after closing the last-used check's tab"
 # along the list scroll it, and a wheel's tick across pages once. Held partway, the next Space's
 # page shows beside the first's.
 swipe_point="110 500"
-if [ -z "$x11" ]; then
+if [ -z "$no_phases" ]; then
 post swipe $swipe_point -10 0 10 1500
 await '^browser: swipe across$' || fail "two fingers across the sidebar didn't page"
 ../tools/window-screenshot.sh "$pid" "$out/swipe.png" || fail "no window to capture"
@@ -304,7 +317,7 @@ library_to() {
   expect "^browser: command view-library via $2\$" "a $1 didn't reach the Library"
   expect "^browser: library $3\$" "a $1 didn't leave the Library $3"
 }
-if [ -z "$x11" ]; then
+if [ -z "$no_phases" ]; then
 post swipe $swipe_point 30 0 10 1500
 expect '^browser: library section ' "two fingers past the first Space didn't bring the Library out"
 ../tools/window-screenshot.sh "$pid" "$out/library-swipe.png" || fail "no window to capture"
@@ -506,13 +519,16 @@ expect "^browser: settled space $second\$" "the second Space's page didn't settl
 # A right-click on a row as soon as ⌃2 has shown the second Space, while its rows still slide in
 # from the right, shows the row's tab's menu, as it does once they've settled: a press acts on
 # the row that's there to be pressed, the Space having switched. The pointer is 12 in, where the
-# page takes longest to reach it. The menu's Rename…, then escape, leave the tab as it was.
+# page takes longest to reach it. The menu's Rename…, then escape, leave the tab as it was. Both are
+# sent at once, as the driver presses once ⌃2 is done: waiting here to see the Space shown takes
+# longer than the slide under Git Bash, where each look at the log starts its programs anew.
 show_space "key 1 ctrl" select-space ui "$first" "$a"
 expect "^browser: settled space $first\$" "the first Space's page didn't settle"
+press=$(row 0 | cut -d' ' -f2)
 post key 2 ctrl
 slide=$step
-expect_soon "^browser: space $second in " "⌃2 didn't show the second Space"
-post rightclick 12 $(row 0 | cut -d' ' -f2)
+post rightclick 12 "$press"
+expect "^browser: space $second in " "⌃2 didn't show the second Space" "$slide"
 expect "^browser: menu shown $(cased 'Copy Link, ')" "a right-click while the second Space's rows slid in showed no menu"
 # Settled before the menu showed, and the press came too late to be a test of the slide. The
 # slide's 0.3 s is the clock's, and a GPU-less Linux runner may draw frames slower than that, which
@@ -532,7 +548,7 @@ step=$slide
 expect "^browser: settled space $second\$" "the second Space's page didn't settle"
 step=$now
 
-if [ -z "$x11" ]; then
+if [ -z "$no_phases" ]; then
 send swipe $swipe_point -10 0 10
 expect '^browser: swipe across$' "two fingers across the sidebar didn't page"
 none_since '^browser: new space ready$' || fail "a short pull past the last Space readied a Space"
@@ -584,7 +600,7 @@ expect '^browser: command new-space via ui$' "New Space in the menu didn't run n
 expect "^browser: spaces $first [0-9]* $second\$" "New Space didn't make a Space after the first"
 third=$(grep '^browser: spaces' "$log" | tail -1 | cut -d' ' -f4)
 expect "^browser: settled space $third\$" "the form's page didn't settle"
-if [ -z "$x11" ]; then
+if [ -z "$no_phases" ]; then
 send swipe $swipe_point -40 0 10
 expect '^browser: swipe across$' "two fingers across the form didn't page"
 expect "^browser: settled space $third\$" "the form's page didn't settle back"
