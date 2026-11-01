@@ -221,6 +221,19 @@ LRESULT CALLBACK FloatingProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpa
         return 0;
       }
       break;
+    case WM_WINDOWPOSCHANGING: {
+      // Windows keeps a window with a caption, as GPUI's are, at least 39 pixels high, which the
+      // find bar's 32 is under, and a smaller least size in WM_GETMINMAXINFO doesn't lower it. An
+      // overlay is the size the UI gives it.
+      auto* pos = reinterpret_cast<WINDOWPOS*>(lparam);
+      const int width = pos->cx, height = pos->cy;
+      const LRESULT result = DefSubclassProc(hwnd, message, wparam, lparam);
+      if (!(pos->flags & SWP_NOSIZE)) {
+        pos->cx = width;
+        pos->cy = height;
+      }
+      return result;
+    }
     case WM_NCHITTEST:
       // To the browser window under it, which is on this thread.
       if (floating->mouse_through) {
@@ -1191,11 +1204,11 @@ void PlaceCorners(HWND root) {
 // windows it owns, so they leave it as it hides.
 LRESULT CALLBACK OwnerProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR,
                            DWORD_PTR) {
-  if (message == WM_WINDOWPOSCHANGED &&
-      (reinterpret_cast<const WINDOWPOS*>(lparam)->flags & SWP_HIDEWINDOW)) {
+  const UINT flags =
+      message == WM_WINDOWPOSCHANGED ? reinterpret_cast<const WINDOWPOS*>(lparam)->flags : 0;
+  if (flags & SWP_HIDEWINDOW) {
     Disown(hwnd);
-  } else if (message == WM_WINDOWPOSCHANGED &&
-             (~reinterpret_cast<const WINDOWPOS*>(lparam)->flags & (SWP_NOMOVE | SWP_NOSIZE))) {
+  } else if (message == WM_WINDOWPOSCHANGED && (~flags & (SWP_NOMOVE | SWP_NOSIZE))) {
     PlaceCorners(hwnd);
   } else if (message == WM_NCDESTROY) {
     RemoveWindowSubclass(hwnd, OwnerProc, kOwner);
