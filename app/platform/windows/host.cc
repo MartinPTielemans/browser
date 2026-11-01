@@ -587,11 +587,10 @@ void CALLBACK ForegroundChanged(HWINEVENTHOOK, DWORD, HWND hwnd, LONG, LONG, DWO
   DWORD process = 0;
   GetWindowThreadProcessId(hwnd, &process);
   const bool ours = process == GetCurrentProcessId();
+  // Once a browser window has heard of the change (AppActivating), these have already run.
   if (ours && !g_active && g_became_active) {
     g_became_active();
   } else if (!ours && g_active && g_resigning_active) {
-    // shortcut: Windows says so once another app is in front, where AppKit says so just before;
-    // what's shown over the window hides a moment late.
     g_resigning_active();
   }
   MenuForegroundChanged(GetAncestor(hwnd, GA_ROOT), ours);
@@ -599,6 +598,34 @@ void CALLBACK ForegroundChanged(HWINEVENTHOOK, DWORD, HWND hwnd, LONG, LONG, DWO
   if (ours && g_key_window_changed) {
     if (void* ui_view = UiViewOf(GetAncestor(hwnd, GA_ROOT))) {
       g_key_window_changed(ui_view);
+    }
+  }
+}
+
+// Whether |thread| is one of this process's, such as Chromium's file dialogs' own.
+bool OurThread(DWORD thread) {
+  HANDLE handle = OpenThread(THREAD_QUERY_LIMITED_INFORMATION, FALSE, thread);
+  if (!handle) {
+    return false;
+  }
+  const bool ours = GetProcessIdOfThread(handle) == GetCurrentProcessId();
+  CloseHandle(handle);
+  return ours;
+}
+
+// A browser window's WM_ACTIVATEAPP: Windows sends it as another app's window, on |thread|, is
+// about to come to the front, or as one of ours is, before the foreground event, as AppKit's
+// will-resign-active comes before the other app is in front.
+void AppActivating(bool active, DWORD thread) {
+  if (active && !g_active) {
+    g_active = true;
+    if (g_became_active) {
+      g_became_active();
+    }
+  } else if (!active && g_active && !OurThread(thread)) {
+    g_active = false;
+    if (g_resigning_active) {
+      g_resigning_active();
     }
   }
 }
@@ -1344,6 +1371,9 @@ namespace {
 // starts: the window's frame, the sidebar's picture and the sidebar's colour past it.
 struct LaunchWindow {
   HWND hwnd = nullptr;
+  // Never shown: owned by it, the launch window has no taskbar button of its own, which wouldn't
+  // carry the app ID the core gives the browser window, whose button comes as it shows.
+  HWND owner = nullptr;
   HBITMAP picture = nullptr;
   SIZE picture_size{};
   HBRUSH background = nullptr;
@@ -1619,6 +1649,9 @@ LRESULT CALLBACK FrameProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
         return 0;
       }
       break;
+    case WM_ACTIVATEAPP:
+      AppActivating(wparam, static_cast<DWORD>(lparam));
+      break;
     case WM_NCDESTROY:
       WindowButtonsShown().erase(hwnd);
       break;
@@ -1674,6 +1707,8 @@ void host_show_launch_window(const char* profile_dir, double x, double y, double
     return window_class.lpszClassName;
   }();
   const double scale = GetDpiForSystem() / 96.0;
+  g_launch.owner = CreateWindowExW(0, launch_class, L"", WS_POPUP, 0, 0, 0, 0, nullptr, nullptr,
+                                   GetModuleHandleW(nullptr), nullptr);
   // The browser window's frame, as Windows draws it. Clicks go through it, as they do through the
   // Mac's, and Chromium's occlusion tracker passes over a window they go through, so it can stay
   // over the browser window, whose pages still paint, until the UI has drawn under it.
@@ -1681,8 +1716,9 @@ void host_show_launch_window(const char* profile_dir, double x, double y, double
       WS_EX_LAYERED | WS_EX_TRANSPARENT, launch_class, L"", WS_OVERLAPPEDWINDOW,
       static_cast<int>(std::lround(x * scale)), static_cast<int>(std::lround(y * scale)),
       static_cast<int>(std::lround(width * scale)), static_cast<int>(std::lround(height * scale)),
-      nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+      g_launch.owner, nullptr, GetModuleHandleW(nullptr), nullptr);
   if (!window) {
+    host_close_launch_window();
     return;
   }
   SetLayeredWindowAttributes(window, 0, 255, LWA_ALPHA);
@@ -1701,8 +1737,6 @@ void host_show_launch_window(const char* profile_dir, double x, double y, double
     // check.sh reads this line.
     fprintf(stderr, "browser: launch picture shown\n");
   }
-  // shortcut: it has a taskbar button of its own for that moment, without the app ID the core
-  // gives the browser window.
   ShowWindow(window, SW_SHOW);
   // On screen now, as Chromium's startup holds the main thread for a while before its loop.
   UpdateWindow(window);
@@ -1711,6 +1745,9 @@ void host_show_launch_window(const char* profile_dir, double x, double y, double
 void host_close_launch_window(void) {
   if (g_launch.hwnd) {
     DestroyWindow(g_launch.hwnd);
+  }
+  if (g_launch.owner) {
+    DestroyWindow(g_launch.owner);
   }
   if (g_launch.picture) {
     DeleteObject(g_launch.picture);
@@ -2129,17 +2166,27 @@ void host_add_find_bar(void* ui_view, void* find_bar_view, double right, double 
 
 void host_show_find_bar(void* ui_view, bool keyboard) {
   if (auto it = g_find_bars.find(ui_view); it != g_find_bars.end()) {
+    HWND hwnd = it->second.floating.hwnd;
+    const bool was_shown = hwnd && IsWindowVisible(hwnd);
     ShowCorner(it->second, ui_view, keyboard);
     if (keyboard) {
       // It has the keyboard, so the keys held since the shortcut go to it.
-      ReleaseKeys(it->second.floating.hwnd);
+      ReleaseKeys(hwnd);
+    }
+    // check.sh reads this line, as the Mac's and Linux's hosts log it.
+    if (!was_shown && hwnd && IsWindowVisible(hwnd)) {
+      fprintf(stderr, "browser: find bar shown\n");
     }
   }
 }
 
 void host_hide_find_bar(void* ui_view) {
   if (auto it = g_find_bars.find(ui_view); it != g_find_bars.end()) {
-    Hide(it->second.floating);
+    HWND hwnd = it->second.floating.hwnd;
+    if (hwnd && IsWindowVisible(hwnd)) {
+      Hide(it->second.floating);
+      fprintf(stderr, "browser: find bar hidden\n");
+    }
   }
 }
 
