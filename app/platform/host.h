@@ -130,6 +130,11 @@ void host_watch_resigning_active(void (*resigning)(void));
 // Settings.
 void host_watch_active(void (*became_active)(void));
 
+// Whether the system asks apps to reduce motion: the Mac's Reduce Motion, Windows' "Show
+// animations in Windows" turned off. Linux's desktop says so through its settings portal, which
+// platform/linux/reduce_motion.rs reads instead.
+bool host_reduce_motion(void);
+
 // Whether the system opens http and https links with this app: whether it's the default browser.
 bool host_is_default_browser(void);
 

@@ -2124,6 +2124,11 @@ bool ChoiceIsOurs(const wchar_t* scheme) {
   return read == ERROR_SUCCESS && type == REG_SZ && lstrcmpiW(progid, kProgId) == 0;
 }
 
+bool host_reduce_motion(void) {
+  BOOL animations = TRUE;
+  return SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animations, 0) && !animations;
+}
+
 bool host_is_default_browser(void) {
   return ChoiceIsOurs(L"http") && ChoiceIsOurs(L"https");
 }

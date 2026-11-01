@@ -1728,6 +1728,10 @@ void host_watch_active(void (*became_active)(void)) {
                                               }];
 }
 
+bool host_reduce_motion(void) {
+  return NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
+}
+
 bool host_is_default_browser(void) {
   NSString* mine = NSBundle.mainBundle.bundleIdentifier;
   for (NSString* link in @[ @"http://", @"https://" ]) {
