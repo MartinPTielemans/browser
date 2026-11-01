@@ -262,6 +262,10 @@ impl Shell {
             // follows the page's loading a frame behind.
             log!("browser: nav shows {}", reload.2.name());
         }
+        if self.back_drawn.replace(Some(page.can_go_back)) != Some(page.can_go_back) {
+            // check.sh reads this line too, before a click on back.
+            log!("browser: nav back drawn {}", if page.can_go_back { "on" } else { "dimmed" });
+        }
         let buttons = [
             (SIDEBAR_BUTTON_X, "icons/nav-sidebar.svg", Command::ToggleSidebar, true),
             (BACK_X, "icons/nav-back.svg", Command::Back, page.can_go_back),
