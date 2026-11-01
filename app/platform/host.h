@@ -130,6 +130,14 @@ void host_watch_resigning_active(void (*resigning)(void));
 // Settings.
 void host_watch_active(void (*became_active)(void));
 
+// Whether the system asks apps to reduce motion: the Mac's Reduce Motion, Windows' "Show
+// animations in Windows" turned off. Linux's desktop says so through its settings portal, which
+// platform/linux/reduce_motion.rs reads instead.
+bool host_reduce_motion(void);
+
+// Calls |changed| on the UI thread each time that setting changes.
+void host_watch_reduce_motion(void (*changed)(void));
+
 // Whether the system opens http and https links with this app: whether it's the default browser.
 bool host_is_default_browser(void);
 
@@ -452,10 +460,11 @@ void host_hide_link_target(double fade);
 // Gives |view| the keyboard in its window, from the page if the page has it.
 void host_focus(void* view);
 
-// Asks |message| in an alert, with |detail| under it and the |count| |buttons|, the first the
-// default and a "Cancel" one taking escape, and returns the index of the one chosen once it
-// closes.
-int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count);
+// Asks |message| in an alert, with |detail| under it and the |count| |buttons|, a "Cancel" one
+// taking escape, and returns the index of the one chosen once it closes. The first is the default,
+// which return chooses, if |returns|; otherwise only a click chooses it, for one nothing undoes.
+int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count,
+             bool returns);
 
 // Shows the close, minimize and zoom buttons of |ui_view|'s window, or hides them, as Arc does
 // while its sidebar is hidden.
@@ -573,6 +582,15 @@ void host_video_close(void* video);
 // Puts |text| on the clipboard. A driven run puts it on a pasteboard of its own instead, so checks
 // never touch the user's clipboard.
 void host_copy(const char* text);
+// Puts |text|, the account's secret, on the clipboard of this device alone, marked for clipboard
+// histories and managers to skip, as a password manager copies a password, and clears it after
+// |seconds| unless something replaced it. A driven run uses host_copy's pasteboard of its own.
+// False, doing nothing, where the clipboard can't be told to keep it to itself, and the app then
+// copies it through GPUI and takes it off after |seconds| itself.
+bool host_copy_secret(const char* text, uint32_t seconds);
+// Clears the secret host_copy_secret put on the clipboard if it's still there, as the app quits
+// before its |seconds| are up.
+void host_forget_secret(void);
 
 // Whether the key event being handled now is the key repeating as it's held, not a press. False
 // where the host can't tell.

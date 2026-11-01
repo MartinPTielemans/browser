@@ -83,6 +83,8 @@ struct SavedSpace {
   std::string icon;
   // The theme the UI gave it, if any.
   std::string theme;
+  // Space::touched(), which a session saved before Spaces had it can't say, so it was.
+  bool touched = true;
   // Its profile's directory, or empty for the profile the core started with.
   std::string profile;
   // The agent it belongs to, or none for the user's own, as every Space saved before agents had

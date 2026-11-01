@@ -40,9 +40,11 @@
 #include "ui/gfx/geometry/size_conversions.h"
 #include "ui/views/focus/native_view_focus_manager.h"
 #include "ui/views/widget/desktop_aura/desktop_native_widget_aura.h"
+#include "ui/views/widget/native_widget_aura.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_observer.h"
 #include "ui/views/win/hwnd_util.h"
+#include "ui/views/window/non_client_view.h"
 
 // Aura draws every view of a widget into its one HWND, so a page can't go over a native view in it
 // the way an NSView goes over the app's on the Mac. Here the app's UI is a child HWND that fills the
@@ -296,6 +298,12 @@ class WindowViews : public views::WidgetObserver,
       params.native_widget = new views::DesktopNativeWidgetAura(slot.widget.get());
       params.name = "BrowserCorePane";
       slot.widget->Init(std::move(params));
+      // Chrome finds the window a page is in by walking up its aura windows to a top-level widget,
+      // and its dropdowns, autofill's among them, don't open without one (#1037). A pane is a
+      // control in a host of its own, whose root no widget held, so the walk found nothing: the
+      // root names the browser window's widget, as a page in Chrome's own window reaches it.
+      views::NativeWidgetAura::RegisterNativeWidgetForWindow(
+          widget_->native_widget_private(), slot.widget->GetNativeView()->GetRootWindow());
       // A page taking the keyboard ends the UI's hold on it, as on Linux.
       slot.keyboard = std::make_unique<PaneKeyboard>(
           slot.widget.get(), base::BindRepeating(&WindowViews::set_ui_holds_for_page,
@@ -644,8 +652,11 @@ void ShowPages(views::Widget* widget,
       Hold(parent, devtools, hidden);
       slot.page_in_devtools = pane.devtools->page_frame;
     }
-    if (slot.page != pane.page && VLOG_IS_ON(1)) {
-      // What Chrome's dropdown takes for the page's window, and the window it keeps within.
+    const bool arrived = slot.page != pane.page;
+    Hold(parent, pane.page, hidden);
+    if (arrived && VLOG_IS_ON(1)) {
+      // What Chrome's dropdown takes for the page's window, and the window it keeps within, once
+      // the page is in its pane: before, it's in no window.
       views::Widget* top = views::Widget::GetTopLevelWidgetForNativeView(pane.page);
       views::Widget* root = top;
       while (root && root->parent()) {
@@ -655,7 +666,6 @@ void ShowPages(views::Widget* widget,
               << (top ? top->GetName() : std::string("none")) << ", in "
               << (root ? root->GetName() : std::string("none"));
     }
-    Hold(parent, pane.page, hidden);
     if (devtools) {
       if (pane.devtools->page_under) {
         parent->StackChildBelow(pane.page, devtools);
@@ -748,6 +758,32 @@ std::optional<gfx::Rect> FocusRingFrame(views::Widget* widget) {
     }
   }
   return std::nullopt;
+}
+
+views::Widget* PageDialog(views::Widget* widget) {
+  // A tab's dialog is a window of its own that the browser window owns (PageDialogsInOwnWindow),
+  // as the panes' widgets aren't, and the only one that's modal.
+  for (views::Widget* dialog : views::Widget::GetAllOwnedWidgets(widget->GetNativeView())) {
+    if (dialog->IsVisible() && dialog->IsModal()) {
+      return dialog;
+    }
+  }
+  return nullptr;
+}
+
+std::optional<gfx::Rect> DialogFrame(views::Widget* widget) {
+  views::Widget* dialog = PageDialog(widget);
+  if (!dialog) {
+    return std::nullopt;
+  }
+  // Inside the border and shadow views draws in its window: what Chromium puts at the page's top
+  // (UpdateWidgetModalDialogPosition), as a Mac's sheet's frame is.
+  gfx::Rect frame = dialog->GetWindowBoundsInScreen();
+  frame.Offset(-widget->GetClientAreaBoundsInScreen().OffsetFromOrigin());
+  if (dialog->non_client_view() && dialog->non_client_view()->frame_view()) {
+    frame.Inset(dialog->non_client_view()->frame_view()->GetInsets());
+  }
+  return frame;
 }
 
 bool PageDialogsInOwnWindow() {
