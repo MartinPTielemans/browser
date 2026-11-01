@@ -57,6 +57,7 @@ mod empty;
 mod export;
 mod extensions;
 mod favorites;
+mod files;
 mod fly_in;
 mod footer;
 mod keys;
@@ -1258,6 +1259,8 @@ pub struct Shell {
     url_field_drawn: RefCell<SharedString>,
     /// Whether the header last drew reload or stop, for its log line.
     reload_drawn: Cell<Option<Command>>,
+    /// Whether the header last drew back on or dimmed, for its log line.
+    back_drawn: Cell<Option<bool>>,
     /// The tab whose Developer Mode outline last drew, and where, for its log lines.
     developer_outline_drawn: Rc<Cell<Option<(u64, Bounds<Pixels>)>>>,
     /// The pinned actions the window shows, for its tab shown.
@@ -1547,6 +1550,7 @@ impl Shell {
             window_title: SharedString::default(),
             url_field_drawn: RefCell::default(),
             reload_drawn: Cell::default(),
+            back_drawn: Cell::default(),
             developer_outline_drawn: Rc::default(),
             extension_actions: Vec::new(),
             unpinned_actions: Vec::new(),
@@ -3106,7 +3110,7 @@ impl Render for Shell {
         self.step_new_space(window);
         self.step_flight(window);
         self.step_picture(window);
-        self.step_recent_downloads(window);
+        self.step_recent_downloads(window, cx);
         if let Some((_, left)) = &self.leaving_form {
             if left.elapsed().as_secs_f32() < FORM_LEAVE_TITLE + FORM_LEAVE {
                 window.request_animation_frame();

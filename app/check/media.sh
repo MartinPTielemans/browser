@@ -269,6 +269,7 @@ mini_player() {
   if ! grep '^browser: settings shown ' "$log" | tail -1 | grep -q ' Advanced$'; then
     send clickkey 519 60
     expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
+    settings_drew Advanced
   fi
   send clickkey 592 208
   expect "^browser: mini player $1\$" "a click on the Mini Player's switch didn't turn it $1"

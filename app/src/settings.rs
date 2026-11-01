@@ -385,7 +385,7 @@ enum Popup {
 pub struct Settings {
     tab: Tab,
     focus: FocusHandle,
-    /// It was asked to show, and logs the tab it draws next.
+    /// It was asked to show, or changed tab, and logs the tab it draws next.
     shown: bool,
     /// Which switch last changed, and when, for its knob's slide.
     switched: Option<(&'static str, Instant)>,
@@ -920,6 +920,8 @@ impl Settings {
         // check.sh waits for this line.
         log!("browser: settings tab {}", tab.name());
         self.tab = tab;
+        // A tab takes no click until it has drawn, so check.sh waits for its "settings drew".
+        self.shown = true;
         if tab == Tab::Import {
             self.show_import(cx);
         }
@@ -2828,7 +2830,8 @@ impl Render for Settings {
             window.request_animation_frame();
         }
         if std::mem::take(&mut self.shown) {
-            // check.sh waits for this line, the tab each show draws, whichever window was key.
+            // check.sh waits for this line, the tab each show or switch draws, whichever window
+            // was key.
             log!("browser: settings drew {}", self.tab.name());
         }
         let content = match self.tab {

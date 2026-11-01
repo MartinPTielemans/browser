@@ -52,6 +52,8 @@ page=$(base64 << 'HTML' | tr -d '\n'
     if (last && time - lastScroll < 20) intervals.push(time - last);
     last = time;
     if (performance.now() - lastScroll < 300) return requestAnimationFrame(frame);
+    // A scroll after the pause, as when the session stalls mid-scroll, counts on from here.
+    measuring = false;
     const sorted = [...intervals].sort((a, b) => a - b);
     const at = q => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))].toFixed(1);
     const fps = Math.round(1000 * intervals.length / intervals.reduce((a, b) => a + b, 0));
@@ -197,7 +199,9 @@ scroll="10 300"
 [ "$(uname)" = Linux ] && scroll="1 25"
 send scroll $page_point $scroll
 expect '^browser: title [0-9]* frames' "scrolling didn't move the page"
-timing=$(grep -m1 '^browser: title [0-9]* frames' "$log" | sed 's/^browser: title [0-9]* //')
+# The page says its count after each pause of 300 ms, so the last is the whole scroll's.
+await '^browser: title [0-9]* frames .* scrolled 3000$' || true
+timing=$(grep '^browser: title [0-9]* frames' "$log" | tail -1 | sed 's/^browser: title [0-9]* //')
 echo "$timing" | grep -q ' scrolled 3000$' || fail "the page didn't scroll by exactly 3000 points: $timing"
 frames=$(echo "$timing" | sed 's/^frames \([0-9]*\) .*/\1/')
 slow=$(echo "$timing" | sed 's/.* slow \([0-9]*\) .*/\1/')
@@ -252,7 +256,9 @@ send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar in full screen"
 # The footer is at the screen's bottom in full screen, so the +'s menu flips up over the pointer.
 post click 204 $((height - 25))
-expect "^browser: menu shown $(cased 'New Space…, New Folder…, New Split View, New Note')\$" "the footer's + in full screen showed no menu"
+plus="New Space…, New Folder…, New Split View, New Note, $(plus_adds)"
+expect "^browser: menu shown $(cased "$plus")\$" \
+  "the footer's + in full screen showed no menu"
 expect '^browser: menu window at ' "the +'s menu in full screen didn't open its window"
 top=$(grep '^browser: menu window at' "$log" | tail -1 | cut -d' ' -f5 | cut -d, -f2)
 [ "$top" -lt $((height - 65)) ] ||
