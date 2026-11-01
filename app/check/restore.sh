@@ -42,9 +42,7 @@ if command -v sqlite3 > /dev/null && [ -f "$history_db" ]; then
   sqlite3 "$history_db" "delete from downloads; delete from downloads_url_chains;
     delete from downloads_slices;" || { echo "FAIL: the downloads wouldn't clear" >&2; exit 1; }
 fi
-BROWSER_DRIVE=1 BROWSER_URL="$site" "$browser" --log-net-log="$(app_path "$PWD/$out/netlog.json")" \
-  --net-log-capture-mode=Everything --vmodule='*download*=2,*quarantine*=2,*attachment*=2' \
-  < "$out/drive" > "$log" 2>&1 &
+BROWSER_DRIVE=1 BROWSER_URL="$site" "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load
@@ -64,22 +62,7 @@ fi
 # The page's downloads go in the check's folder, and ⇧⌘J from the page opens the Library on
 # Downloads, which lists them. The slow one runs until the quit.
 send type d
-await '^browser: download [0-9]* \(done\|failed\) notes.txt$' || fail "the page's download didn't end"
-if grep -q '^browser: download [0-9]* failed notes.txt$' "$log"; then
-  # Proof for #872: Chrome's histograms keep why it failed, its interrupt reason as their mean.
-  go_from_bar chrome://histograms/Download.Interrupted
-  await '^browser: loaded [0-9]* chrome://histograms' || true
-  await "^browser: title [0-9]* Histograms$" || true
-  ../tools/window-screenshot.sh "$pid" "$out/histograms.png" || true
-  exec 3>&-
-  quit
-  # Proof for #872: the History database's downloads table keeps Chromium's interrupt reason.
-  cp "$history_db" "$out/History" || true
-  cp "$prefs" "$out/Preferences" || true
-  ls -laR "$out/downloads" > "$out/downloads-ls.txt" 2>&1
-  powershell.exe -NoProfile -NonInteractive -Command 'Get-MpComputerStatus | Format-List RealTimeProtectionEnabled,AntivirusEnabled; Get-MpThreatDetection | Format-List; Get-WinEvent -LogName "Microsoft-Windows-Windows Defender/Operational" -MaxEvents 20 | Format-List TimeCreated,Id,Message' > "$out/defender.txt" 2>&1
-  fail "the page's download didn't finish"
-fi
+expect '^browser: download [0-9]* done notes.txt$' "the page's download didn't finish"
 [ -f "$out/downloads/notes.txt" ] || fail "the download isn't in the check's folder"
 # On the Mac it carries macOS's quarantine flag, naming the app that downloaded it, so Gatekeeper
 # checks it the first time it opens (#685). Chromium's quarantine service sets it.

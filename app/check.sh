@@ -86,6 +86,12 @@ windows() {
 app_path() {
   if windows; then cygpath -m "$1"; else printf '%s\n' "$1"; fi
 }
+# The absolute path $1 as Windows names it, with backslashes, for a download folder: Chrome moves
+# each download into it with the Shell's IFileOperation, which takes no D:/a/..., so every download
+# failed (#872).
+native_path() {
+  if windows; then cygpath -w "$1"; else printf '%s\n' "$1"; fi
+}
 # The app, what runs it, the pattern that finds its processes, Chromium's helpers too, and its dev
 # profile.
 if windows; then
@@ -147,7 +153,7 @@ for kind in ("window_placement", "permission_autoblocking_data"):
 prefs.get("browser_core", {}).pop("developer_mode", None)
 with open(sys.argv[1], "w") as f:
     json.dump(prefs, f)
-' "$prefs" "$(app_path "$PWD/$out/downloads")"
+' "$prefs" "$(native_path "$PWD/$out/downloads")"
 # Each run starts in the one profile, Default: Chrome deletes the others, which a run before made,
 # as import's Work, or a failed run left, at its next launch.
 only_default() {

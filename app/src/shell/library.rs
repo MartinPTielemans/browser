@@ -424,16 +424,6 @@ impl Shell {
     pub fn set_downloads(&mut self, downloads: Vec<Download>, cx: &mut Context<Self>) {
         // check.sh waits for these lines: a download's state, and how many there are.
         for download in &downloads {
-            // Proof for #872: what the core says of each download as it changes.
-            log!(
-                "browser: download {} proof state {} path {:?} received {} total {} held {}",
-                download.id,
-                download.state.name(),
-                download.path,
-                download.received,
-                download.total,
-                download.held
-            );
             let before = self.downloads.iter().find(|each| each.id == download.id);
             if before.is_none_or(|before| before.state != download.state) {
                 let state = download.state.name();
