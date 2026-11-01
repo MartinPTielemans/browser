@@ -225,9 +225,9 @@ thread_local! {
     /// The window the window command asked the window manager to give the keyboard, which it's
     /// done once it has.
     static ACTIVATING: Cell<Option<xproto::Window>> = const { Cell::new(None) };
-    /// The UI's window of the browser window the resize command asked a size of, in points, which
+    /// The UI's view of the browser window the resize command asked a size of, in points, which
     /// it's done once the UI has.
-    static RESIZING: Cell<Option<(xproto::Window, f64, f64)>> = const { Cell::new(None) };
+    static RESIZING: Cell<Option<(usize, f64, f64)>> = const { Cell::new(None) };
     /// The window a press went to, which gets the drag's events until the release, as the X
     /// server's grab of the pointer does.
     static PRESSED: Cell<Option<Target>> = const { Cell::new(None) };
@@ -1128,6 +1128,9 @@ fn chromium_focus() -> Option<xproto::Window> {
 
 /// The title of the window with the keyboard.
 fn key_title() -> Option<String> {
+    if crate::drive_wayland::on() {
+        return crate::drive_wayland::key_title();
+    }
     Some(match keyboard_window() {
         Some(Keyboard::Overlay(window) | Keyboard::Settings(window, _)) => {
             text_property(window, "_NET_WM_NAME").unwrap_or_default()
@@ -1137,12 +1140,7 @@ fn key_title() -> Option<String> {
         Some(Keyboard::Browser(browser, _))
             if unsafe { bc::bc_window_keyboard_in_child(browser.id) } =>
         {
-            let length = unsafe { bc::bc_window_child_title(browser.id, std::ptr::null_mut(), 0) };
-            let mut title = vec![0u8; length + 1];
-            let (to, capacity) = (title.as_mut_ptr().cast(), title.len());
-            unsafe { bc::bc_window_child_title(browser.id, to, capacity) };
-            title.truncate(length);
-            String::from_utf8_lossy(&title).into_owned()
+            child_title(browser.id)
         }
         Some(Keyboard::Browser(browser, _)) => {
             text_property(browser.window, "_NET_WM_NAME").unwrap_or_default()
@@ -1150,6 +1148,16 @@ fn key_title() -> Option<String> {
         // A window of Chromium's own, such as the Task Manager.
         None => focus_title()?,
     })
+}
+
+/// The title of the dialog of Chromium's with the keyboard in browser window `id`.
+pub(super) fn child_title(id: bc::bc_id) -> String {
+    let length = unsafe { bc::bc_window_child_title(id, std::ptr::null_mut(), 0) };
+    let mut title = vec![0u8; length + 1];
+    let (to, capacity) = (title.as_mut_ptr().cast(), title.len());
+    unsafe { bc::bc_window_child_title(id, to, capacity) };
+    title.truncate(length);
+    String::from_utf8_lossy(&title).into_owned()
 }
 
 /// Logs the title of the window with the keyboard once it has `text` in it, as a window that takes
@@ -1184,7 +1192,12 @@ fn await_focus(n: u64, window: xproto::Window, until: std::time::Instant) {
 
 /// Reports command `n` done once the UI's window `gpui` is `size` in points, as the UI has then
 /// laid out at that size and placed what floats over it, or at `until`.
-fn await_size(n: u64, gpui: xproto::Window, size: (f64, f64), until: std::time::Instant) {
+/// Has the command wait, before it's done, for the UI's view `view` to be `width` by `height`.
+pub(super) fn resizing(view: usize, width: f64, height: f64) {
+    RESIZING.set(Some((view, width, height)));
+}
+
+fn await_size(n: u64, gpui: usize, size: (f64, f64), until: std::time::Instant) {
     let has = ui_size(gpui).is_some_and(|(width, height)| {
         (f64::from(width) - size.0).abs() < 1. && (f64::from(height) - size.1).abs() < 1.
     });
@@ -1193,18 +1206,19 @@ fn await_size(n: u64, gpui: xproto::Window, size: (f64, f64), until: std::time::
         return;
     }
     if !has {
-        log!("browser: drive {n}: the UI isn't {}x{} yet", size.0, size.1);
+        let has = ui_size(gpui).map_or("none".into(), |(w, h)| format!("{w}x{h}"));
+        log!("browser: drive {n}: the UI isn't {}x{} yet, it's {has}", size.0, size.1);
     }
     settle(n);
 }
 
-/// The size GPUI has for its window `gpui`, in points.
-fn ui_size(gpui: xproto::Window) -> Option<(f32, f32)> {
+/// The size GPUI has for its window whose view is `gpui`, in points.
+fn ui_size(gpui: usize) -> Option<(f32, f32)> {
     let cx = CX.with_borrow(Clone::clone)?;
     cx.update(|cx| {
         cx.windows().into_iter().find_map(|handle| {
             let size = handle.update(cx, |_, window, _| {
-                let ours = crate::ns_view(window) as usize as u32 == gpui;
+                let ours = crate::ns_view(window) as usize == gpui;
                 ours.then(|| window.viewport_size())
             });
             size.ok().flatten()
@@ -1898,7 +1912,7 @@ fn run_command(line: &str) -> Option<()> {
             x.0.configure_window(browser.window, &aux).ok()?;
             // The window manager gives the window its size a moment later, and the UI follows,
             // where the Mac's resize is done at once (#1065).
-            RESIZING.set(Some((browser.gpui, width, height)));
+            resizing(browser.gpui as usize, width, height);
             x.0.flush().ok()
         }
         "order" => {
