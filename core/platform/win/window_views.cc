@@ -70,6 +70,24 @@ std::string ClassOf(HWND hwnd) {
   return name;
 }
 
+// Shows a pane's holder. Chromium focuses a widget's HWND each time it shows it when the widget
+// has no focus manager, as a pane's hasn't (HWNDMessageHandler::SetInitialFocus), and focusing a
+// child HWND activates its window, which on every layout took the keyboard from an overlay, such
+// as the theme picker, or from another browser window (#872). WS_EX_NOACTIVATE skips that focus
+// while the pane's window isn't the active one.
+void ShowHolder(views::Widget* holder) {
+  HWND hwnd = views::HWNDForWidget(holder);
+  const bool active = GetActiveWindow() == GetAncestor(hwnd, GA_ROOT);
+  const LONG_PTR style = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+  if (!active) {
+    SetWindowLongPtr(hwnd, GWL_EXSTYLE, style | WS_EX_NOACTIVATE);
+  }
+  holder->ShowInactive();
+  if (!active) {
+    SetWindowLongPtr(hwnd, GWL_EXSTYLE, style);
+  }
+}
+
 // With --vmodule=window_views=1, what can close Chrome's dropdown under a page's field (#1037):
 // Chrome hides it on any native focus that isn't its own, and as the widget it hangs from moves,
 // which here is the page's pane's. It logs each popup's showing and hiding, and each native focus.
@@ -437,7 +455,7 @@ class WindowViews : public views::WidgetObserver,
     page->Show();
     preview_.corner_radius = corner_radius;
     preview_.insets = InsetsOf(frame, ContentSize());
-    holder->ShowInactive();
+    ShowHolder(holder);
     LayOut();
   }
 
@@ -655,7 +673,7 @@ void ShowPages(views::Widget* widget,
     slot.page = pane.page;
     slot.devtools = devtools;
     slot.insets = InsetsOf(pane.frame, size);
-    hidden ? holder->Hide() : holder->ShowInactive();
+    hidden ? holder->Hide() : ShowHolder(holder);
   }
   if (panes.size() > 1 && focused < panes.size()) {
     views->ring().Show(views->WidgetFor(slots[focused])->GetNativeView(), ring_color,
@@ -677,7 +695,7 @@ void ShowPages(views::Widget* widget,
     panel.page = side_panel->page;
     panel.insets = InsetsOf(side_panel->frame, size);
     panel.bottom_corners_only = true;
-    hidden ? holder->Hide() : holder->ShowInactive();
+    hidden ? holder->Hide() : ShowHolder(holder);
   } else {
     views->Empty(panel, staying);
   }
