@@ -167,7 +167,7 @@ impl Drop for Server {
         // accept thread is gone, since a pipe client that left before ConnectNamedPipe is lost.
         let _wake = connect(&self.shared.path);
         #[cfg(windows)]
-        if let Some(accepting) = self.accepting.take() {
+        if let Some(accepting) = self.accepting.take().filter(|t| !pipe::ended_unreturned(t)) {
             _ = accepting.join();
         }
         for (_, connection) in self.shared.connections.lock().unwrap().drain() {

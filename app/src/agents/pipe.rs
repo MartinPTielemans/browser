@@ -58,6 +58,15 @@ pub fn address(folder: &Path) -> PathBuf {
     PathBuf::from(format!(r"\\.\pipe\{}-agents-{hash:016x}", env!("APP_NAME")))
 }
 
+/// Whether `thread` is gone without having returned. An exiting process ends its other threads
+/// before the UI thread's last destructors drop the server, and std's join panics for one of them.
+pub fn ended_unreturned(thread: &std::thread::JoinHandle<()>) -> bool {
+    use std::os::windows::io::AsRawHandle;
+    let gone = unsafe { WaitForSingleObject(thread.as_raw_handle(), 0) } == WAIT_OBJECT_0;
+    // A thread that returned let go of its result's other half first.
+    gone && !thread.is_finished()
+}
+
 /// A handle, closed when it's dropped.
 struct Handle(HANDLE);
 
