@@ -60,9 +60,10 @@ impl Client {
 pub struct Entry {
     /// The name the client lists it by: the browser's.
     pub name: String,
-    /// The bridge the client runs, and the server's socket, its argument.
-    pub bridge: String,
-    pub socket: String,
+    /// What the client runs to reach the server: the bridge, or what runs it, and its arguments,
+    /// the server's socket last.
+    pub command: String,
+    pub args: Vec<String>,
     pub token: String,
 }
 
@@ -71,8 +72,8 @@ impl Entry {
     pub fn json(&self) -> Value {
         json!({
             "type": "stdio",
-            "command": self.bridge,
-            "args": [self.socket],
+            "command": self.command,
+            "args": self.args,
             "env": { bridge::TOKEN: self.token },
         })
     }
@@ -212,8 +213,8 @@ pub fn codex_with(text: &str, entry: &Entry) -> String {
     text += &format!(
         "{}\ncommand = {}\nargs = [{}]\nenv = {{ {} = {} }}\n",
         codex_table(&entry.name),
-        toml_string(&entry.bridge),
-        toml_string(&entry.socket),
+        toml_string(&entry.command),
+        entry.args.iter().map(|arg| toml_string(arg)).collect::<Vec<_>>().join(", "),
         toml_string(bridge::TOKEN),
         toml_string(&entry.token),
     );
@@ -273,8 +274,8 @@ mod tests {
     fn entry() -> Entry {
         Entry {
             name: "ilo".into(),
-            bridge: "/Applications/ilo.app/Contents/MacOS/mcp-bridge".into(),
-            socket: "/Users/me/Library/Application Support/ilo/Agents.sock".into(),
+            command: "/Applications/ilo.app/Contents/MacOS/mcp-bridge".into(),
+            args: vec!["/Users/me/Library/Application Support/ilo/Agents.sock".into()],
             token: "t0k".into(),
         }
     }

@@ -27,9 +27,11 @@
 // It logs as drive.mm does: "browser: drive <n>: <command>" as command n arrives, and "browser:
 // drive <n> done, key <window>, focus <view>, active <0|1>, marked <none|start,length>" once
 // Chromium and GPUI have handled its messages, with what the UI's field with the keys has marked.
-// The window and view are named as AppKit's classes are on the Mac, so the runs read one vocabulary: key is BrowserCoreNSWindow for a browser window and GPUIPanel for
-// an overlay, and focus RenderWidgetHostViewCocoa for a page, AccessKitSubclassOfGPUIView for the
-// UI and GPUIView for an overlay. Active is whether one of the app's windows is in front.
+// The window and view are named as AppKit's classes are on the Mac, so the runs read one
+// vocabulary: key is BrowserCoreNSWindow for a browser window, GPUIPanel for an overlay and
+// GPUIWindow for another window of the UI's, such as Settings, and focus RenderWidgetHostViewCocoa
+// for a page, AccessKitSubclassOfGPUIView for the UI and GPUIView for an overlay. Active is whether
+// one of the app's windows is in front.
 
 #include <windows.h>
 
@@ -316,6 +318,18 @@ void Move(const Target& target, int modifiers, UINT buttons) {
   if (host_drive_pointer(WM_MOUSEMOVE, target.screen.x, target.screen.y)) {
     return;
   }
+  // Over the frame, as over the UI's maximize button (host.cc's FrameHit), Windows sends the
+  // window a non-client move, with what's there and the point on the screen. Entered, so the leave
+  // Windows sends it at once, for the desktop's pointer, is dropped.
+  if (Ours(target.hwnd)) {
+    const LPARAM screen = MAKELPARAM(target.screen.x, target.screen.y);
+    const LRESULT hit = SendMessageW(target.hwnd, WM_NCHITTEST, 0, screen);
+    if (hit != HTCLIENT && hit != HTTRANSPARENT && hit != HTNOWHERE) {
+      Enter(target);
+      PostMessageW(target.hwnd, WM_NCMOUSEMOVE, hit, screen);
+      return;
+    }
+  }
   Enter(target);
   if (g_posted_moves.size() == 64) {
     g_posted_moves.pop_front();
@@ -442,7 +456,7 @@ UINT VirtualKey(const std::string& key, int* modifiers) {
       {"return", VK_RETURN},  {"escape", VK_ESCAPE}, {"tab", VK_TAB},      {"space", VK_SPACE},
       {"backspace", VK_BACK}, {"delete", VK_DELETE}, {"pageup", VK_PRIOR}, {"pagedown", VK_NEXT},
       {"up", VK_UP},          {"down", VK_DOWN},     {"left", VK_LEFT},    {"right", VK_RIGHT},
-      {"f4", VK_F4},          {"f10", VK_F10},       {"f12", VK_F12}};
+      {"f4", VK_F4},          {"f6", VK_F6},         {"f10", VK_F10},      {"f12", VK_F12}};
   for (const auto& [name, vk] : named) {
     if (key == name) {
       return vk;
@@ -613,6 +627,15 @@ void LogLayout(HWND root) {
   }
   // Windows' own title bar has the window's buttons.
   line += "\nbrowser: layout buttons hidden hidden hidden";
+  // A tab's dialog, such as print preview, as the core gives it: inside the border and shadow
+  // Chromium draws in its window, as the Mac's driver gives a sheet's frame.
+  bc_rect dialog{};
+  const bool has_dialog = bc_window_dialog(host_browser_window_id(g_driven), &dialog);
+  if (has_dialog) {
+    snprintf(part, sizeof part, "\nbrowser: layout child %.0f,%.0f %.0fx%.0f", dialog.x, dialog.y,
+             dialog.width, dialog.height);
+    line += part;
+  }
   // The overlays over it, such as the find bar: from the content's top-left corner, and their size.
   POINT origin{0, 0};
   ClientToScreen(root, &origin);
@@ -622,9 +645,15 @@ void LogLayout(HWND root) {
     }
     RECT rect;
     GetWindowRect(top, &rect);
-    snprintf(part, sizeof part, "\nbrowser: layout child %.0f,%.0f %.0fx%.0f",
-             (rect.left - origin.x) / scale, (rect.top - origin.y) / scale,
-             (rect.right - rect.left) / scale, (rect.bottom - rect.top) / scale);
+    const double x = (rect.left - origin.x) / scale, y = (rect.top - origin.y) / scale;
+    const double across = (rect.right - rect.left) / scale;
+    const double down = (rect.bottom - rect.top) / scale;
+    // The dialog's own window, listed above.
+    if (has_dialog && IsChromium(top) && x <= dialog.x && y <= dialog.y &&
+        x + across >= dialog.x + dialog.width && y + down >= dialog.y + dialog.height) {
+      continue;
+    }
+    snprintf(part, sizeof part, "\nbrowser: layout child %.0f,%.0f %.0fx%.0f", x, y, across, down);
     line += part;
   }
   // Full screen, as Chrome's is on Windows: no title bar, over its whole display.
@@ -709,7 +738,9 @@ std::string KeyName(HWND key) {
     return "BrowserCoreNSWindow";
   }
   if (IsGpui(key)) {
-    return "GPUIPanel";
+    // An overlay is shown owned by its browser window; Settings is a window of its own, as on the
+    // Mac, where it's an NSWindow and an overlay an NSPanel.
+    return GetWindow(key, GW_OWNER) ? "GPUIPanel" : "GPUIWindow";
   }
   // Chrome's own windows, such as its dialogs, are views' on the Mac too.
   if (IsChromium(key)) {

@@ -18,7 +18,7 @@
 # that commit) and wait for its release engine-windows-<commit>; otherwise the Windows job stops at
 # "No Windows engine release for this commit", or packs an older core. The owner publishes
 # the draft, which puts its Linux build in the Flatpak repository (the publish job) and the release
-# on ilobrowser.com (the site job). README.md › Releases names the secrets it needs. GitHub's
+# on ilobrowser.com (the site job). docs/releasing.md names the secrets it needs. GitHub's
 # hosted runners only.
 name: Release
 
@@ -142,7 +142,7 @@ jobs:
           CARGO_PROFILE_RELEASE_STRIP: none
         run: |
           if [ -z "$UPDATE_PUBLIC_KEY" ] && [ -z "$(tr -d '[:space:]' < ../branding/update-key)" ]; then
-            echo "::error::app/branding/update-key is empty, so ilo couldn't update itself (README.md › Releases)."
+            echo "::error::app/branding/update-key is empty, so ilo couldn't update itself (docs/releasing.md)."
             exit 1
           fi
           cargo build --release --features prod
@@ -175,7 +175,7 @@ jobs:
 
       # winget's manifests for the installer at the URL this release publishes it at, which the
       # owner puts in a pull request to microsoft/winget-pkgs once the draft is published
-      # (README.md › Releases). They're the run's, not the release's: users never need them.
+      # (docs/releasing.md). They're the run's, not the release's: users never need them.
       - name: winget manifests
         env:
           version: ${{ needs.version.outputs.version }}
@@ -257,7 +257,7 @@ jobs:
             echo "::notice::No$missing: this try signs the Flatpak repository with a key of its own and keeps it in the run."
             echo "sync=false" >> "$GITHUB_OUTPUT"
           else
-            echo "::error::The Linux release needs$missing (README.md › Releases). Without them nothing goes to the Flatpak repository and the draft isn't made."
+            echo "::error::The Linux release needs$missing (docs/releasing.md). Without them nothing goes to the Flatpak repository and the draft isn't made."
             exit 1
           fi
 
@@ -373,7 +373,7 @@ jobs:
             echo "::notice title=Skipped: Developer ID signing and notarization::No$missing, which the owner holds: this try signs ad hoc and makes no DMG, appcast or Mac upload."
             echo "signed=false" >> "$GITHUB_OUTPUT"
           else
-            echo "::error::The Mac's DMG needs the repository secrets$missing (README.md › Releases). Without them it isn't built, and no unsigned DMG is uploaded."
+            echo "::error::The Mac's DMG needs the repository secrets$missing (docs/releasing.md). Without them it isn't built, and no unsigned DMG is uploaded."
             exit 1
           fi
 
@@ -592,7 +592,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           if [ -z "$R2_BUCKET" ] || [ -z "$R2_ENDPOINT" ] || [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
-            echo "::error::No R2 secrets (README.md › Releases), so $TAG's Linux build isn't in the Flatpak repository."
+            echo "::error::No R2 secrets (docs/releasing.md), so $TAG's Linux build isn't in the Flatpak repository."
             exit 1
           fi
           bucket=s3://$R2_BUCKET
@@ -612,7 +612,7 @@ jobs:
   # The owner published a draft: ilobrowser.com's release workflow puts its demo on the site and
   # deploys it now, rather than at its next half-hourly check. GitHub's own token can't start
   # another repository's workflow, so SITE_DISPATCH_TOKEN is a fine-grained token with Contents
-  # read and write on MartinPTielemans/ilo-site alone (README.md › Releases).
+  # read and write on MartinPTielemans/ilo-site alone (docs/releasing.md).
   site:
     if: ${{ github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v') }}
     runs-on: ubuntu-24.04
@@ -622,7 +622,7 @@ jobs:
           GH_TOKEN: ${{ secrets.SITE_DISPATCH_TOKEN }}
         run: |
           if [ -z "$GH_TOKEN" ]; then
-            echo "::notice::No SITE_DISPATCH_TOKEN (README.md › Releases), so the site takes $TAG at its next half-hourly check."
+            echo "::notice::No SITE_DISPATCH_TOKEN (docs/releasing.md), so the site takes $TAG at its next half-hourly check."
             exit 0
           fi
           gh api repos/MartinPTielemans/ilo-site/dispatches -f event_type=ilo-release -f "client_payload[tag]=$TAG"
