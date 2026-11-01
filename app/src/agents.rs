@@ -310,9 +310,10 @@ pub struct Agents {
     clients: Arc<dyn Clients>,
     /// Where the settings are saved: None in the tests.
     path: Option<PathBuf>,
-    /// The server's socket, and the bridge a client runs to reach it.
+    /// The server's socket, and what a client runs to reach it, before the socket: the bridge, or
+    /// in a Flatpak the command that runs it there (bridge::launch).
     socket: PathBuf,
-    bridge: PathBuf,
+    bridge: Vec<String>,
     on: bool,
     agents: Vec<Agent>,
     /// The agents' tokens, which the server's threads read.
@@ -415,7 +416,7 @@ impl Agents {
         clients: Arc<dyn Clients>,
         path: Option<PathBuf>,
         socket: PathBuf,
-        bridge: PathBuf,
+        bridge: Vec<String>,
     ) -> Self {
         Agents {
             browser,
@@ -502,21 +503,25 @@ impl Agents {
 
     /// The server as a client's config names it, with the agent's token.
     fn entry(&self, token: &str) -> Entry {
+        let mut args = self.bridge.clone();
+        args.push(self.socket.to_string_lossy().into_owned());
+        let command = args.remove(0);
         Entry {
             name: server_name(),
-            bridge: self.bridge.to_string_lossy().into_owned(),
-            socket: self.socket.to_string_lossy().into_owned(),
+            command,
+            args,
             token: token.into(),
         }
     }
 
     /// What a client runs to reach the server: the bridge, with the socket.
     pub fn command(&self) -> String {
-        format!(
-            "\"{}\" \"{}\"",
-            self.bridge.display(),
-            self.socket.display()
-        )
+        let entry = self.entry("");
+        std::iter::once(&entry.command)
+            .chain(&entry.args)
+            .map(|word| format!("\"{word}\""))
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     /// Why the server isn't running, though on.

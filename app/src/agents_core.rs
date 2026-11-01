@@ -225,7 +225,10 @@ pub fn start(cx: &mut App) {
     let socket = agents::address(std::path::Path::new(&crate::profile_dir()));
     // Beside the browser's executable: in the app bundle, or beside Chromium's on Linux.
     let exe = std::env::current_exe().unwrap_or_default();
-    let bridge = exe.with_file_name(agents::bridge::NAME);
+    let bridge = agents::bridge::launch(
+        &exe.with_file_name(agents::bridge::NAME),
+        agents::bridge::flatpak_id().as_deref(),
+    );
     let made = Agents::new(
         Rc::new(Core),
         Arc::new(agents::System),
