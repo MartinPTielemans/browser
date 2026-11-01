@@ -112,7 +112,7 @@ Authorship is human: you sign off and answer for the change, however it was writ
 
 ## Code from other projects
 
-The browser is GPL-3.0-or-later, so code under GPL-3.0-compatible licenses can come in: Chromium (BSD-3-Clause), ungoogled-chromium (BSD-3-Clause), Helium (GPL-3.0), Ardia (Apache-2.0 / GPL-3.0), GPUI (Apache-2.0), Lucide's icons (ISC, some MIT), T3 Code (MIT).
+The browser is GPL-3.0-or-later, so code under GPL-3.0-compatible licenses can come in: Chromium (BSD-3-Clause), ungoogled-chromium (BSD-3-Clause), GPL-3.0 patches from other Chromium browsers, GPUI (Apache-2.0), Lucide's icons (ISC, some MIT), T3 Code (MIT).
 
 When you copy or adapt a patch or file:
 
@@ -120,7 +120,7 @@ When you copy or adapt a patch or file:
 - Name the source and the upstream commit in the patch header or the commit message.
 - Add it to `NOTICE` if its license asks for attribution.
 
-Don't bring in assets from Arc, Dia or any other browser: icons, fonts, sounds, images or names. Measured values (sizes, timings, colors) and behavior are fine.
+Don't bring in assets from any other browser: icons, fonts, sounds, images or names. Measured values (sizes, timings, colors) and behavior are fine.
 
 ## Performance
 

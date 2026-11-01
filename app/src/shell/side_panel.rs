@@ -272,7 +272,7 @@ impl Shell {
 }
 
 /// The panel's width for the one the user last gave it, `saved`: Chrome's until they give one,
-/// and in Ardia's range.
+/// and in the range they can give it.
 fn panel_width(saved: f32) -> f32 {
     match saved > 0. {
         true => saved.clamp(PANEL_MIN, PANEL_MAX),

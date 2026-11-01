@@ -982,7 +982,7 @@ void PlaceReveal(Browser* browser) {
 }
 
 // Keys typed right after a shortcut that opens the command bar or the find bar belong in its field
-// (Ardia P§7), but the bar takes the keyboard only once it has drawn, a main-queue turn later, and
+// (P§7), but the bar takes the keyboard only once it has drawn, a main-queue turn later, and
 // a shortcut the page gets first, such as ⌘L, comes back after the keys behind it went to the page.
 // So from the shortcut until the bar has the keyboard, keys are held and then given to it in order,
 // a composition whole. For a shortcut the page gets first, the core says if the page kept it and

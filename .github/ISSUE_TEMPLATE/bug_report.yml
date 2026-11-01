@@ -1,7 +1,7 @@
 # Adapted from T3 Code (https://github.com/pingdotgg/t3code, MIT) at commit
 # 570d4b03eef879bd60be3d74444046858c94dacd.
 name: Bug report
-description: Something in ilo is broken, regressed, or behaves differently from Arc.
+description: Something in ilo is broken or regressed.
 labels:
   - bug
   - needs-triage
@@ -60,7 +60,7 @@ body:
     id: expected
     attributes:
       label: Expected behavior
-      description: What should happen. If you're comparing with Arc, say what Arc does.
+      description: What should happen. If another browser gets it right, say what it does.
     validations:
       required: true
 

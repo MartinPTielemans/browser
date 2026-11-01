@@ -88,4 +88,4 @@ Recordings could settle these. Until then, the calls listed in each PR stand.
 - Where Arc shows pinned extensions, and whether only under the pointer.
 - How Arc asks about a page's permission request, such as for the camera: where it hangs, how it looks, and whether a hidden sidebar comes out for it. Ours hangs under the URL field, as Chrome's hangs under its address bar.
 - Where Arc's command bar opens for a click on the URL field while the sidebar is hidden and revealed. Ours opens centred as the reveal's panel makes way.
-- What Arc does with more favorites than its sidebar has room for. Ours scroll with the list once they're taller than 40 % of the window, as Ardia's do.
+- What Arc does with more favorites than its sidebar has room for. Ours scroll with the list once they're taller than 40 % of the window.

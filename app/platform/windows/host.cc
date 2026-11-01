@@ -846,7 +846,7 @@ LRESULT CALLBACK KeyPressed(int code, WPARAM wparam, LPARAM lparam) {
 }
 
 // Keys typed right after a shortcut that opens the command bar or the find bar belong in its field
-// (Ardia P7), but the bar takes the keyboard only once it has drawn, and a shortcut the page gets
+// (P§7), but the bar takes the keyboard only once it has drawn, and a shortcut the page gets
 // first, such as Ctrl+L, comes back only after the keys behind it reached the page. So from the
 // shortcut until the bar has the keyboard, keys are held and then given to it in the order typed.
 // For a shortcut the page gets first, the core says if the page kept it and no bar opens

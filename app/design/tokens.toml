@@ -519,7 +519,7 @@ dialog-light = 0xfbf9f4
 # 2.7:1, so the palette takes it lighter still at its hue, to #57B97A, as it does a theme's colour.
 no-theme-accent = 0x289054
 # Two colours go from the main one at the window's top left to the second this far along its
-# diagonal (Arc 1.170 rec at 2×, with Ardia's account of Arc's rule: OKLab, 45°, to 75 %).
+# diagonal (Arc 1.170 rec at 2×, and Arc's rule: OKLab, 45°, to 75 %).
 second-at = 0.75
 # How strongly the window takes a theme's colours at intensity `i`: in proportion to
 # `INTENSITY_FLOOR + INTENSITY_SPAN * i`, so the slider's start is the colour as before themes
@@ -702,7 +702,7 @@ nav-radius = 6.0
 # Header glyphs are drawn in points in a box this big, at Arc's sizes and centres.
 nav-glyph = 24.0
 # A header button shows while its plate ends this far inside the sidebar, so a narrow sidebar loses
-# reload, then forward, as Ardia's does.
+# reload, then forward.
 nav-end = 5.0
 url-field-top = 46.0
 url-field-height = 36.0
@@ -732,8 +732,8 @@ media-title = 13.0
 media-artist = 11.0
 media-button = 24.0
 media-glyph = 14.0
-# Favorites taller than this much of the window scroll with the list instead of staying put
-# (Ardia), so they never leave the rows too little room.
+# Favorites taller than this much of the window scroll with the list instead of staying put, so
+# they never leave the rows too little room.
 tall-favorites = 0.4
 # The Space's name, over its tabs.
 name-height = 44.0
@@ -1022,7 +1022,7 @@ button-keys-radius = 6.0
 hint-bottom = 40.0
 
 [shell.extensions]
-# The room the URL field keeps for the host before it shows fewer actions (Ardia).
+# The room the URL field keeps for the host before it shows fewer actions.
 host-room = 84.0
 # An action's icon, 16 pt as in Chrome's toolbar, on its button's 30 pt pitch (Dia: 30.25).
 action-icon = 16.0
@@ -1305,8 +1305,7 @@ plate-inset = 4.0
 plate-radius = 12.0
 
 [shell.side-panel]
-# The panel's width until the user gives it one, Chrome's, and the range they can give it,
-# Ardia's.
+# The panel's width until the user gives it one, Chrome's, and the range they can give it.
 panel-width = 360.0
 panel-min = 320.0
 panel-max = 600.0

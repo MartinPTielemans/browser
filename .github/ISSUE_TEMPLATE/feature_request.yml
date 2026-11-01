@@ -7,7 +7,6 @@ body:
   - type: markdown
     attributes:
       value: |
-        ilo copies Arc's structure and Dia's polish, measured, and then takes the next step.
         Before asking, read:
 
         - [docs/decisions.md](https://github.com/MartinPTielemans/browser/blob/main/docs/decisions.md):
@@ -15,7 +14,7 @@ body:
           Gecko as ilo's engine, and closed source; so do paid features, ads and license checks.
           A decision reopens only with the evidence its "Revisit" line names.
         - [docs/ux-principles.md](https://github.com/MartinPTielemans/browser/blob/main/docs/ux-principles.md):
-          why Arc's design works, which is what decides anything Arc never did.
+          the principles behind ilo's design, which decide anything new.
 
         Asking for something isn't asking for a PR. Agree on direction here first (CONTRIBUTING.md).
 
@@ -38,10 +37,10 @@ body:
       required: true
 
   - type: textarea
-    id: arc
+    id: elsewhere
     attributes:
-      label: What Arc does
-      description: How Arc (or Dia) handles this, if it does. A public video or recording of Arc beats a description, since motion and timing are part of the spec.
+      label: Another browser
+      description: How another browser handles it, if one does. A public video or recording beats a description, since motion and timing matter.
 
   - type: textarea
     id: proposal

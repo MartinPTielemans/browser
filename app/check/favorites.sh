@@ -433,7 +433,7 @@ none_since '^browser: dragged' || fail "a tile's drag escape put back dropped it
 # A press hits the frame drawn, so the next drag waits for the put-back's.
 expect '^browser: drag put back$' "Escape's put-back didn't finish" "$escaped"
 # Three tiles in the sidebar at its narrowest take two rows, 94 points, more than 40 % of a window
-# 220 tall, so they scroll with the list, under the URL field (Ardia).
+# 220 tall, so they scroll with the list, under the URL field.
 send drag $(tiled_row 0) 200 112
 expect "^browser: dragged $x to favorites 1\$" "a row dragged right of the tile didn't go there"
 expect '^browser: tiles settled$' "the tiles didn't settle after the second drop"

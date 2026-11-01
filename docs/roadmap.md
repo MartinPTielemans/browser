@@ -17,7 +17,7 @@ Each phase ends with a check. Work that depends on a phase waits for its check.
 
 ## Phase 0: UX spec (2–3 days)
 
-- Import Ardia's Dia spec and parity list as the starting point.
+- Import the measured Dia spec and parity list as the starting point.
 - Install Arc and capture it before 2026-12-22: 60 fps recordings of every interaction, 2× screenshots of every state, measured sizes and timings.
 - Merge the two into `docs/ux-spec.md` and a parity checklist with a measured value per item.
 
@@ -32,7 +32,7 @@ GPUI and prebuilt CEF in windowed mode, in one Mac process. CEF stands in for Ch
 | 0 | Read GPUI's macOS platform code: how it creates the `NSApplication`, whether it can attach to a run loop it doesn't own | Run loop, on paper |
 | 1 | Chromium runs `[NSApp run]` and GPUI attaches. A page renders as a native view inside a GPUI window next to a GPUI sidebar | Run loop, native view embedding |
 | 2 | Command bar as a borderless child window over the page. ⌘T, ⌘L and ⌘W while the page has focus, focus moving between GPUI and the page, Japanese IME in both, resize, fullscreen, frame timing while scrolling | Overlays, focus and keyboard |
-| 3–4 | Buffer, or swap CEF for Ardia's prebuilt engine for a closer match | — |
+| 3–4 | Buffer, or swap CEF for a prebuilt Chromium framework for a closer match | — |
 
 **Go** if all three risks are solved. **No-go** on the run loop or on focus and keyboard means switching the UI to Chromium Views.
 
@@ -65,7 +65,7 @@ Per platform: the platform layer, packaging, updater, signing. Linux first runs 
 
 ## Performance gate
 
-Measured on every release against Chrome, Helium and Ardia, following the method in Ardia's `docs/perf/vs-browsers.md`.
+Measured on every release against Chrome, the same way each time.
 
 | Metric | Target |
 |---|---|

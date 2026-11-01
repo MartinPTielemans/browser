@@ -11,8 +11,8 @@ Work that doesn't change the core needs no build: `./fetch.sh` downloads the pre
 | `pins.ini` | Chromium version and the ungoogled-chromium, ungoogled-chromium-macos, ungoogled-chromium-portablelinux and ungoogled-chromium-windows tags. Bumped together, every Chromium release |
 | `series` | Ordered list of patches applied after ungoogled-chromium's own series |
 | `patches/upstream/` | Fixes backported from Chromium after the pinned version, header naming the commit; dropped once the pin has it |
-| `patches/helium/` | Patches taken from Helium, header naming the upstream path and commit |
-| `patches/ardia/` | Patches taken from Ardia, same convention |
+| `patches/helium/` | Patches taken from another GPL Chromium browser, header naming the upstream path and commit |
+| `patches/ardia/` | Patches taken from another Chromium browser, same convention |
 | `patches/ours/` | Our own patches |
 | `args.gn` | Our GN args, after ungoogled-chromium's `flags.gn` and ungoogled-chromium-macos's `flags.macos.gn` |
 | `args.dev.gn` | The dev build's args, after `args.gn` |
@@ -103,13 +103,13 @@ macOS grants a Keychain item to an app's designated requirement, which a Develop
 
 ## What reaches Google
 
-ungoogled-chromium cuts the browser's calls to Google. Ardia's patches in `patches/ardia/` bring back two of them, for security only (decision 2).
+ungoogled-chromium cuts the browser's calls to Google. Two patches in `patches/ardia/` bring back two of them, for security only (decision 2).
 
 - **Security components.** The component updater checks `https://update.googleapis.com/service/update2/json` for three components only: CRLSet (revoked certificates), PKI Metadata (Chrome Root Store, CT logs, pins) and the SSL error assistant. Every other component stays out of the request and is never downloaded. The first check runs a minute after launch, then one every five hours. Downloads may come only from `dl.google.com`, `*.gvt1.com` or `www.google.com/dl/`, over https, and redirects are held to the same hosts.
   - **What a check sends.** In the body: the protocol version, Chromium's version and channel, the updater's version, macOS's version, the CPU architecture, and a random session id and request id. For each component it sends the id and the installed version. The headers repeat the ids and say whether the check runs in the foreground.
   - **What it doesn't send.** No cookies and no pings. None of the fields Chrome uses to link one check to the next (install id, install date, cohorts, ping day counts). No language, hardware or enterprise state. Google still sees the IP address, and the versions can help it link checks.
   - **How responses are checked.** CUP signatures and the CRX3 publisher key, as in Chrome.
-  - **Google's Widevine module, on Linux.** Once the user says yes in the protected-media note or Settings, the checks also ask for the Widevine component (`oimompecagnajdejgnnjijobebaeigek`), the first at once, and it downloads from the same hosts. Removing it in Settings takes it out of the checks again. `patches/ours/chromium-widevine-component.patch` lets the core add it to Ardia's list, whose update URL is already Google's own.
+  - **Google's Widevine module, on Linux.** Once the user says yes in the protected-media note or Settings, the checks also ask for the Widevine component (`oimompecagnajdejgnnjijobebaeigek`), the first at once, and it downloads from the same hosts. Removing it in Settings takes it out of the checks again. `patches/ours/chromium-widevine-component.patch` lets the core add it to those components' list, whose update URL is already Google's own.
 - **Chrome Web Store.** The browser talks to it on three occasions, and with no store extension installed only the first:
   - The store's own page, chromewebstore.google.com, gets Chrome's install API and sees the installed extensions, as in Chrome.
   - An install the user confirms fetches the extension's icon from the address the page gives, Google's image host. It then downloads the extension from clients2.google.com, which redirects to clients2.googleusercontent.com. The download carries the profile's cookies and the store page as referrer, as in Chrome.
@@ -165,6 +165,6 @@ so a build whose profile is elsewhere, as a dev build's is, does none of that.
 - Keep patches small and separate. New code goes in new files under `//browser_core` where possible. Patches to Chrome's files add hooks; they don't move logic.
 - Domain substitution rewrites Google's hosts in the source before the series is applied, so a patch that needs a real host writes it in full, and nothing rewrites it.
 - One concern per patch, named `chromium-<area>-<what>.patch`.
-- Each release, diff Helium's and Ardia's series against ours for anything worth taking.
+- Each release, diff other Chromium browsers' series against ours for anything worth taking.
 - A new Chromium major, or a change to the GN args, means a full build. A point release taken with `setup.sh update` rebuilds only what it changes.
 - An Xcode update doesn't: `chromium-xcode-build-define.patch` drops the `CR_XCODE_BUILD` define, which upstream compiles every object with only so that one does.

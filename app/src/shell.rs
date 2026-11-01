@@ -3168,7 +3168,7 @@ impl Render for Shell {
             self.focus_color = Some(focus_color);
             self.browser.set_focus_color(focus_color, cx);
         }
-        // A page shows the card until its first frame, never white (Ardia). Not while the sidebar
+        // A page shows the card until its first frame, never white. Not while the sidebar
         // pages between Spaces, whose colours cross-fade at every step.
         let page_color = packed(self.window_fill().blend(self.palette.page.into()));
         if self.pages().len() == 1 && self.page_color != Some(page_color) {

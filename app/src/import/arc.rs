@@ -283,7 +283,7 @@ fn icon(icon: &Value) -> String {
 
 /// The theme of Arc's `windowTheme`: one look, or a light and a dark one, and its appearance.
 /// `windowAppearance` forces light or dark; without it, two looks follow the system, and one
-/// looks as its `translucencyStyle` says, else follows the system too, as Ardia reads Arc's.
+/// looks as its `translucencyStyle` says, else follows the system too.
 fn theme(window_theme: &Value) -> Option<Theme> {
     let background = window_theme.get("background")?;
     let single = background.pointer("/single/_0").and_then(look);

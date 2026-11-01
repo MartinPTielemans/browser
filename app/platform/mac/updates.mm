@@ -14,7 +14,7 @@
 
 namespace {
 
-// Ardia's: after 90 s a check that hasn't finished never will, and Install and Relaunch waits for
+// After 90 s a check that hasn't finished never will, and Install and Relaunch waits for
 // one at most 15 s.
 constexpr int64_t kPrewarmLimit = 90;
 constexpr int64_t kInstallWait = 15;

@@ -219,7 +219,7 @@ send type y
 expect '^browser: title [0-9]* value y$' "⌘A in the page didn't select all"
 
 # Keys typed right after ⌘T, ⌘L or ⌘F land in the field it opens, in order and a composition
-# whole, never in the page (Ardia P§7). They go with no wait after the shortcut, and where they
+# whole, never in the page (P§7). They go with no wait after the shortcut, and where they
 # land, which every caller checks, is the proof. The app holds those that come before the bar has
 # the keyboard and says so, but the driver sends them a command after the shortcut, and the bar
 # can have the keyboard by then, so there may be none to hold (#905).

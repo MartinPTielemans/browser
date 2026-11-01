@@ -19,25 +19,24 @@ A tab can show its page in the system's engine, WebKit on the Mac, for a short b
 
 Revisit when Chromium can play these sites on the Mac, through a Widevine CDM we may ship or the platform's own CDM, when they refuse Chromium PlayReady on Windows (WebView2 then), or when two engines cost more than the sites are worth.
 
-## 2. Base: ungoogled-chromium, with Helium and Ardia as patch sources
+## 2. Base: ungoogled-chromium, with single patches picked from other Chromium browsers
 
-Not raw Chromium and not all of Helium.
+Not raw Chromium, and not another browser's whole series on top of ungoogled-chromium.
 
 - De-Googling Chromium is work across hundreds of call sites every release, which ungoogled-chromium has done for a decade.
-- Helium is a product on top of ungoogled-chromium. Ardia, built on it, needs about 15 skipped patches, 10 that undo Helium and a guard stage to keep that working (`docs/engine-build.md` in mantrakp04/ardia). We cherry-pick from Helium instead.
+- A whole series brings another product's choices with it, and building on one has taken about 15 skipped patches, 10 that undo its choices and a guard stage to keep working. We pick single patches instead.
 - One fewer upstream means Chromium security fixes reach us sooner.
-- The Chrome Web Store is the one Google service we bring back, since Chrome's extensions are a requirement (decision 1) and ungoogled-chromium breaks installing and updating them from it, which `engine/patches/ours/chromium-extensions-web-store.patch` restores. The browser talks to Google's store directly, not through a proxy as Helium does, and with no store extension installed only on the store's own page. `engine/README.md` lists when and what it sends. Besides the security updates in the next entry, nothing else of Google's comes back: no Safe Browsing, sync or metrics, and the component updater fetches nothing more but decision 7's module.
-- We take back one thing ungoogled-chromium removes: the updates that keep the browser from trusting what's known to be bad (certificate revocations, the root store, Google's malware verdicts on extensions), without which a revoked certificate or a malicious extension stays trusted until the next release. Ardia's patches fetch them from Google, identifying fields stripped. `engine/README.md` lists what is fetched and what is sent.
+- The Chrome Web Store is the one Google service we bring back, since Chrome's extensions are a requirement (decision 1) and ungoogled-chromium breaks installing and updating them from it, which `engine/patches/ours/chromium-extensions-web-store.patch` restores. The browser talks to Google's store directly, not through a proxy, and with no store extension installed only on the store's own page. `engine/README.md` lists when and what it sends. Besides the security updates in the next entry, nothing else of Google's comes back: no Safe Browsing, sync or metrics, and the component updater fetches nothing more but decision 7's module.
+- We take back one thing ungoogled-chromium removes: the updates that keep the browser from trusting what's known to be bad (certificate revocations, the root store, Google's malware verdicts on extensions), without which a revoked certificate or a malicious extension stays trusted until the next release. Two patches in `engine/patches/ardia/` fetch them from Google, identifying fields stripped. `engine/README.md` lists what is fetched and what is sent.
 
-Revisit if cherry-picking from Helium costs more per release than taking its whole series would.
+Revisit if picking single patches costs more per release than taking a whole series would.
 
 ## 3. Architecture: Chrome's framework plus our own window host
 
-Following Ardia's design: Chrome's `chrome_framework` with our layer linked in. One native window, the core's Views widget, holds a Chrome `Browser` per profile, each with a UI-less stand-in `BrowserWindow`. Tab views are parented into it, GPUI draws in it under them, and pages' popups become tabs. Extensions' windows stay Chrome's, like undocked DevTools (owner, 2026-10-29).
+Chrome's `chrome_framework` with our layer linked in. One native window, the core's Views widget, holds a Chrome `Browser` per profile, each with a UI-less stand-in `BrowserWindow`. Tab views are parented into it, GPUI draws in it under them, and pages' popups become tabs. Extensions' windows stay Chrome's, like undocked DevTools (owner, 2026-10-29).
 
 - This keeps the whole `chrome/` layer, so extensions, the Web Store, autofill, passkeys and DevTools keep working.
-- Ardia ships on this design today.
-- Ardia's layer is about 80% Objective-C++; ours is portable C++ with a thin platform shim.
+- Our layer is portable C++ with a thin platform shim, so only that shim is per OS.
 
 On Windows two things differ, both forced by Chromium there. Aura draws all of a widget's views into its one HWND, so nothing native can sit between GPUI and a page in it. GPUI's window is instead a child HWND that fills the browser window, and each page shown is in a child widget's HWND above it (`core/platform/win/window_views.cc`). The sandbox needs every process to be Chromium's own `chrome.exe`, so the app can't be the executable that calls `bc_main`. The app is `Browser.dll` beside it, and the core loads it in the browser process as Chromium starts (`bc_main` in `core/public/browser_core.h`).
 
@@ -46,17 +45,17 @@ On Linux the same two hold, and Wayland adds a third. The zygote starts every pr
 ## 4. UI: GPUI, with Chromium Views as the fallback
 
 - GPUI is compiled, fast, and already runs on Mac, Windows and Linux.
-- Ardia's React Native UI measures 40 ms per tab switch against Chrome's 8 ms (`docs/perf/vs-browsers.md` in mantrakp04/ardia). Hot-path UI must not run in a JavaScript runtime.
+- A React Native UI costs 40 ms per tab switch against Chrome's 8. Hot-path UI must not run in a JavaScript runtime.
 - Pages render in Chromium's own native views, not off-screen, so we keep Chrome's compositing, latency, video overlays and battery life.
 - GPUI can't draw over a native view. Anything that floats over the page (command bar, menus, Peek) is a borderless child window, which is also how Chrome does its bubbles.
 
-Settled by the Phase 1 spikes, `spikes/gpui-cef/` and `spikes/gpui-ardia/` at 91ddfe6, since removed. On CEF and on Ardia's engine, GPUI runs inside Chromium's run loop, and focus, the browser's shortcuts with the page focused, IME composition, the command bar over the page, resize and full screen all work across the boundary. A long page scrolls at 120 fps with GPUI in the window.
+Settled by the Phase 1 spikes, `spikes/gpui-cef/` and `spikes/gpui-ardia/` at 91ddfe6, since removed. On CEF and on a prebuilt Chromium framework, GPUI runs inside Chromium's run loop, and focus, the browser's shortcuts with the page focused, IME composition, the command bar over the page, resize and full screen all work across the boundary. A long page scrolls at 120 fps with GPUI in the window.
 
 Revisit if a later engine or GPUI change breaks run-loop sharing or input across the boundary in a way we can't patch. The fallback is Views (C++): equally cross-platform, with none of these integration risks.
 
 ## 5. Product model: Spaces are separate from profiles
 
-A Space is a tab container (pinned tabs, Today, color). Several Spaces can share one profile, and the profile holds cookies, history, logins and extensions. This is Arc's model. Ardia merges the two, which costs memory and repeated sign-ins.
+A Space is a tab container (pinned tabs, Today, color). Several Spaces can share one profile, and the profile holds cookies, history, logins and extensions. Merging the two costs memory and repeated sign-ins.
 
 ## 6. UX: Arc's feel, ilo's look
 
@@ -66,7 +65,7 @@ The look is ilo's own: colour, window material, corner radii, type, icons, shado
 
 Dia's surfaces built around its assistant aren't copied, since our agents work from outside the browser and nothing would fill them. So ⌘T opens Arc's command bar over the page, not Dia's New Tab page, whose box is the assistant's chat field and whose empty card holds its answers. Without the assistant, that page was Arc's bar moved into the card with the page hidden behind it.
 
-- Start from Ardia's measured `docs/dia-spec.md` and `docs/dia-feature-parity.md` (Apache-2.0, credited).
+- Start from the imported Dia spec and parity list (Apache-2.0, credited in NOTICE).
 - Measure Arc ourselves before it is shut down on 2026-12-22.
 - Copy behavior, layout and timings. Never ship their assets or names.
 
@@ -77,7 +76,7 @@ Revisit the look if Arc users moving over say ilo doesn't feel like Arc continue
 ## 7. License: open source, GPL-3.0-or-later
 
 - The first users are Arc refugees whose browser was taken away. A browser that can't be taken away is the pitch, and only source code makes it credible.
-- We can use Helium's and Ardia's GPL patches directly.
+- We can use GPL patches from other Chromium browsers directly.
 - Our own code is GPL too, so improvements to it can't be taken into a closed browser.
 - What's proprietary the user chose to get, like an extension: on Linux, Google's Widevine module, never bundled, fetched only at the user's yes and removed in Settings.
 - Money comes from services (end-to-end encrypted sync, later AI), search revenue sharing and an optional Pro tier, not from closed client code.
@@ -86,7 +85,7 @@ Revisit the look if Arc users moving over say ilo doesn't feel like Arc continue
 
 ## 8. Agents: the browser is the tool agents use
 
-Not an assistant inside the browser, which is what Dia and Comet do. External agents (Claude Code, Codex, any MCP client) drive the user's real browser as a first-class, built-in capability.
+Not an assistant inside the browser. External agents (Claude Code, Codex, any MCP client) drive the user's real browser as a first-class, built-in capability.
 
 - **Built-in MCP server.** Local-only at first, on a socket only this user's processes can reach. Cloud agents come later, through explicit pairing.
 - **Agent Spaces.** An agent works in its own Space, visible in the sidebar. It never takes the user's focus or cursor. The user can watch, take over and hand back at any time.
@@ -99,7 +98,6 @@ Why:
 
 - Every current option fails an agent working beside a human. Headless Playwright has no logins and gets flagged as a bot; cloud browsers too, and they take the data off the machine. Remote-debugging the user's Chrome is fragile and insecure, and Chrome 136 blocks it on the default profile.
 - Owning the Chromium core layer (decision 3) is what makes this possible. Spaces (decision 5) are the natural unit of isolation.
-- It sets us apart from Ardia and the other Arc-style browsers.
 
 Consequences now:
 

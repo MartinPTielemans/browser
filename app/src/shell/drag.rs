@@ -1014,7 +1014,7 @@ impl Shell {
 /// The URLs of what a drag from the page or another app carries that open as tabs: files', web
 /// links, and for text that isn't a link, `search`'s URL for it with the default engine (Arc). A
 /// dragged link never opens a `javascript:` or `data:` URL, which could run script or pass for a
-/// site, or a `file:` one, which could open a file the user didn't drag (Ardia), nor is any link
+/// site, or a `file:` one, which could open a file the user didn't drag, nor is any link
 /// but a web one searched for, as it isn't words.
 pub fn dropped_urls<'a>(
     items: impl IntoIterator<Item = (&'a str, bool)>,
