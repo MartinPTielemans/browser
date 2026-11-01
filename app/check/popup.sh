@@ -218,10 +218,12 @@ if [ "$(uname)" = Linux ]; then
 else
   send choose Print…
   print_preview "the page menu's Print…" print.png
-  # ⌘P, as File › Print, with the page's text field focused, as what's typed there shows.
+  # ⌘P, as File › Print, with the page's text field focused, as what's typed there shows. Its last
+  # word stays spelt right, where the field's menu below is opened: a misspelt word's has no Select
+  # All, Language Settings or Writing Direction (Chrome), and Windows checks the spelling.
   send click 300 250
-  send type z
-  expect "^browser: title $opener .*z\$" "typing in the page's text field didn't reach it"
+  send type s
+  expect "^browser: title $opener .*notes\$" "typing in the page's text field didn't reach it"
   ../tools/window-screenshot.sh "$pid" "$out/before-print.png" || fail "no window to capture"
   page_shortcut p print
   print_preview ⌘P print-key.png xy

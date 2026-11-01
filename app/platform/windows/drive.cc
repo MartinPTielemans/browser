@@ -8,10 +8,10 @@
 // GPUI read, never the system's.
 //
 // The commands are drive.mm's, with what Windows has: click, doubleclick, rightclick, middleclick,
-// clickkey, doubleclickkey, rightclickkey, drag, press, dragto, release, rightpress, rightdragto,
-// rightrelease, move, key, keydown, keyup, flags, type, insert, scroll, swipe, wheel, resize,
-// place, minimize, window, order, layout, state, title, front, menu, menubar, choose, dismiss,
-// agentspace, agentmayact, agentrelease, agentdisconnect, takeback and age. The Mac's modifiers are
+// clickkey, doubleclickkey, rightclickkey, drag, dragkey, press, dragto, release, rightpress,
+// rightdragto, rightrelease, move, key, keydown, keyup, flags, type, insert, scroll, swipe, wheel,
+// resize, place, minimize, window, order, layout, state, title, pasteboard, front, menu, menubar,
+// choose, dismiss, agentspace, agentmayact, agentrelease, agentdisconnect, takeback and age. The Mac's modifiers are
 // pressed as the app reads them off the Mac (keys.rs): cmd with Ctrl, ctrl with Alt, but Ctrl for
 // ⌃Tab, and alt with both. A trackpad's scrolls and swipes are wheel messages with the pixels in
 // their deltas, as a precision touchpad sends them. choose and dismiss work on ilo's menu and the
@@ -27,9 +27,11 @@
 // It logs as drive.mm does: "browser: drive <n>: <command>" as command n arrives, and "browser:
 // drive <n> done, key <window>, focus <view>, active <0|1>, marked <none|start,length>" once
 // Chromium and GPUI have handled its messages, with what the UI's field with the keys has marked.
-// The window and view are named as AppKit's classes are on the Mac, so the runs read one vocabulary: key is BrowserCoreNSWindow for a browser window and GPUIPanel for
-// an overlay, and focus RenderWidgetHostViewCocoa for a page, AccessKitSubclassOfGPUIView for the
-// UI and GPUIView for an overlay. Active is whether one of the app's windows is in front.
+// The window and view are named as AppKit's classes are on the Mac, so the runs read one
+// vocabulary: key is BrowserCoreNSWindow for a browser window, GPUIPanel for an overlay and
+// GPUIWindow for another window of the UI's, such as Settings, and focus RenderWidgetHostViewCocoa
+// for a page, AccessKitSubclassOfGPUIView for the UI and GPUIView for an overlay. Active is whether
+// one of the app's windows is in front.
 
 #include <windows.h>
 
@@ -316,6 +318,18 @@ void Move(const Target& target, int modifiers, UINT buttons) {
   if (host_drive_pointer(WM_MOUSEMOVE, target.screen.x, target.screen.y)) {
     return;
   }
+  // Over the frame, as over the UI's maximize button (host.cc's FrameHit), Windows sends the
+  // window a non-client move, with what's there and the point on the screen. Entered, so the leave
+  // Windows sends it at once, for the desktop's pointer, is dropped.
+  if (Ours(target.hwnd)) {
+    const LPARAM screen = MAKELPARAM(target.screen.x, target.screen.y);
+    const LRESULT hit = SendMessageW(target.hwnd, WM_NCHITTEST, 0, screen);
+    if (hit != HTCLIENT && hit != HTTRANSPARENT && hit != HTNOWHERE) {
+      Enter(target);
+      PostMessageW(target.hwnd, WM_NCMOUSEMOVE, hit, screen);
+      return;
+    }
+  }
   Enter(target);
   if (g_posted_moves.size() == 64) {
     g_posted_moves.pop_front();
@@ -347,10 +361,22 @@ void Press(const Target& target, UINT button, int modifiers, bool second) {
   HWND root = GetAncestor(target.hwnd, GA_ROOT);
   const LRESULT activate = SendMessageW(target.hwnd, WM_MOUSEACTIVATE,
                                         reinterpret_cast<WPARAM>(root), MAKELPARAM(HTCLIENT, down));
+  const bool eaten = activate == MA_ACTIVATEANDEAT || activate == MA_NOACTIVATEANDEAT;
+  // Windows makes the second press of a double click a double click for the windows that ask for
+  // them. GPUI's don't, and count clicks themselves.
+  const bool double_click =
+      second && (GetClassLongPtrW(target.hwnd, GCL_STYLE) & CS_DBLCLKS) && button == MK_LBUTTON;
+  // Queued before the activation, as Windows has taken a press off the queue by the time it
+  // activates: what the windows post as they activate comes after the press, as an overlay's
+  // dismissal does, which the press reads the bar still open before (#872).
+  if (!eaten) {
+    PostMessageW(target.hwnd, double_click ? WM_LBUTTONDBLCLK : down, MouseKeys(modifiers, button),
+                 ClientParam(target));
+  }
   if ((activate == MA_ACTIVATE || activate == MA_ACTIVATEANDEAT) && GetActiveWindow() != root) {
     SetActiveWindow(root);
   }
-  if (activate == MA_ACTIVATEANDEAT || activate == MA_NOACTIVATEANDEAT) {
+  if (eaten) {
     return;
   }
   for (HWND child = target.hwnd; GetWindowLongPtrW(child, GWL_STYLE) & WS_CHILD;) {
@@ -366,12 +392,6 @@ void Press(const Target& target, UINT button, int modifiers, bool second) {
     SendMessageW(parent, WM_PARENTNOTIFY, MAKEWPARAM(down, 0), MAKELPARAM(in.x, in.y));
     child = parent;
   }
-  // Windows makes the second press of a double click a double click for the windows that ask for
-  // them. GPUI's don't, and count clicks themselves.
-  const bool double_click =
-      second && (GetClassLongPtrW(target.hwnd, GCL_STYLE) & CS_DBLCLKS) && button == MK_LBUTTON;
-  PostMessageW(target.hwnd, double_click ? WM_LBUTTONDBLCLK : down, MouseKeys(modifiers, button),
-               ClientParam(target));
 }
 
 void Release(const Target& target, UINT button, int modifiers) {
@@ -436,7 +456,7 @@ UINT VirtualKey(const std::string& key, int* modifiers) {
       {"return", VK_RETURN},  {"escape", VK_ESCAPE}, {"tab", VK_TAB},      {"space", VK_SPACE},
       {"backspace", VK_BACK}, {"delete", VK_DELETE}, {"pageup", VK_PRIOR}, {"pagedown", VK_NEXT},
       {"up", VK_UP},          {"down", VK_DOWN},     {"left", VK_LEFT},    {"right", VK_RIGHT},
-      {"f4", VK_F4},          {"f10", VK_F10},       {"f12", VK_F12}};
+      {"f4", VK_F4},          {"f6", VK_F6},         {"f10", VK_F10},      {"f12", VK_F12}};
   for (const auto& [name, vk] : named) {
     if (key == name) {
       return vk;
@@ -607,6 +627,15 @@ void LogLayout(HWND root) {
   }
   // Windows' own title bar has the window's buttons.
   line += "\nbrowser: layout buttons hidden hidden hidden";
+  // A tab's dialog, such as print preview, as the core gives it: inside the border and shadow
+  // Chromium draws in its window, as the Mac's driver gives a sheet's frame.
+  bc_rect dialog{};
+  const bool has_dialog = bc_window_dialog(host_browser_window_id(g_driven), &dialog);
+  if (has_dialog) {
+    snprintf(part, sizeof part, "\nbrowser: layout child %.0f,%.0f %.0fx%.0f", dialog.x, dialog.y,
+             dialog.width, dialog.height);
+    line += part;
+  }
   // The overlays over it, such as the find bar: from the content's top-left corner, and their size.
   POINT origin{0, 0};
   ClientToScreen(root, &origin);
@@ -616,9 +645,15 @@ void LogLayout(HWND root) {
     }
     RECT rect;
     GetWindowRect(top, &rect);
-    snprintf(part, sizeof part, "\nbrowser: layout child %.0f,%.0f %.0fx%.0f",
-             (rect.left - origin.x) / scale, (rect.top - origin.y) / scale,
-             (rect.right - rect.left) / scale, (rect.bottom - rect.top) / scale);
+    const double x = (rect.left - origin.x) / scale, y = (rect.top - origin.y) / scale;
+    const double across = (rect.right - rect.left) / scale;
+    const double down = (rect.bottom - rect.top) / scale;
+    // The dialog's own window, listed above.
+    if (has_dialog && IsChromium(top) && x <= dialog.x && y <= dialog.y &&
+        x + across >= dialog.x + dialog.width && y + down >= dialog.y + dialog.height) {
+      continue;
+    }
+    snprintf(part, sizeof part, "\nbrowser: layout child %.0f,%.0f %.0fx%.0f", x, y, across, down);
     line += part;
   }
   // Full screen, as Chrome's is on Windows: no title bar, over its whole display.
@@ -703,7 +738,9 @@ std::string KeyName(HWND key) {
     return "BrowserCoreNSWindow";
   }
   if (IsGpui(key)) {
-    return "GPUIPanel";
+    // An overlay is shown owned by its browser window; Settings is a window of its own, as on the
+    // Mac, where it's an NSWindow and an overlay an NSPanel.
+    return GetWindow(key, GW_OWNER) ? "GPUIPanel" : "GPUIWindow";
   }
   // Chrome's own windows, such as its dialogs, are views' on the Mac too.
   if (IsChromium(key)) {
@@ -1046,6 +1083,24 @@ bool Run(const std::string& line) {
     g_steps.push_back({[=] { Release(to, MK_LBUTTON, 0); }});
     return true;
   }
+  // A drag in the window with the keyboard, such as Settings', as clickkey clicks there: halfway
+  // first, so the view sees the drag start before it ends.
+  if (action == "dragkey") {
+    double x, y, x2, y2;
+    Target from;
+    if (!(words >> x >> y >> x2 >> y2) || !TargetInKey(x, y, &from)) {
+      return false;
+    }
+    HWND key = GetActiveWindow();
+    const Target half = At(from.hwnd, OnScreen(key, (x + x2) / 2, (y + y2) / 2));
+    const Target to = At(from.hwnd, OnScreen(key, x2, y2));
+    g_steps.push_back({[=] { Move(from, 0, 0); }});
+    g_steps.push_back({[=] { Press(from, MK_LBUTTON, 0, false); }});
+    g_steps.push_back({[=] { Move(half, 0, MK_LBUTTON); }});
+    g_steps.push_back({[=] { Move(to, 0, MK_LBUTTON); }});
+    g_steps.push_back({[=] { Release(to, MK_LBUTTON, 0); }});
+    return true;
+  }
   if (action == "press" || action == "dragto" || action == "release" || action == "rightpress" ||
       action == "rightdragto" || action == "rightrelease") {
     double x, y;
@@ -1170,6 +1225,21 @@ bool Run(const std::string& line) {
     return true;
   }
   if (action == "state") {
+    return true;
+  }
+  // The clipboard's text: the check machine's own, as drive.mm's pasteboard is the run's.
+  if (action == "pasteboard") {
+    std::wstring text;
+    if (OpenClipboard(nullptr)) {
+      if (HANDLE data = GetClipboardData(CF_UNICODETEXT)) {
+        if (const auto* wide = static_cast<const wchar_t*>(GlobalLock(data))) {
+          text = wide;
+          GlobalUnlock(data);
+        }
+      }
+      CloseClipboard();
+    }
+    fprintf(stderr, "browser: pasteboard text %s\n", Utf8(text).c_str());
     return true;
   }
   if (action == "title") {

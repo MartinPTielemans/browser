@@ -24,7 +24,7 @@ use browser::flatpak;
 use browser::window_frames::{self, Frame};
 use browser::widevine::Widevine;
 use browser::{
-    capture, command_bar, dialog, dock_dot, elevation::Level, folder_preview, hover_card,
+    account, capture, command_bar, dialog, dock_dot, elevation::Level, folder_preview, hover_card,
     icon_picker, launch, link_preview, link_target, log, menu, offer, passwords, site_controls,
     theme_picker, toast, tooltip, zoom_hud,
 };
@@ -301,6 +301,9 @@ mod platform {
         pub fn host_video_close(video: *mut c_void);
         #[cfg(not(target_os = "linux"))]
         pub fn host_copy(text: *const c_char);
+        pub fn host_copy_secret(text: *const c_char, seconds: u32) -> bool;
+        pub fn host_forget_secret();
+
         pub fn host_key_repeated() -> bool;
         #[cfg(not(target_os = "linux"))]
         pub fn host_paste(text: *mut c_char, capacity: usize) -> usize;
@@ -332,6 +335,7 @@ mod platform {
             detail: *const c_char,
             buttons: *const *const c_char,
             count: usize,
+            returns: bool,
         ) -> i32;
         pub fn host_add_dialog(dialog_view: *mut c_void);
         pub fn host_show_dialog(ui_view: *mut c_void, x: f64, y: f64, width: f64, height: f64);
@@ -483,6 +487,9 @@ thread_local! {
     // The links other apps sent before the first window had brought back the Spaces, which they
     // open over; None after.
     static LAUNCH_LINKS: RefCell<Option<Vec<String>>> = const { RefCell::new(Some(Vec::new())) };
+    // The account as the core last said, which it says first as it starts, before GPUI has: the
+    // first window hands it to Settings.
+    static SYNC_STATE: RefCell<Option<account::State>> = const { RefCell::new(None) };
     // What the menu bar was last built from, so a change to one part rebuilds it with the others.
     static MENUS: RefCell<Menus> = RefCell::default();
     // Whether a menu bar built from MENUS waits for the menu open to close.
@@ -2459,7 +2466,10 @@ impl Browser for Engine {
             also: None,
             fields,
             check: (!asked.check.is_empty()).then(|| asked.check.clone()),
-            return_cancels: asked.kind == shell::DialogKind::OpenApp,
+            on_return: match asked.kind == shell::DialogKind::OpenApp {
+                true => dialog::Return::Cancel,
+                false => dialog::Return::Action,
+            },
         };
         let window = self.window;
         let kind = asked.kind;
@@ -3283,6 +3293,19 @@ impl Browser for Engine {
         settings::set_send_crash_reports(on, cx);
     }
 
+    // Every build has the agents' server. The first launch picks its steps before the first
+    // frame, when agents_core makes the Agents, and a new profile's are off until then.
+    fn agents(&self, cx: &App) -> Option<bool> {
+        Some(browser::agents::global(cx).is_some_and(|agents| agents.read(cx).is_on()))
+    }
+
+    fn set_agents(&self, on: bool, cx: &mut App) {
+        agents_core::start(cx);
+        if let Some(agents) = browser::agents::global(cx) {
+            agents.update(cx, |agents, cx| agents.set_on(on, cx));
+        }
+    }
+
     fn agent_activity(&self, cx: &mut App) {
         settings::show_agents(cx);
     }
@@ -3382,7 +3405,7 @@ impl Browser for Engine {
             )),
             fields: Vec::new(),
             check: None,
-            return_cancels: false,
+            on_return: dialog::Return::Action,
         };
         // A Quit as the window comes on screen, before its overlays are made, asks too (#905):
         // with no dialog to ask in, pose would drop it and the app would never quit.
@@ -3391,11 +3414,12 @@ impl Browser for Engine {
     }
 }
 
-/// Asks `message` in an alert with `buttons`, the first the default, and returns the index of the
-/// one chosen, or none if AppKit ended it. It blocks in AppKit's loop until the alert closes, so
-/// it's called in a task. Linux has no alert, and its loop can't wait for one (settings.rs).
+/// Asks `message` in an alert with `buttons`, the first the default if `returns`, and returns the
+/// index of the one chosen, or none if AppKit ended it. It blocks in AppKit's loop until the alert
+/// closes, so it's called in a task. Linux has no alert, and its loop can't wait for one
+/// (settings.rs).
 #[cfg(not(target_os = "linux"))]
-fn ask(message: &str, detail: &str, buttons: &[&str]) -> usize {
+fn ask(message: &str, detail: &str, buttons: &[&str], returns: bool) -> usize {
     let text = |text: &str| CString::new(text).unwrap_or_default();
     let (message, detail) = (text(message), text(detail));
     let buttons: Vec<CString> = buttons.iter().map(|button| text(button)).collect();
@@ -3406,6 +3430,7 @@ fn ask(message: &str, detail: &str, buttons: &[&str]) -> usize {
             detail.as_ptr(),
             pointers.as_ptr(),
             pointers.len(),
+            returns,
         )
     };
     usize::try_from(chosen).unwrap_or(usize::MAX)
@@ -4070,6 +4095,9 @@ fn open_window_as(
         });
         window.focus(&shell.focus_handle(cx), cx);
         CX.set(Some(cx.to_async()));
+        if let Some(state) = SYNC_STATE.with_borrow_mut(Option::take) {
+            settings::sync_changed(state, cx);
+        }
         #[cfg(any(target_os = "linux", target_os = "windows"))]
         emoji::keep(cx);
         // In front, as it's about to be key, or a saved one behind the others.
@@ -5165,6 +5193,8 @@ fn set_reduce_motion(reduce: bool, cx: &mut App) {
 
 unsafe extern "C" fn stopping(_: *mut c_void) {
     log!("browser: stopping");
+    // The recovery words a Copy put on the clipboard don't outlast the app (settings.rs).
+    unsafe { platform::host_forget_secret() };
 }
 
 // The next launch's first window opens where the regular window in front is, showing its sidebar
@@ -5333,6 +5363,12 @@ fn show_archive_note(cx: &mut App) {
 unsafe extern "C" fn history_added(_: *mut c_void, profile: bc::bc_id, added: usize) {
     log!("browser: history added {added} to profile {profile}");
     update_app_later(move |cx| import_host::history_added(added, cx));
+}
+
+unsafe extern "C" fn addresses_added(_: *mut c_void, profile: bc::bc_id, added: usize) {
+    // check.sh waits for this line.
+    log!("browser: addresses added {added} to profile {profile}");
+    update_app_later(move |cx| import_host::addresses_added(added, cx));
 }
 
 unsafe extern "C" fn favorites_changed(_: *mut c_void) {
@@ -5745,7 +5781,7 @@ unsafe extern "C" fn window_extension_question(
         also: None,
         fields: Vec::new(),
         check: None,
-        return_cancels: false,
+        on_return: dialog::Return::Action,
     };
     let mut asked = false;
     if window == front().0 {
@@ -5826,7 +5862,7 @@ unsafe extern "C" fn window_downloads_question(
         also: None,
         fields: Vec::new(),
         check: None,
-        return_cancels: true,
+        on_return: dialog::Return::Cancel,
     };
     let answered =
         Box::new(move |cancel, _: &mut App| unsafe { bc::bc_window_answer_downloads(window, cancel) });
@@ -6018,6 +6054,109 @@ unsafe extern "C" fn profile_logins_changed(
 ) {
     let list = logins(list, count);
     update_app(|cx| settings::logins_changed(profile, list, cx));
+}
+
+/// A string the core passed, for as long as the app keeps it.
+fn core_text(text: *const c_char) -> SharedString {
+    match text.is_null() {
+        true => SharedString::default(),
+        false => unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned().into(),
+    }
+}
+
+/// The browser's account, for Settings. Never logged here: the email is the user's.
+unsafe extern "C" fn sync_changed(_: *mut c_void, state: *const bc::bc_sync_state) {
+    let Some(state) = (unsafe { state.as_ref() }) else {
+        return;
+    };
+    let status = match state.status as u32 {
+        bc::BC_SYNC_SIGNING_IN => account::Status::SigningIn,
+        bc::BC_SYNC_FIRST_DEVICE => account::Status::FirstDevice,
+        bc::BC_SYNC_NEEDS_SECRET => account::Status::NeedsSecret,
+        bc::BC_SYNC_PAIRING => account::Status::Pairing,
+        bc::BC_SYNC_ON => account::Status::On,
+        _ => account::Status::SignedOut,
+    };
+    let problem = match state.problem as u32 {
+        bc::BC_SYNC_PROBLEM_WRONG_WORDS => Some(account::Problem::WrongWords),
+        bc::BC_SYNC_PROBLEM_DECLINED => Some(account::Problem::Declined),
+        bc::BC_SYNC_PROBLEM_EXPIRED => Some(account::Problem::Expired),
+        bc::BC_SYNC_PROBLEM_REMOVED => Some(account::Problem::Removed),
+        bc::BC_SYNC_PROBLEM_SERVER => Some(account::Problem::Server),
+        _ => None,
+    };
+    let state = account::State {
+        status,
+        problem,
+        server: core_text(state.server),
+        default_server: state.default_server,
+        email: core_text(state.email),
+        code: core_text(state.code),
+    };
+    if CX.with_borrow(Option::is_none) {
+        SYNC_STATE.set(Some(state));
+        return;
+    }
+    update_app_later(move |cx| settings::sync_changed(state, cx));
+}
+
+/// Another device asks to be added to the account: the dialog asks over the front window, or
+/// leaves once the request has ended unanswered.
+unsafe extern "C" fn sync_pairing_asked(_: *mut c_void, pairing: *const bc::bc_sync_pairing) {
+    let Some(pairing) = (unsafe { pairing.as_ref() }) else {
+        // check.sh waits for this line.
+        log!("browser: pairing withdrawn");
+        update_app_later(dialog::withdraw_account);
+        return;
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0., |since| since.as_secs_f64() * 1e3);
+    let mut day_starts = [0.; 4];
+    unsafe { platform::host_day_starts(day_starts.as_mut_ptr()) };
+    let asked_at = if pairing.asked_at > 0. { pairing.asked_at } else { now };
+    let signed_in = match pairing.signed_in_at > 0. {
+        true => account::since(now - pairing.signed_in_at),
+        false => String::new(),
+    };
+    let pairing = account::Pairing {
+        id: core_text(pairing.id),
+        name: core_text(pairing.name),
+        os: core_text(pairing.os),
+        code: core_text(pairing.code),
+        asked: account::clock(asked_at, day_starts[0]).into(),
+        signed_in: signed_in.into(),
+    };
+    // check.sh waits for this line.
+    log!("browser: pairing asked");
+    update_app_later(move |cx| {
+        let id = CString::new(pairing.id.as_str()).unwrap_or_default();
+        let answered = Box::new(move |add, _: &mut App| unsafe {
+            bc::bc_sync_answer_pairing(id.as_ptr(), add)
+        });
+        dialog::ask_account(account::pairing_question(&pairing), answered, cx);
+    });
+}
+
+/// The account's devices, which Settings asked the core for.
+unsafe extern "C" fn sync_devices_changed(
+    _: *mut c_void,
+    devices: *const bc::bc_sync_device,
+    count: usize,
+) {
+    let devices = match count {
+        0 => &[][..],
+        count => unsafe { std::slice::from_raw_parts(devices, count) },
+    };
+    let devices = (devices.iter())
+        .map(|device| account::Device {
+            id: core_text(device.id),
+            name: core_text(device.name),
+            os: core_text(device.os),
+            current: device.current,
+        })
+        .collect();
+    update_app_later(move |cx| settings::devices_changed(devices, cx));
 }
 
 /// What came of a passwords file the import gave the core. Never logged: the counts are the
@@ -6462,6 +6601,14 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
     if cfg!(feature = "prod") && !collector.is_empty() {
         args.push(format!("--crash-upload-url={collector}"));
     }
+    // The sync server the account signs in to until the user names another, a default service URL
+    // a fork or a self-hosted server names in branding/sync-server (build.rs). Without one the
+    // build has none, and Settings › Sync asks for the address. A --sync-url given to the app wins,
+    // as a check's does: on Linux and Windows Chromium has it already, and a second would win.
+    let sync_server = env!("SYNC_SERVER");
+    if !sync_server.is_empty() && !given.iter().any(|arg| arg.starts_with("--sync-url=")) {
+        args.push(format!("--sync-url={sync_server}"));
+    }
     let given = given.into_iter().filter(|arg| {
         !cfg!(feature = "prod") || !(arg.starts_with(TEST_HOST) || arg.starts_with(CRASH_TEST))
     });
@@ -6546,6 +6693,9 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         #[cfg(target_os = "linux")]
         ui_committed: Some(ui_committed),
         history_added: Some(history_added),
+        sync_changed: Some(sync_changed),
+        sync_pairing_asked: Some(sync_pairing_asked),
+        sync_devices_changed: Some(sync_devices_changed),
         tab_text: Some(tab_text),
         agent_page_done: Some(agent_page_done),
         agent_page_element: Some(agent_page_element),
@@ -6555,6 +6705,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         window_activated: Some(window_activated),
         #[cfg(target_os = "linux")]
         window_option_tapped: Some(window_option_tapped),
+        addresses_added: Some(addresses_added),
         ..Default::default()
     };
     (args, host)
