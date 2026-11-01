@@ -1443,6 +1443,20 @@ LRESULT CALLBACK DropRealPointer(int code, WPARAM wparam, LPARAM lparam) {
 
 }  // namespace
 
+// Each window that comes to the front or takes the keyboard, logged from inside the call that
+// moves it, so the log shows which of the app's steps moved it, as no "drive done" line can.
+LRESULT CALLBACK WatchKeyboard(int code, WPARAM wparam, LPARAM lparam) {
+  if (code == HCBT_ACTIVATE || code == HCBT_SETFOCUS) {
+    HWND hwnd = reinterpret_cast<HWND>(wparam);
+    const std::string name = code == HCBT_ACTIVATE
+                                 ? KeyName(hwnd)
+                                 : FocusName(hwnd, GetAncestor(hwnd, GA_ROOT));
+    fprintf(stderr, "browser: drive: %s %s\n", code == HCBT_ACTIVATE ? "activates" : "focuses",
+            name.c_str());
+  }
+  return CallNextHookEx(nullptr, code, wparam, lparam);
+}
+
 extern "C" {
 
 void drive_watch_menus(bool (*menus)(void* ui_view, const char* title, bool bar)) {
@@ -1458,6 +1472,7 @@ void drive_start(void) {
   g_driver = CreateWindowExW(0, window_class.lpszClassName, L"", 0, 0, 0, 0, 0, HWND_MESSAGE,
                              nullptr, window_class.hInstance, nullptr);
   SetWindowsHookExW(WH_GETMESSAGE, DropRealPointer, nullptr, GetCurrentThreadId());
+  SetWindowsHookExW(WH_CBT, WatchKeyboard, nullptr, GetCurrentThreadId());
   HWND driver = g_driver;
   std::thread([driver] {
     HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
