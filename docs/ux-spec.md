@@ -132,7 +132,7 @@ Every curve used in this spec. Each feature's section says where it applies.
 | Onboarding end | the flow fades from over the first Space over 200 ms on the scroll edge's curve, leaving the welcome where it is | leaving the onboarding's last step | ours |
 | Page elsewhere: come back | none: the page is taken back at the press, as the row's click takes it, and covers the picture, at its last frame, stretched to the card until it draws at the card's size | a press on the picture | ours: Readable at once; a 120 ms grow before the move was a wait the user saw (#292) |
 
-Under Reduce Motion, Dia skips the New Tab intro and the PiP throw. Ardia also drops the sidebar slide and turns the panel grow into a fade. Ours: nothing moves or scales, and fades stay.
+Under Reduce Motion, Dia skips the New Tab intro and the PiP throw. Ardia also drops the sidebar slide and turns the panel grow into a fade. Ours: nothing moves or scales, and fades stay. Reduce Motion is the system's: the Mac's, Windows' "Show animations in Windows" turned off, and on Linux the desktop's animations turned off (GNOME) or their speed at 0 (KDE), read at launch and each time the app becomes active.
 
 ### Overlays
 
