@@ -21,6 +21,9 @@ struct Recorder {
     /// What the core was asked to suggest for, the text and whether it may complete it.
     asked: RefCell<Vec<(String, bool)>>,
     shown: RefCell<Vec<String>>,
+    /// Each show's level and the height last asked for as it showed, and every height asked for.
+    levels: RefCell<Vec<(Level, Option<f32>)>>,
+    heights: RefCell<Vec<f32>>,
     commands: bool,
     elsewhere: RefCell<HashMap<u64, u64>>,
 }
@@ -99,15 +102,18 @@ impl Host for Recorder {
         self.record(format!("copy {text}"));
     }
 
-    fn show(&self, centered: bool, left: f32, top: f32, width: f32, radius: f32) {
+    fn show(&self, centered: bool, left: f32, top: f32, width: f32, radius: f32, level: Level) {
         let place = match centered {
             true => format!("centred {top} above the middle"),
             false => format!("at {left} {top}"),
         };
         self.shown.borrow_mut().push(format!("{place}, {width} wide, radius {radius}"));
+        self.levels.borrow_mut().push((level, self.heights.borrow().last().copied()));
     }
 
-    fn set_height(&self, _: f32) {}
+    fn set_height(&self, height: f32) {
+        self.heights.borrow_mut().push(height);
+    }
 
     fn hide(&self) {
         self.record("hide".into());
@@ -274,6 +280,30 @@ impl Bar {
 
     fn over_field(&mut self) -> bool {
         self.window.read_with(&self.cx.cx, |bar, _| bar.over_field).unwrap()
+    }
+
+    /// The height the bar last asked its window to be.
+    fn asked_height(&self) -> f32 {
+        *self.host.heights.borrow().last().expect("the bar asked for no height")
+    }
+
+    /// How tall the bar's panel over the field reads in a window the height it last asked for, as
+    /// the host makes it: the input row, and with rows, to the list's foot and the space under it.
+    fn drawn_over_field(&mut self) -> f32 {
+        let asked = self.asked_height();
+        self.cx.simulate_resize(size(px(FIELD_WIDTH), px(asked)));
+        self.cx.run_until_parked();
+        (self.window)
+            .read_with(&self.cx.cx, |bar, _| match bar.rows.is_empty() {
+                true => FIELD_INPUT,
+                false => f32::from(bar.scroll.bounds().bottom()) + LIST_END,
+            })
+            .unwrap()
+    }
+
+    /// The level the bar last showed at, and the height it had asked for by then.
+    fn last_show(&self) -> (Level, Option<f32>) {
+        *self.host.levels.borrow().last().expect("the bar didn't show")
     }
 
     /// A right-click in the input: the items of the menu it shows, " (disabled)" after those
@@ -1236,6 +1266,58 @@ fn a_click_on_the_url_field_opens_the_bar_over_it_and_cmd_l_centred(cx: &mut Tes
     bar.edit("https://example.com/", None);
     assert_eq!(bar.shown(), ["centred 169 above the middle, 765 wide, radius 20"]);
     assert!(!bar.over_field());
+}
+
+/// Over the URL field the window is as tall as what the bar draws, asked for before it shows: with
+/// no rows, as rows come, as they go, and on opening again after a taller panel or the centred one
+/// (#1306).
+#[gpui::test]
+fn over_the_field_the_window_is_as_tall_as_what_the_bar_draws(cx: &mut TestAppContext) {
+    let tabs = vec![titled(4, "Projects", CONVEX), titled(2, "Inbox", "https://mail.test/")];
+    let mut bar = Bar::with_tabs(cx, tabs);
+    assert_eq!(bar.asked_height(), height(2), "centred, with the Space's tabs");
+    let field = Bounds::new(point(px(8.), px(46.)), size(px(244.), px(36.)));
+    let url = "https://example.com/";
+    bar.edit(url, Some(field));
+    assert_eq!(bar.last_show(), (FIELD_LEVEL, Some(FIELD_INPUT)), "the input row, before it shows");
+    assert_eq!(bar.drawn_over_field(), FIELD_INPUT);
+    bar.type_text("ex");
+    bar.suggest("ex", vec![searching("ex"), page("https://a.test/")]);
+    assert_eq!(bar.drawn_over_field(), bar.asked_height());
+    assert_eq!(bar.asked_height(), field_height(2));
+    let many: Vec<_> = (0..7).map(|at| page(&format!("https://{at}.test/"))).collect();
+    bar.type_text("x");
+    bar.suggest("exx", many);
+    assert_eq!(bar.drawn_over_field(), bar.asked_height());
+    assert_eq!(bar.asked_height(), field_height(ROWS_SHOWN));
+    bar.type_text("q");
+    bar.suggest("exxq", Vec::new());
+    assert_eq!(bar.asked_height(), FIELD_INPUT, "no rows left");
+    assert_eq!(bar.drawn_over_field(), FIELD_INPUT);
+    bar.type_text("z");
+    bar.suggest("exxqz", (0..7).map(|at| page(&format!("https://{at}.test/"))).collect());
+    bar.keys("escape");
+    bar.edit(url, Some(field));
+    assert_eq!(bar.last_show(), (FIELD_LEVEL, Some(FIELD_INPUT)), "after the taller panel");
+    bar.edit(url, None);
+    assert_eq!(bar.last_show(), (Level::Modal, Some(height(0))));
+    bar.edit(url, Some(field));
+    assert_eq!(bar.last_show(), (FIELD_LEVEL, Some(FIELD_INPUT)), "after the centred one");
+    assert_eq!(bar.drawn_over_field(), FIELD_INPUT);
+}
+
+/// Over the URL field the panel is a row tall, and its shadow can't be seen a row below it. The
+/// centred bar's modal shadow, 24 down at a 64 blur, reached twice that, and over a light page
+/// read as a blank grey bar under the panel (#1306).
+#[gpui::test]
+fn over_the_field_the_shadow_ends_within_a_row_below_the_panel(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    let field = Bounds::new(point(px(8.), px(46.)), size(px(244.), px(36.)));
+    bar.edit("https://example.com/", Some(field));
+    let (level, _) = bar.last_show();
+    assert!(level.reach().below < FIELD_INPUT, "{level:?} reaches {:?}", level.reach());
+    bar.edit("https://example.com/", None);
+    assert_eq!(bar.last_show().0, Level::Modal, "the centred bar keeps its modal shadow");
 }
 
 /// ⌘T or ⌘L closes the bar, whichever opened it, as Arc's do, and the browser's other shortcuts go

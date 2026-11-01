@@ -64,6 +64,9 @@ pub use crate::tokens::command_bar::FIELD_RADIUS;
 /// There the input's row is a row tall, with no line under it, and its icon and text sit in
 /// the rows' icon and title columns.
 const FIELD_INPUT: f32 = ROW_HEIGHT;
+/// There it hangs from the field as the Site Controls do. The modal shadow, 24 down at a 64 blur,
+/// fell mostly below a panel only 50 tall, a grey bar under it over a light page (#1306).
+const FIELD_LEVEL: Level = Level::Popover;
 use crate::tokens::command_bar::FIELD_INPUT_TEXT;
 use crate::tokens::command_bar::BESIDE_END;
 use crate::elevation::Level;
@@ -284,10 +287,10 @@ pub trait Host {
     fn open_split(&self, url: &str, with: u64, cx: &mut App);
     /// Copies `text`, a sum's result, and says so.
     fn copy(&self, text: &str, cx: &mut App);
-    /// Shows the bar's window, `width` wide and its corners rounded by `radius`, with the keyboard:
-    /// centred across the browser window with its top `top` above the window's middle, else at
-    /// `left` and `top` in it.
-    fn show(&self, centered: bool, left: f32, top: f32, width: f32, radius: f32);
+    /// Shows the bar's window, `width` wide, its corners rounded by `radius` and shadowed as
+    /// `level` is, with the keyboard: centred across the browser window with its top `top` above
+    /// the window's middle, else at `left` and `top` in it.
+    fn show(&self, centered: bool, left: f32, top: f32, width: f32, radius: f32, level: Level);
     fn set_height(&self, height: f32);
     /// Hides the bar's window once the user has chosen something in it.
     fn hide(&self);
@@ -507,9 +510,9 @@ pub fn show(
     match field {
         Some(field) => {
             let top = f32::from(field.top()) - FIELD_ABOVE;
-            host.show(false, field.left().into(), top, FIELD_WIDTH, FIELD_RADIUS);
+            host.show(false, field.left().into(), top, FIELD_WIDTH, FIELD_RADIUS, FIELD_LEVEL);
         }
-        None => host.show(true, 0., ABOVE_MIDDLE, WIDTH, RADIUS),
+        None => host.show(true, 0., ABOVE_MIDDLE, WIDTH, RADIUS, Level::Modal),
     }
 }
 
@@ -521,7 +524,7 @@ pub fn show_tabs(tabs: Vec<shell::BarTab>, cx: &mut App) {
         tabs.iter().take(shell::BAR_ROWS).map(|tab| tab.tab.to_string()).collect();
     log!("browser: command bar searches tabs {}", ids.join(" "));
     if let Some(host) = reset(Target::Tabs, SharedString::default(), tabs, false, cx) {
-        host.show(true, 0., ABOVE_MIDDLE, WIDTH, RADIUS);
+        host.show(true, 0., ABOVE_MIDDLE, WIDTH, RADIUS, Level::Modal);
     }
 }
 
@@ -536,7 +539,7 @@ pub fn show_split(with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mu
         // The card is as far in from the window's bottom as from its top.
         let window = f32::from(card.top() + card.bottom());
         let top = centered_top(window) + f32::from(pane.top() - card.top());
-        host.show(false, left.into(), top, WIDTH, RADIUS);
+        host.show(false, left.into(), top, WIDTH, RADIUS, Level::Modal);
     }
 }
 

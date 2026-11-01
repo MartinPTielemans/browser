@@ -165,7 +165,8 @@ void host_forget_window(void* ui_view);
 // Gives the |overlay| (or the Site Controls) the shadow its elevation level draws, in Core
 // Animation's terms: a black line round its shape and a black drop shadow, each with an opacity
 // and a blur |radius|, which is half CSS's blur, and the drop shadow falling |shadow_drop| points.
-// The shadow reaches three radii and the drop past the window. Call it before the overlay is added.
+// The shadow reaches three radii and the drop past the window. Call it before the overlay is added,
+// and again before a show that takes another level, as the command bar's over the URL field does.
 void host_set_overlay_elevation(int overlay,
                                 float outline_opacity,
                                 double outline_radius,
