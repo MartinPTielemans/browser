@@ -199,6 +199,9 @@ composed=日本語
 if [ "$(uname)" = Linux ]; then
   echo "skip: composing in a page: the Linux driver types plain keys there; check/ime.sh covers it with a real input method."
   composed=
+elif windows; then
+  echo "skip: composing in a page: the Windows driver's input method composes in the UI's fields alone, and nothing covers a page's yet."
+  composed=
 else
   send ime on
   send type nihongo
@@ -251,6 +254,8 @@ for shortcut in t l; do
 done
 if [ "$(uname)" = Linux ]; then
   echo "skip: composing right after ⌘L: the Linux driver types plain keys in a page."
+elif windows; then
+  echo "skip: composing right after ⌘L: the Windows driver composes in the UI's fields alone, not in a page."
 else
   send ime on
   typed_after l nihongo
