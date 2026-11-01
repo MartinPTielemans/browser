@@ -49,6 +49,9 @@ mod drop_targets;
 #[cfg(target_os = "windows")]
 #[path = "../platform/windows/drive_menus.rs"]
 mod drive_menus;
+#[cfg(target_os = "windows")]
+#[path = "../platform/windows/fade.rs"]
+mod fade;
 mod find_bar;
 mod import_host;
 #[cfg(target_os = "linux")]
@@ -60,7 +63,7 @@ mod drive_wayland;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/drops.rs"]
 mod drops;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 #[path = "../platform/linux/emoji.rs"]
 mod emoji;
 #[cfg(target_os = "linux")]
@@ -90,6 +93,9 @@ mod popovers;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/previews.rs"]
 mod previews;
+#[cfg(target_os = "linux")]
+#[path = "../platform/linux/reduce_motion.rs"]
+mod reduce_motion;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/reveal_window.rs"]
 mod reveal_window;
@@ -190,6 +196,10 @@ mod platform {
         pub fn host_after_menus(apply: extern "C" fn()) -> bool;
         pub fn host_watch_resigning_active(resigning: extern "C" fn());
         pub fn host_watch_active(became_active: extern "C" fn());
+        #[cfg(not(target_os = "linux"))]
+        pub fn host_reduce_motion() -> bool;
+        #[cfg(not(target_os = "linux"))]
+        pub fn host_watch_reduce_motion(changed: extern "C" fn());
         pub fn host_is_default_browser() -> bool;
         pub fn host_make_default_browser(answered: extern "C" fn());
         pub fn host_since_launch() -> f64;
@@ -691,6 +701,14 @@ fn update_app_later(change: impl FnOnce(&mut App) + 'static) {
         let executor = cx.foreground_executor().clone();
         executor.spawn(async move { cx.update(change) }).detach();
     }
+}
+
+/// The view of a window the host fades, as the tooltip's: on Windows the app paints its fades.
+fn fading_view(window: &mut Window) -> *mut c_void {
+    let view = ns_view(window);
+    #[cfg(target_os = "windows")]
+    fade::attach(window, view);
+    view
 }
 
 /// The window's NSView, for the host.
@@ -4047,7 +4065,7 @@ fn open_window_as(
         });
         window.focus(&shell.focus_handle(cx), cx);
         CX.set(Some(cx.to_async()));
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
         emoji::keep(cx);
         // In front, as it's about to be key, or a saved one behind the others.
         WINDOWS.with_borrow_mut(|windows| {
@@ -4281,6 +4299,11 @@ fn finish_opening(
         platform::host_watch_resigning_active(launch_picture_on_resigning);
         platform::host_watch_active(became_active);
     }
+    follow_reduce_motion(cx);
+    #[cfg(not(target_os = "linux"))]
+    unsafe { platform::host_watch_reduce_motion(reduce_motion_changed) };
+    #[cfg(target_os = "linux")]
+    reduce_motion::watch(cx);
     if let Some(bar) = command_bar::open(Rc::new(Bar), cx)
         && let Ok(view) = bar.update(cx, |_, window, _| ns_view(window))
     {
@@ -4373,7 +4396,7 @@ fn finish_opening(
     // Their windows reach this far past the plate, for its shadow.
     let margin = f64::from(browser::elevation::WINDOW_MARGIN);
     if let Some(tip) = tooltip::open(Rc::new(TooltipHost), cx)
-        && let Ok(view) = tip.update(cx, |_, window, _| ns_view(window))
+        && let Ok(view) = tip.update(cx, |_, window, _| fading_view(window))
     {
         unsafe { platform::host_add_tooltip(view, margin, tooltip_away) };
     }
@@ -4387,7 +4410,7 @@ fn finish_opening(
     }
     if let Some(target) =
         link_target::open(Rc::new(LinkTargetHost), move |cx| look(cx).unwrap_or_default(), cx)
-        && let Ok(view) = target.update(cx, |_, window, _| ns_view(window))
+        && let Ok(view) = target.update(cx, |_, window, _| fading_view(window))
     {
         unsafe { platform::host_add_link_target(view, margin, link_pointer) };
     }
@@ -4462,7 +4485,15 @@ unsafe extern "C" fn started(_: *mut c_void) {
             // GPUI's X11 scale is its own guess otherwise, from Xft.dpi, where Chromium also
             // follows GDK_SCALE.
             true => {
-                gpui_linux::embed_x11(unsafe { bc::bc_display_scale() } as f32);
+                // A click in the UI takes the keyboard there, to keep, as Wayland's does: moving
+                // X's input focus into GPUI's window tells the core nothing while it's there,
+                // as after ⌘W, where the UI holds the keys for the page shown next (#1209).
+                fn pressed(ui_view: *mut c_void) {
+                    if let Some(window) = window_in(ui_view) {
+                        unsafe { bc::bc_window_ui_takes_keyboard(window) };
+                    }
+                }
+                gpui_linux::embed_x11(unsafe { bc::bc_display_scale() } as f32, pressed);
                 // The clipboard's owner can be Chromium, which answers on this thread, so the UI's
                 // read has it answer while it waits (#999).
                 gpui_linux::answer_clipboard_reads_with(|| unsafe {
@@ -4727,7 +4758,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 )),
                 MenuItem::separator(),
                 item(bar.sidebar_title(), Command::ToggleSidebar),
-                item(bar.pinned_item().0, bar.pinned_item().1),
+                item(bar.pinned_item().0, bar.pinned_item().1).disabled(!bar.pinned_offered),
                 MenuItem::separator(),
                 item("Stop Loading", Command::Stop),
                 item("Refresh the Page", Command::Reload),
@@ -5098,7 +5129,33 @@ extern "C" fn became_active() {
     update_app_later(|cx| {
         settings::check_default_browser(cx);
         import_host::became_active(cx);
+        // GTK's settings file, Linux's last word, says nothing as it changes.
+        #[cfg(target_os = "linux")]
+        follow_reduce_motion(cx);
     });
+}
+
+/// Reads the system's Reduce Motion as the first window opens, before its first frame, and again
+/// as the system says it changed.
+fn follow_reduce_motion(cx: &mut App) {
+    #[cfg(not(target_os = "linux"))]
+    set_reduce_motion(unsafe { platform::host_reduce_motion() }, cx);
+    #[cfg(target_os = "linux")]
+    reduce_motion::read(cx);
+}
+
+#[cfg(not(target_os = "linux"))]
+extern "C" fn reduce_motion_changed() {
+    update_app_later(follow_reduce_motion);
+}
+
+/// What GPUI's animations and the UI's own motion follow (`App::reduce_motion`).
+fn set_reduce_motion(reduce: bool, cx: &mut App) {
+    if reduce != cx.reduce_motion() {
+        // check.sh reads this line.
+        log!("browser: reduce motion {}", if reduce { "on" } else { "off" });
+        cx.set_reduce_motion(reduce);
+    }
 }
 
 unsafe extern "C" fn stopping(_: *mut c_void) {
