@@ -726,7 +726,11 @@ expect "^browser: shortcut select-space-1 $first_key\$" \
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 send click $page_point
-# And ⌘9 the last tab again.
+# And ⌘1 the favorite again, then ⌘9 the last tab.
+page_shortcut 1 select-tab
+expect "^browser: selected $favorite\( in .*\)\{0,1\}\$" \
+  "⌘1 after Restore Defaults didn't show the favorite"
+send click $page_point
 last=$(today | tr ' ' '\n' | tail -1)
 page_shortcut 9 select-last-tab
 expect "^browser: selected $last\( in .*\)\{0,1\}\$" \
