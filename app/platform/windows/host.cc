@@ -2960,6 +2960,10 @@ void host_copy(const char* text) {
   CloseClipboard();
 }
 
+bool host_key_repeated(void) {
+  return false;
+}
+
 size_t host_paste(char* text, size_t capacity) {
   std::string held;
   if (OpenClipboard(nullptr)) {
