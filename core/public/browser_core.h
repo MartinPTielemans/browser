@@ -606,6 +606,10 @@ typedef struct bc_sync_pairing {
   const char* os;
   // The match code, 6 digits, which the asking device shows too.
   const char* code;
+  // When it asked, and when it signed in to the account, by the server's word rather than its
+  // own: milliseconds since the Unix epoch, 0 from a server that doesn't say.
+  double asked_at;
+  double signed_in_at;
 } bc_sync_pairing;
 
 // One of the account's devices, as Settings lists them.

@@ -575,6 +575,18 @@ start_with_cdp() {
 serve() {
   [ -n "${site:-}" ] || . check/site.sh
 }
+# Of the addresses on stdin, one a line, those of Google's servers, with ungoogled-chromium's
+# substitutes for its domains, but the security components' updates that engine/README.md › What
+# reaches Google lets through and every user's browser makes, the first a minute after launch: the
+# update check, and CRLSet's, PKI Metadata's and the SSL error assistant's downloads, over https,
+# from the hosts it names.
+google_asked() {
+  hosts='\(dl\.google\.com\|[a-z0-9.-]*\.gvt1\.com\|www\.google\.com/dl\)'
+  grep -i '^[a-z]*://[^/]*\(google\|gstatic\|gvt1\|9oo91e\|qjz9zk\)' |
+    grep -v -e '^https://update\.googleapis\.com/service/update2/json\(?[^/]*\)\{0,1\}$' \
+      -e "^https://$hosts/.*/\(hfnkpimlhhgieaddgfemjhofmfblmnib\|efniojlnjndmcbiieegkicadnoecjjef\)_[0-9.]*_[a-z0-9_]*\.crx3\$" \
+      -e "^https://$hosts/.*/[0-9.]*_all_sslErrorAssistant\.crx3\$" || true
+}
 # Waits up to 3 s for the clipboard to hold the text $1, off the Mac, where a run's clipboard is its
 # headless session's, which wl-paste reads, Xwayland's too, as sway hands it over. The Mac's
 # pasteboard is the run's own, which nothing else reads, so it passes there, as under Xvfb.

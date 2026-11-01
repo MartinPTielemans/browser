@@ -2962,12 +2962,10 @@ void host_hide_capture(void) {
 
 namespace {
 
-// host_copy's pasteboard: the clipboard, or in a driven run one of its own, so checks never touch
-// the user's clipboard.
+// host_copy's pasteboard: the clipboard, which in a driven run is the driver's own (drive.mm), so
+// checks never touch the user's clipboard, and the driver's pasteboard command reads what's copied.
 NSPasteboard* CopyPasteboard() {
-  static NSPasteboard* driven =
-      getenv("BROWSER_DRIVE") ? [NSPasteboard pasteboardWithUniqueName] : nil;
-  return driven ?: NSPasteboard.generalPasteboard;
+  return NSPasteboard.generalPasteboard;
 }
 
 // A capture's name, for when it was taken, as macOS names a screenshot.
@@ -2993,7 +2991,7 @@ void host_copy_png(const uint8_t* png, size_t size) {
   // check.sh reads this line: what the pasteboard holds now, and which one it is.
   fprintf(stderr, "browser: pasteboard png %lu bytes, %s\n",
           (unsigned long)[pasteboard dataForType:NSPasteboardTypePNG].length,
-          pasteboard == NSPasteboard.generalPasteboard ? "general" : "private");
+          [pasteboard.name isEqualToString:NSPasteboardNameGeneral] ? "general" : "private");
 }
 
 void host_save_png(void* ui_view, const uint8_t* png, size_t size) {

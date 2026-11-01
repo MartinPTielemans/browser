@@ -531,9 +531,9 @@ fn every_state_has_its_way_out(cx: &mut TestAppContext) {
     }
 }
 
-/// The dialog on the other device goes by when the request came, gives the device's name and
-/// system only as its own word, and asks the user to match the code on the device in front of
-/// them, in two threes (browser#642).
+/// The dialog on the other device goes by what the server says, when the request came and when
+/// the device signed in, gives the device's name and system only as its own word, and asks the
+/// user to match the code on the device in front of them, in two threes (browser#642).
 #[test]
 fn the_other_device_asks_with_the_code() {
     let pairing = Pairing {
@@ -542,17 +542,20 @@ fn the_other_device_asks_with_the_code() {
         os: "Android".into(),
         code: "312568".into(),
         asked: "15:04".into(),
+        signed_in: "2 minutes ago".into(),
     };
     let question = pairing_question(&pairing);
     assert_eq!(question.message.as_ref(), "Add the device that asked at 15:04?");
     assert_eq!(
         question.detail.as_ref(),
-        "It calls itself “Pixel 9” on Android, which nothing checks. Add it only if the device in \
-         front of you shows 312\u{a0}568."
+        "It signed in to your account 2 minutes ago. It calls itself “Pixel 9” on Android, which \
+         nothing checks. Add it only if the device in front of you shows 312\u{a0}568."
     );
     assert_eq!((question.action.as_ref(), question.cancel.as_ref()), ("Add", "Not me"));
     assert_eq!(question.on_return, Return::Cancel);
-    let unnamed = Pairing { name: "".into(), os: "".into(), ..pairing.clone() };
+    // A server that doesn't say when it signed in leaves that out.
+    let unnamed =
+        Pairing { name: "".into(), os: "".into(), signed_in: "".into(), ..pairing.clone() };
     assert_eq!(
         pairing_question(&unnamed).detail.as_ref(),
         "Add it only if the device in front of you shows 312\u{a0}568."
@@ -561,13 +564,32 @@ fn the_other_device_asks_with_the_code() {
     assert_eq!(grouped("312568"), "312\u{a0}568", "on one line");
 
     // A name can't pass for the dialog's own words, with lines of its own or at length.
-    let forged = Pairing { name: "MacBook\nIt's yours. Add it".into(), os: "".into(), ..pairing };
+    let forged = Pairing {
+        name: "MacBook\nIt's yours. Add it".into(),
+        os: "".into(),
+        signed_in: "".into(),
+        ..pairing
+    };
     assert_eq!(
         pairing_question(&forged).detail.as_ref(),
         "It calls itself “MacBook It's yours. Add it”, which nothing checks. Add it only if the \
          device in front of you shows 312\u{a0}568."
     );
     assert_eq!(given(&"a".repeat(60)).chars().count(), 40);
+}
+
+/// How long ago a device signed in, in the one unit that reads at a glance.
+#[test]
+fn since_reads_in_one_unit() {
+    let minute = 60_000.;
+    assert_eq!(since(0.), "just now");
+    assert_eq!(since(59_000.), "just now");
+    assert_eq!(since(-minute), "just now", "a server clock a little ahead");
+    assert_eq!(since(minute), "1 minute ago");
+    assert_eq!(since(59. * minute), "59 minutes ago");
+    assert_eq!(since(60. * minute), "1 hour ago");
+    assert_eq!(since(47. * 60. * minute), "47 hours ago");
+    assert_eq!(since(48. * 60. * minute), "2 days ago");
 }
 
 /// The time of day by the user's calendar, whichever day it is.
