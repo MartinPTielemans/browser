@@ -2,45 +2,84 @@
 
 a good tool.
 
-ilo is an open-source web browser. Your tabs sit in a sidebar, in Spaces: each Space keeps its own pinned tabs and today's tabs, and today's tabs you leave alone go to the archive. A command bar opens pages, tabs and commands, and two pages can share a window side by side. Underneath is Chromium, from ungoogled-chromium, so web pages and Chrome extensions work in it.
+<img alt="ilo: a window with the sidebar of Spaces and tabs on the left and a web page on the right" src="docs/images/ilo-light.webp">
 
-ilo is also built to be the browser AI agents work in. Claude Code, Codex or any MCP client can work in your logged-in sessions, in a Space of its own, with the permissions you give it. It never reads your passwords or cookies. In 0.1.0, agents are off until you turn them on.
+ilo is an open-source web browser. Your tabs live in a sidebar, in Spaces: each Space keeps its own pinned tabs and today's tabs, and today's tabs you leave alone move to the archive. A command bar opens pages, tabs and commands, and two pages can share a window side by side. Underneath is Chromium, by way of ungoogled-chromium, so websites work as they should, and extensions install from the Chrome Web Store.
+
+ilo is also the browser AI agents work in. Claude Code, Codex or any MCP client can work in your logged-in sessions, in a Space of its own, with only the permissions you give it, and it never reads your passwords or cookies. Agents are off until you turn them on.
+
+## "What are you selling?"
+
+Nothing. ilo is free, and licensed under the GPL. The browser has no paid features, no license checks and no ads, and it doesn't sell your data.
+
+Services that hold your data, such as sync, can be self-hosted. The hosted ones we run may cost money one day; the browser won't.
+
+Official builds differ from a fork only in their branding, signing keys and default service URLs. If ilo ever goes the wrong way, you have everything you need to build your own.
 
 ## Install
 
-0.1.0 is the first public beta. Its builds come from [Releases](https://github.com/MartinPTielemans/ilo/releases), under the same names in every release.
+Every release is on [GitHub Releases](https://github.com/MartinPTielemans/ilo/releases), with its notes. Once installed, ilo keeps itself up to date.
 
-| OS | How | State |
-|---|---|---|
-| macOS 15 (Sequoia) or later, Apple silicon | `ilo-mac-arm64.dmg`, signed and notarized: open it and drag ilo into Applications. It updates itself. | 0.1.0 |
-| Windows 10 (1809) or later, x64 | From winget, which runs the installer `ilo-windows-x64-setup.exe`, or from the Microsoft Store, which installs `ilo-windows-x64.msix`. The installer's ilo updates itself, and the Store's through the Store. | coming |
-| Linux, x86-64 | A Flatpak: `flatpak install --user https://github.com/MartinPTielemans/ilo/releases/latest/download/ilo.flatpakref`, then start ilo from your apps. It updates with your other Flatpaks. `ilo-linux-x86_64.flatpak` is the same build as one file. | 0.1.0 |
+### macOS
+
+macOS 15 (Sequoia) or later, on Apple silicon. Download [ilo-mac-arm64.dmg](https://github.com/MartinPTielemans/ilo/releases/latest/download/ilo-mac-arm64.dmg), open it and drag ilo into Applications.
+
+### Windows
+
+Windows 10 (1809) or later, on x64. Download [ilo-windows-x64-setup.exe](https://github.com/MartinPTielemans/ilo/releases/latest/download/ilo-windows-x64-setup.exe) and run it. It isn't signed yet, so Windows may warn you before it runs. Once installed, ilo updates itself.
+
+ilo will also be on winget (`winget install ilo.ilo`) and in the Microsoft Store, once each has accepted it.
+
+### Linux
+
+x86-64, as a Flatpak:
+
+```bash
+flatpak install --user https://github.com/MartinPTielemans/ilo/releases/latest/download/ilo.flatpakref
+```
+
+Then start ilo from your apps. It updates with your other Flatpaks.
+
+## Some notes
+
+ilo is in beta. Expect bugs, and please report them in [Issues](https://github.com/MartinPTielemans/ilo/issues/new/choose); in ilo, Help › Report a Problem… fills in the details for you. [#454](https://github.com/MartinPTielemans/ilo/issues/454) tracks what's left for 0.1.0.
+
+Contributions are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) says what's likely to land and how to send it.
 
 ## Status
 
-Beta. 0.1.0 is the first build for other people to use, and some of it is still missing: [#454](https://github.com/MartinPTielemans/ilo/issues/454) lists what's in and what's left.
-
 | Phase | What | State |
 |---|---|---|
-| 0 | UX spec: Arc structure + Dia polish, measured | in progress: Dia values imported; Arc's layout, sidebar and Spaces motion, command bar, find, split view, Library and Little Arc measured; Peek, extensions, passwords, themes and drags left |
-| 1 | Architecture spike: GPUI + Chromium in one Mac process | done: go for GPUI |
-| 2 | Engine: ungoogled-chromium + patch series, prebuilt framework | done: the prebuilt engine downloads into the spike, passwords and autofill are on, Manifest V2 works, CI compiles the core on Linux |
-| 3 | Daily-driver MVP on Mac | in progress: sidebar, Spaces, pinned tabs and folders, favorites, command bar, split view, archive, downloads, find, DevTools, extensions and the password prompts; import, updates, password fill and sign-in popups left |
+| 0 | UX spec, measured | in progress: Peek, extensions, passwords, themes and drags left |
+| 1 | Architecture spike: GPUI + Chromium in one process | done |
+| 2 | Engine: ungoogled-chromium + patch series, prebuilt | done |
+| 3 | Daily-driver MVP on Mac | in progress: updates, password fill and sign-in popups done; import left |
 | 4 | Polish and parity | — |
-| 5 | Windows, then Linux | in progress: on Windows, `Browser.dll` and the core's Windows layer are written and CI cross-builds the engine, none of it run against an engine yet; on Linux, the browser runs on the Linux engine CI publishes and packs as a Flatpak |
+| 5 | Windows, then Linux | in progress: 0.1.0 ships on both |
 
-See [docs/roadmap.md](docs/roadmap.md) for each phase's exit criteria and [docs/decisions.md](docs/decisions.md) for why the stack is what it is.
+[docs/roadmap.md](docs/roadmap.md) has each phase's exit check.
 
-## Build
+## Documentation
 
-Each OS builds the app on a prebuilt engine, which `app/setup.sh` downloads, so no Chromium build is needed.
+- [Decisions](docs/decisions.md): why the stack is what it is, and what would change it.
+- [Roadmap](docs/roadmap.md): each phase, where it stands and the check that ends it.
+- [UX principles](docs/ux-principles.md): the principles behind ilo's design.
+- [UX spec](docs/ux-spec.md): every surface, how it looks, moves and behaves, measured.
+- [UX parity](docs/ux-parity.md): the checklist built from the spec.
 
-- **macOS:** `app/setup.sh`, then `app/build.sh` makes `app/build/Browser.app`. [AGENTS.md › Dev](AGENTS.md#dev) has the dev engine, the checks and the prod build, and `tools/release.sh` makes the signed DMG.
-- **Linux:** `app/setup.sh`, then `app/build.sh` makes `app/build/Browser`, and `tools/flatpak.sh` packs it as a Flatpak. Without an engine for your checkout, `setup.sh` sets up the UI's tests and its preview alone.
-- **Windows:** `app/setup.sh` in Git Bash, then `cargo build --release --manifest-path app/windows/Cargo.toml` builds `Browser.dll`, which the engine's `chrome.exe` loads.
-- **The engine:** [engine/README.md](engine/README.md) covers building it, on each OS, and its patches.
+## Build from source
 
-[CONTRIBUTING.md](CONTRIBUTING.md) has the rules for changes.
+The app builds on a prebuilt engine that `app/setup.sh` downloads, so you don't need to build Chromium:
+
+```bash
+cd app
+./setup.sh
+./build.sh
+```
+
+On the Mac that makes `app/build/Browser.app`, and on Linux `app/build/Browser`, which `tools/flatpak.sh` packs as a Flatpak. On Windows, run `app/setup.sh` in Git Bash, then `cargo build --release --manifest-path app/windows/Cargo.toml` builds `Browser.dll`, which the engine's `chrome.exe` loads.
+
+[AGENTS.md › Dev](AGENTS.md#dev) has the UI's preview, the checks and the rest, and [engine/README.md](engine/README.md) covers building the engine and its patches.
 
 ## Releases
 
@@ -80,26 +119,6 @@ Once, before the first release:
 1. Make the key: `gpg --quick-gen-key "ilo Flatpak repository" rsa4096 sign never`, with an empty passphrase. Put `gpg --armor --export-secret-keys <fingerprint>` in `FLATPAK_GPG_KEY` and keep a copy offline forever. Every installed copy checks it, and a new key strands them.
 2. In Cloudflare, create the R2 bucket, connect a custom domain to it for public reads, and create the API token.
 3. Add the secrets and the variable. The address is permanent too, as installs keep it.
-
-## Architecture
-
-```
-UI            GPUI (Rust)                 sidebar, Spaces, command bar, split view
-Bridge        plain C API (bindgen)       core/public/browser_core.h
-Core          portable C++ in Chromium     one window, one Chrome Browser per profile, popups become tabs
-Platform      the only per-OS code         native view parenting, run loop
-Engine        ungoogled-chromium + series  built as Chrome's framework
-```
-
-## Layout
-
-| Path | What |
-|---|---|
-| `app/` | The browser: GPUI on the core's C API (`./setup.sh && ./build.sh`), and a preview of its UI without the engine (`cargo run --release --bin preview`) |
-| `core/` | Our C++ inside Chrome's framework (`//browser_core`), and its C API for the app |
-| `docs/` | Decisions, roadmap, UX spec and its parity checklist |
-| `engine/` | Chromium pins and the patch series |
-| `tools/` | Scripts for working on the repo |
 
 ## License
 
