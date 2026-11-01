@@ -2893,19 +2893,19 @@ bool host_drag_file(const char* path, void (*ended)(bool)) {
   if (!data) {
     return false;
   }
-  ComPtr<IDropSource> source;
-  source.Attach(new FileDropSource());
-  // Modal while the drag runs, on the UI thread GPUI has made an OLE apartment, as Explorer's drag
-  // is; it returns once the file is let go.
-  DWORD effect = DROPEFFECT_NONE;
-  const HRESULT dropped = DoDragDrop(data.Get(), source.Get(), DROPEFFECT_COPY, &effect);
-  if (FAILED(dropped)) {
-    return false;
-  }
-  if (ended) {
-    const bool taken = dropped == DRAGDROP_S_DROP && effect != DROPEFFECT_NONE;
-    Later([ended, taken] { ended(taken); });
-  }
+  // From a task of its own, once the UI's event has returned, as the Mac's drag session starts:
+  // DoDragDrop is modal until the file is let go, and inside the event it would hold the UI, and
+  // the driver's step that moved the pointer, until then.
+  Later([data, ended] {
+    ComPtr<IDropSource> source;
+    source.Attach(new FileDropSource());
+    // On the UI thread GPUI has made an OLE apartment, as Explorer's drag is.
+    DWORD effect = DROPEFFECT_NONE;
+    const HRESULT dropped = DoDragDrop(data.Get(), source.Get(), DROPEFFECT_COPY, &effect);
+    if (ended) {
+      ended(dropped == DRAGDROP_S_DROP && effect != DROPEFFECT_NONE);
+    }
+  });
   return true;
 }
 
