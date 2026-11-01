@@ -677,7 +677,7 @@ send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
 send clickkey 519 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
-send clickkey 592 209
+send clickkey 592 251
 expect '^browser: restore windows off$' \
   "a click on Restore windows from last session didn't turn it off"
 send key w cmd
