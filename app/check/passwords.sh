@@ -277,6 +277,7 @@ expect "^browser: menu shown $(cased 'Remove “check@example.test”…, All Pa
 send choose "$(cased 'All Passwords…')"
 expect '^browser: site controls run passwords$' "All Passwords… didn't run"
 expect '^browser: settings tab Passwords$' "All Passwords… didn't show Settings' Passwords tab"
+settings_drew Passwords
 expect "^browser: passwords [0-9]*: 127.0.0.1:$port check@example.test\$" \
   "Settings didn't list the saved login alone: $(grep '^browser: passwords ' "$log" | tail -1)"
 ../tools/window-screenshot.sh "$pid" "$out/settings-passwords.png" || fail "no window to capture"
@@ -398,6 +399,7 @@ expect "^browser: menu shown $(cased 'Remove “new@example.test”…, All Pass
 send choose "$(cased 'All Passwords…')"
 expect '^browser: site controls run passwords$' "All Passwords… didn't run again"
 expect '^browser: settings shown Passwords$' "All Passwords… didn't show Settings' Passwords tab again"
+settings_drew Passwords
 send clickkey $(drawn "switch offer to save passwords")
 expect '^browser: offer to save passwords off$' "a click on Offer to save passwords didn't switch it off"
 ../tools/window-screenshot.sh "$pid" "$out/settings-passwords-off.png" || fail "no window to capture"

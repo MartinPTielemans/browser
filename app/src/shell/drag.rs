@@ -4,6 +4,7 @@
 
 use std::{
     collections::HashMap,
+    path::PathBuf,
     time::{Duration, Instant},
 };
 
@@ -15,7 +16,7 @@ use gpui::{
 use super::{
     Closing, Curve, DRAG_START, Drag, Edit, FOLDER_INDENT, HeldRow, NAME_HEIGHT, Opened,
     PLATE_HEIGHT, PLATE_INSET, PLATE_RADIUS, PRESS_SCALE, PRESS_TIME, Place, ROW_HEIGHT, ROW_PITCH,
-    Shape, Shell, Slot, TILE_HEIGHT, TILE_RADIUS, What, slots,
+    Shape, Shell, Slot, TILE_HEIGHT, TILE_RADIUS, What, files, slots,
 };
 
 /// The tab that links or files dragged in stand for until they're dropped: none, as the core
@@ -751,7 +752,22 @@ impl Shell {
             (true, 0) => log!("browser: dropped {count} in pinned {index}"),
             (true, _) => log!("browser: dropped {count} in folder {folder} {index}"),
         }
-        let tab = self.browser.open_at(urls, in_pinned, folder, index, cx);
+        // A folder from the desktop comes in as one of the sidebar's folders, after what else
+        // was dropped with it in the pinned tabs, else at their bottom, as folders are only there.
+        let (folders, urls): (Vec<&String>, Vec<&String>) =
+            urls.iter().partition(|url| files::folder_path(url).is_some());
+        let urls: Vec<String> = urls.into_iter().cloned().collect();
+        let folders: Vec<PathBuf> =
+            folders.into_iter().filter_map(|url| files::file_path(url)).collect();
+        let tab = match urls.is_empty() {
+            true => 0,
+            false => self.browser.open_at(&urls, in_pinned, folder, index, cx),
+        };
+        let made = !folders.is_empty();
+        match in_pinned {
+            true => self.add_folders(folders, folder, index + urls.len(), cx),
+            false => self.add_folders(folders, 0, usize::MAX, cx),
+        }
         match self.drag.as_mut().filter(|_| tab != 0) {
             // The first one's row lands from where the pointer let go, once the browser reports
             // the lists it made.
@@ -762,7 +778,7 @@ impl Shell {
             None => self.settle_drag(),
         }
         cx.notify();
-        tab != 0
+        tab != 0 || made
     }
 
     /// The depths a row dropped at `gap` in the pinned rows `rows`, which leave out `dragged`, may
