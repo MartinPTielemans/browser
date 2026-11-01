@@ -2780,7 +2780,12 @@ void host_show_reveal(void* ui_view, double width) {
   }
   double content_width, content_height;
   ContentSize(Root(ui_view), &content_width, &content_height);
+  // The UI shows it again as its width changes; check.sh reads the line once a showing.
+  const bool was_shown = it->second.floating.hwnd && IsWindowVisible(it->second.floating.hwnd);
   Show(it->second.floating, ui_view, 0, 0, width, content_height, false);
+  if (!was_shown) {
+    LogShown(it->second.floating, "reveal");
+  }
   WatchPointer();
 }
 
