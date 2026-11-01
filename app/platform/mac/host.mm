@@ -3566,6 +3566,66 @@ void host_show_window_buttons(void* ui_view, bool shown) {
   }
 }
 
+// The diameter of the circle |button| draws, from the middle row of a picture of it: macOS 26
+// draws a larger one for an app built with its SDK than for one built with an older SDK, in a
+// frame of the same width (#1310). A pixel counts once it's half as covered as the most covered.
+static CGFloat DrawnDiameter(NSButton* button) {
+  NSBitmapImageRep* picture = [button bitmapImageRepForCachingDisplayInRect:button.bounds];
+  [button cacheDisplayInRect:button.bounds toBitmapImageRep:picture];
+  const NSInteger row = picture.pixelsHigh / 2;
+  CGFloat most = 0;
+  for (NSInteger x = 0; x < picture.pixelsWide; x++) {
+    most = MAX(most, [picture colorAtX:x y:row].alphaComponent);
+  }
+  NSInteger drawn = 0;
+  for (NSInteger x = 0; most > 0 && x < picture.pixelsWide; x++) {
+    drawn += [picture colorAtX:x y:row].alphaComponent >= most / 2;
+  }
+  return drawn * NSWidth(button.bounds) / MAX(picture.pixelsWide, 1);
+}
+
+bool host_window_buttons(void* ui_view, double centres[3], double* y, double* diameter) {
+  // Read once: they're the same in every browser window, by the SDK the app was built with and
+  // the system it runs on. Hidden, AppKit lays the others out again, so all three must show.
+  static double g_centres[3], g_y, g_diameter;
+  if (g_diameter == 0) {
+    Browser* browser = BrowserWithView(ui_view);
+    if (!browser || (browser->window.styleMask & NSWindowStyleMaskFullScreen)) {
+      return false;
+    }
+    NSWindow* window = browser->window;
+    const NSWindowButton types[] = {NSWindowCloseButton, NSWindowMiniaturizeButton,
+                                    NSWindowZoomButton};
+    double read[3];
+    double row = 0;
+    for (int i = 0; i < 3; i++) {
+      NSButton* button = [window standardWindowButton:types[i]];
+      if (!button || button.hidden) {
+        return false;
+      }
+      // As drive.mm's layout line gives them: points from the window's top-left corner.
+      NSRect frame = [button convertRect:button.bounds toView:nil];
+      read[i] = NSMidX(frame);
+      row = NSHeight(window.frame) - NSMidY(frame);
+    }
+    const CGFloat drawn = DrawnDiameter([window standardWindowButton:NSWindowCloseButton]);
+    if (drawn <= 0) {
+      return false;
+    }
+    for (int i = 0; i < 3; i++) {
+      g_centres[i] = read[i];
+    }
+    g_y = row;
+    g_diameter = drawn;
+  }
+  for (int i = 0; i < 3; i++) {
+    centres[i] = g_centres[i];
+  }
+  *y = g_y;
+  *diameter = g_diameter;
+  return true;
+}
+
 // Level change: AppKit's alignment haptic was too faint to feel (#1075).
 void host_detent(void) {
   [NSHapticFeedbackManager.defaultPerformer
