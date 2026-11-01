@@ -3810,6 +3810,14 @@ void host_copy(const char* text) {
   [pasteboard setString:@(text) forType:NSPasteboardTypeString];
 }
 
+size_t host_paste(char* text, size_t capacity) {
+  const char* held = [CopyPasteboard() stringForType:NSPasteboardTypeString].UTF8String ?: "";
+  if (capacity) {
+    strlcpy(text, held, capacity);
+  }
+  return strlen(held);
+}
+
 void host_open_full_disk_access(void) {
   // check.sh reads this line.
   fprintf(stderr, "browser: open full disk access\n");

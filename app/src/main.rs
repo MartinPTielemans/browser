@@ -291,6 +291,8 @@ mod platform {
         pub fn host_video_close(video: *mut c_void);
         #[cfg(not(target_os = "linux"))]
         pub fn host_copy(text: *const c_char);
+        #[cfg(not(target_os = "linux"))]
+        pub fn host_paste(text: *mut c_char, capacity: usize) -> usize;
         pub fn host_open_in_safari(url: *const c_char);
         pub fn host_open_full_disk_access();
         pub fn host_share(
@@ -1080,6 +1082,8 @@ extern "C" fn site_controls_dismissed() {
 struct LinkPreviewHost {
     /// The view the host puts the preview's page in.
     holder: Cell<*mut c_void>,
+    /// The browser window it shows over, until that window's page has the keyboard back.
+    over: Cell<u64>,
 }
 
 impl link_preview::Host for LinkPreviewHost {
@@ -1092,6 +1096,7 @@ impl link_preview::Host for LinkPreviewHost {
             windows.iter().find(|each| each.id == window).map(|each| each.ui_view)
         });
         if let Some(ui_view) = ui_view {
+            self.over.set(window);
             unsafe { platform::host_show_link_preview(ui_view) };
         }
     }
@@ -1111,9 +1116,17 @@ impl link_preview::Host for LinkPreviewHost {
 
     fn release(&self) {
         unsafe { platform::host_release_link_preview() };
+        // The window's page has the keyboard back from the preview's, which goes, or no page has
+        // it. Linux's host gives it as it releases; Windows' can't name the window.
+        let window = self.over.replace(0);
+        if cfg!(target_os = "windows") && window != 0 {
+            unsafe { bc::bc_window_focus_page(window) };
+        }
     }
 
     fn hide(&self) {
+        // Released as it left, unless it goes at once.
+        self.release();
         unsafe { platform::host_hide_link_preview() };
     }
 
@@ -2919,6 +2932,21 @@ impl Browser for Engine {
         }
     }
 
+    fn pasted(&self, cx: &App) -> Option<String> {
+        #[cfg(target_os = "linux")]
+        return system::pasted(cx);
+        #[cfg(not(target_os = "linux"))]
+        {
+            _ = cx;
+            // Asked for its length first, then for the text.
+            let length = unsafe { platform::host_paste(std::ptr::null_mut(), 0) };
+            let mut text = vec![0u8; length.checked_add(1)?];
+            unsafe { platform::host_paste(text.as_mut_ptr().cast(), text.len()) };
+            text.truncate(length);
+            Some(String::from_utf8_lossy(&text).into_owned()).filter(|text| !text.is_empty())
+        }
+    }
+
     fn can_open_in_safari(&self) -> bool {
         true
     }
@@ -4292,7 +4320,10 @@ fn finish_opening(
     {
         unsafe { platform::host_add_capture(view, capture_dismissed) };
     }
-    let host = Rc::new(LinkPreviewHost { holder: Cell::new(std::ptr::null_mut()) });
+    let host = Rc::new(LinkPreviewHost {
+        holder: Cell::new(std::ptr::null_mut()),
+        over: Cell::new(0),
+    });
     if let Some(preview) = link_preview::open(host.clone(), cx)
         && let Ok(view) = preview.update(cx, |_, window, _| ns_view(window))
     {
@@ -4594,6 +4625,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
     app.extend([
         item("Settings…", Command::Settings),
         item("Import from Other Browsers…", Command::Import),
+        item("Privacy Policy", Command::PrivacyPolicy),
         MenuItem::separator(),
         MenuItem::os_submenu("Services", SystemMenuType::Services),
         MenuItem::separator(),
