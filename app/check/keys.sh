@@ -687,7 +687,9 @@ at=$(drawn "switch favorites numbered") || fail "Include Favorites has no switch
 send clickkey $at
 expect '^browser: favorites numbered off$' "a click on Include Favorites didn't turn it off"
 ../tools/window-screenshot.sh "$pid" "$out/shortcuts-favorites.png" || fail "no window to capture"
-# Last Tab Goes to the Ninth Tab makes ⌘9 the ninth tab, counted as ⌘1–⌘8 count (#682).
+# Last Tab Goes to the Ninth Tab makes ⌘9 the ninth tab, counted as ⌘1–⌘8 count (#682). The
+# switch took the keyboard from the search field.
+send clickkey 300 120
 send key a cmd
 send type ninth
 expect '^browser: shortcuts search "ninth" finds Last Tab Goes to the Ninth Tab$' \
