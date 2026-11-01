@@ -180,13 +180,14 @@ expect "^browser: page $a camera 0 microphone 0 sharing 0 shared 0\$" \
 expect "^browser: page $c camera 0 microphone 0 sharing 0 shared 0\$" \
   "the tab shared kept its mark once the share ended"
 
-# mini_player_at <condition> <failure>: waits for the Picture in Picture window logged since the
-# last command at a frame, x, y, w and h, for which awk's <condition> holds of the last px, py, pw
-# and ph, then makes it the last.
+# mini_player_at <condition> <failure>: waits for the Picture in Picture window that pip last
+# found to be at a frame, x, y, w and h, for which awk's <condition> holds of the last px, py, pw
+# and ph, then makes it the last. Its frame is the last logged, which may come before the last
+# command, as a size does with the drag before the release.
 mini_player_at() {
   for _ in $(seq 100); do
-    at=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep '^browser: pip at ' | tail -1 |
-      cut -d' ' -f4-)
+    at=$(awk '/^browser: drive [0-9]+: pip$/ { at = "" } /^browser: pip at / { at = $0 }
+      END { print at }' "$log" | cut -d' ' -f4-)
     if [ -n "$at" ] && echo "$at" | awk -v px="$px" -v py="$py" -v pw="$pw" -v ph="$ph" \
       "{ x = \$1; y = \$2; w = \$3; h = \$4; exit !($1) }"; then
       read -r px py pw ph <<EOF
