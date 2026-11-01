@@ -712,6 +712,15 @@ void Window::OnTabClosing(bc_id tab) {
       window->selected_ = 0;
       Space* shown = space ? nullptr : Space::FromId(window->space_);
       window->next_after_closing_ = shown ? shown->NextAfterLeaving(tab, &Tab::Loaded) : next;
+#if BUILDFLAG(IS_LINUX)
+      // Until the next page shows, keys in nothing reach no shortcut, as ⌘T straight after ⌘W
+      // would, where the Mac's menu bar takes them: the UI holds them for it, as with no page
+      // (#1178).
+      views::Widget* widget = window->widget_.get();
+      if (!window->closing_ && widget->IsActive() && platform::KeyboardForPage(widget)) {
+        platform::UITakesKeyboard(widget, /*until_page=*/true);
+      }
+#endif
       // Posted: Chrome is part way through closing the tab, and its tab strip can't change yet.
       base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE,
