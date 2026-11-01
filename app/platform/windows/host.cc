@@ -157,6 +157,9 @@ struct Floating {
   HWND hwnd = nullptr;
   // Clicks go through it to the browser window under it.
   bool mouse_through = false;
+  // Where it takes clicks, in pixels from its top-left, if not all of it: the hover card's plate,
+  // whose margin, where its shadow draws, lets them through as on the Mac and Linux.
+  std::optional<RECT> plate;
   // Called after the event, when the user leaves it for a window that isn't its own.
   void (*dismissed)(void) = nullptr;
   // Set while the host hides it, so that isn't the user leaving it.
@@ -164,6 +167,8 @@ struct Floating {
   // Counts its fades, so one that ends after it showed or hid again leaves it be.
   int fades = 0;
 };
+
+bool HideOverlayOf(HWND hwnd);
 
 std::map<HWND, Floating*>& FloatingByHwnd() {
   static std::map<HWND, Floating*> all;
@@ -232,6 +237,13 @@ LRESULT CALLBACK FloatingProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpa
       if (floating->mouse_through) {
         return HTTRANSPARENT;
       }
+      if (floating->plate) {
+        POINT at{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+        ScreenToClient(hwnd, &at);
+        if (!PtInRect(&*floating->plate, at)) {
+          return HTTRANSPARENT;
+        }
+      }
       break;
     case WM_MOUSEACTIVATE:
       if (floating->mouse_through) {
@@ -245,8 +257,13 @@ LRESULT CALLBACK FloatingProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpa
         if (g_menu.shown && reinterpret_cast<HWND>(lparam) == g_menu.hwnd) {
           break;
         }
+        // After the press that left it, as Windows has taken it by now: an overlay goes then, as
+        // the Mac's and Linux's hosts close one, and the UI hears so after the press (#872).
         void (*dismissed)(void) = floating->dismissed;
-        Later([dismissed] { dismissed(); });
+        Later([dismissed, hwnd] {
+          HideOverlayOf(hwnd);
+          dismissed();
+        });
       }
       break;
   }
@@ -756,6 +773,16 @@ bool HideOverlay(int index) {
   // check.sh reads this line.
   fprintf(stderr, "browser: %s hidden\n", kOverlayNames[index]);
   return true;
+}
+
+// Hides the overlay whose window is |hwnd|, if it's one and shown, saying so.
+bool HideOverlayOf(HWND hwnd) {
+  for (int index = 0; index < int(std::size(g_overlays)); ++index) {
+    if (g_overlays[index].hwnd == hwnd) {
+      return HideOverlay(index);
+    }
+  }
+  return false;
 }
 struct Corner {
   Floating floating;
@@ -1294,6 +1321,10 @@ class FileDropSource : public IDropSource {
     return refs;
   }
   HRESULT STDMETHODCALLTYPE QueryContinueDrag(BOOL escape, DWORD keys) override {
+    static int asked = 0;
+    if (++asked <= 40 || asked % 100 == 0) {
+      fprintf(stderr, "browser: proof: file drag asks %d escape %d keys %lx\n", asked, escape, keys);
+    }
     if (escape || (keys & MK_RBUTTON)) {
       return DRAGDROP_S_CANCEL;
     }
@@ -2445,6 +2476,8 @@ void host_set_site_controls_shape(const double*, size_t) {}
 
 void host_show_site_controls(void* ui_view, double left, double top, double width, double height) {
   Show(g_site_controls, ui_view, left, top, width, height, true);
+  // check.sh reads this line, as it does the Mac's and Linux's.
+  fprintf(stderr, "browser: site controls shown\n");
 }
 
 void host_set_site_controls_height(double height) {
@@ -2463,8 +2496,13 @@ void host_release_site_controls(void) {
 }
 
 void host_hide_site_controls(void) {
+  const bool shown = g_site_controls.hwnd && IsWindowVisible(g_site_controls.hwnd);
   Hide(g_site_controls);
   g_site_controls.mouse_through = false;
+  if (shown) {
+    // check.sh reads this line, as on the Mac and Linux, and escape's wait ended without it (#872).
+    fprintf(stderr, "browser: site controls hidden\n");
+  }
 }
 
 void* host_add_link_preview(void* view, void (*dismissed)(void)) {
@@ -2709,8 +2747,7 @@ void host_hide_tooltip(double fade) {
   FadeOut(g_tooltip, fade, [] {});
 }
 
-// shortcut: the card takes clicks over its whole window, the margin round the plate included, and
-// ends only as the pointer leaves it or the UI ends it, as a key does.
+// shortcut: the card ends only as the pointer leaves it or the UI ends it, as a key does.
 void host_add_hover_card(void* card_view, double margin, void (*)(void)) {
   Adopt(g_card, card_view, false, nullptr);
   // A click on its buttons leaves the keyboard where it was.
@@ -2719,8 +2756,26 @@ void host_add_hover_card(void* card_view, double margin, void (*)(void)) {
   g_card_margin = margin;
 }
 
-void host_show_hover_card(void* ui_view, double left, double top, double, double) {
+void host_show_hover_card(void* ui_view, double left, double top, double width, double height) {
+  if (HWND root = Root(ui_view)) {
+    const double scale = Scale(root);
+    g_card.plate = RECT{std::lround(g_card_margin * scale), std::lround(g_card_margin * scale),
+                        std::lround((g_card_margin + width) * scale),
+                        std::lround((g_card_margin + height) * scale)};
+  }
   Show(g_card, ui_view, left - g_card_margin, top - g_card_margin, -1, -1, false);
+  HWND root = Root(ui_view);
+  RECT frame;
+  if (root && g_card.hwnd && IsWindowVisible(g_card.hwnd) && GetWindowRect(g_card.hwnd, &frame)) {
+    // Where the window really is, in the browser window's points, for check.sh to compare with
+    // where the UI asked, as the Mac's and Linux's hosts log it.
+    POINT at{frame.left, frame.top};
+    ScreenToClient(root, &at);
+    const double scale = Scale(root);
+    fprintf(stderr, "browser: hover card window at %g %g\n", at.x / scale + g_card_margin,
+            at.y / scale + g_card_margin);
+  }
+  LogShown(g_card, "hover card");
 }
 
 void host_hide_hover_card(void) {
@@ -3007,7 +3062,12 @@ void host_show_reveal(void* ui_view, double width) {
   }
   double content_width, content_height;
   ContentSize(Root(ui_view), &content_width, &content_height);
+  // The UI shows it again as its width changes; check.sh reads the line once a showing.
+  const bool was_shown = it->second.floating.hwnd && IsWindowVisible(it->second.floating.hwnd);
   Show(it->second.floating, ui_view, 0, 0, width, content_height, false);
+  if (!was_shown) {
+    LogShown(it->second.floating, "reveal");
+  }
   WatchPointer();
 }
 
@@ -3134,19 +3194,38 @@ bool host_drag_file(const char* path, void (*ended)(bool)) {
   if (!data) {
     return false;
   }
-  ComPtr<IDropSource> source;
-  source.Attach(new FileDropSource());
-  // Modal while the drag runs, on the UI thread GPUI has made an OLE apartment, as Explorer's drag
-  // is; it returns once the file is let go.
-  DWORD effect = DROPEFFECT_NONE;
-  const HRESULT dropped = DoDragDrop(data.Get(), source.Get(), DROPEFFECT_COPY, &effect);
-  if (FAILED(dropped)) {
-    return false;
-  }
-  if (ended) {
-    const bool taken = dropped == DRAGDROP_S_DROP && effect != DROPEFFECT_NONE;
-    Later([ended, taken] { ended(taken); });
-  }
+  // From a task of its own, once the UI's event has returned, as the Mac's drag session starts:
+  // DoDragDrop is modal until the file is let go, and inside the event it would hold the UI, and
+  // the driver's step that moved the pointer, until then.
+  Later([data, ended] {
+    ComPtr<IDropSource> source;
+    source.Attach(new FileDropSource());
+    // On the UI thread GPUI has made an OLE apartment, as Explorer's drag is.
+    DWORD effect = DROPEFFECT_NONE;
+    fprintf(stderr, "browser: proof: file drag loop starts\n");
+    // Whether the loop dispatches a timer's messages, and whether the thread answers a sent one.
+    static int ticks = 0;
+    ticks = 0;
+    const UINT_PTR tick = SetTimer(nullptr, 0, 300, [](HWND, UINT, UINT_PTR, DWORD) {
+      if (++ticks <= 5) {
+        fprintf(stderr, "browser: proof: file drag loop tick %d\n", ticks);
+      }
+    });
+    HWND answering = GetForegroundWindow();
+    std::thread([answering] {
+      Sleep(2000);
+      DWORD_PTR result = 0;
+      const LRESULT sent =
+          SendMessageTimeoutW(answering, WM_NULL, 0, 0, SMTO_NORMAL, 2000, &result);
+      fprintf(stderr, "browser: proof: file drag loop answers a sent message %d\n", sent != 0);
+    }).detach();
+    const HRESULT dropped = DoDragDrop(data.Get(), source.Get(), DROPEFFECT_COPY, &effect);
+    fprintf(stderr, "browser: proof: file drag loop returned %lx effect %lu\n", dropped, effect);
+    KillTimer(nullptr, tick);
+    if (ended) {
+      ended(dropped == DRAGDROP_S_DROP && effect != DROPEFFECT_NONE);
+    }
+  });
   return true;
 }
 
