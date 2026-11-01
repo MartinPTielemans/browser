@@ -23,9 +23,9 @@ use super::{
     SIDEBAR_MIN, SIDEBAR_SHOW, SIDEBAR_WIDTH, Settle, Shell, Space, settle_progress, spring,
 };
 
-/// What the toast says when a tab opens with the sidebar hidden, and for how long (ours: Arc's
-/// isn't measured).
-pub(super) const OPENED: &str = "Opened in a New Tab";
+/// What the toast says when a tab opens with the sidebar hidden, Arc's words, and for how long
+/// (ours: Arc's isn't measured).
+pub(super) const OPENED: &str = "New Tab Created";
 const OPENED_TIME: Duration = Duration::from_secs(4);
 
 impl Shell {
@@ -204,20 +204,20 @@ impl Shell {
     }
 
     /// Tabs opened in the Space shown while the sidebar is hidden, whose rows aren't seen: a toast
-    /// says so, and its Show reveals the top one's row (Arc's release notes; the words are ours).
+    /// says so, and a click on it reveals the top one's row (Arc's release notes).
     pub(super) fn toast_opened(&mut self, tabs: &[u64], cx: &mut Context<Self>) {
         let Some(&tab) = tabs.first().filter(|_| self.unseen_sidebar()) else {
             return;
         };
         let text = match tabs.len() {
             1 => OPENED.to_owned(),
-            count => format!("Opened in {count} New Tabs"),
+            count => format!("{count} New Tabs Created"),
         };
         let shell = cx.entity().downgrade();
         let show = Rc::new(move |cx: &mut App| {
             shell.update(cx, |shell, cx| shell.reveal_row(tab, cx)).ok();
         });
-        self.browser.toast_button(&text, ("Show", "show"), show, OPENED_TIME, cx);
+        self.browser.toast_button(&text, (None, "show"), show, OPENED_TIME, cx);
     }
 
     /// Whether what's added to the sidebar goes unseen: it's hidden, its reveal isn't out, and the
@@ -254,7 +254,7 @@ impl Shell {
         let show = Rc::new(move |cx: &mut App| {
             shell.update(cx, |shell, cx| shell.show_made_space(first, cx)).ok();
         });
-        self.browser.toast_button(&text, ("Show", "show"), show, OPENED_TIME, cx);
+        self.browser.toast_button(&text, (Some("Show"), "show"), show, OPENED_TIME, cx);
     }
 
     /// The Space toast's Show: the Space, if it's still there, with the sidebar back.
@@ -503,12 +503,14 @@ impl Shell {
         // window or display.
         if !(0. ..CARD_INSET).contains(&x) {
             self.reveal_wait = None;
-            // A question keeps it out until it's answered, and its menu until it closes.
+            // A question keeps it out until it's answered, the Cast card and its menu until
+            // they close.
             if x > held
                 && self.revealed
                 && !self.pointer_on_card
                 && self.question().is_none()
                 && self.agent_question.is_none()
+                && self.cast.is_none()
                 && !self.menu_open
             {
                 self.set_revealed(false, cx);
@@ -686,7 +688,7 @@ mod tests {
         assert_eq!(host.shown.borrow().last(), Some(&4), "Show didn't show the first Space");
     }
 
-    /// A tab opening while the sidebar is hidden gets a toast whose Show brings the sidebar back at
+    /// A tab opening while the sidebar is hidden gets a toast whose click brings the sidebar back at
     /// its row; tabs moving, or opening with the sidebar shown, get none.
     #[gpui::test]
     fn a_tab_opened_with_the_sidebar_hidden_is_toasted(cx: &mut TestAppContext) {
@@ -702,12 +704,12 @@ mod tests {
         shell.update(cx, tabs(vec![1, 2]));
         assert!(host.toasts.borrow().is_empty(), "a toast for tabs moved");
         shell.update(cx, tabs(vec![3, 4, 1, 2]));
-        assert_eq!(*host.toasts.borrow(), ["Opened in 2 New Tabs"]);
+        assert_eq!(*host.toasts.borrow(), ["2 New Tabs Created"]);
         shell.update(cx, tabs(vec![5, 3, 4, 1, 2]));
         assert_eq!(host.toasts.borrow().last().unwrap(), super::OPENED);
-        let show = host.toast_run.borrow_mut().take().expect("no Show");
-        cx.update(|cx| show(cx));
-        assert!(!shell.read_with(cx, |shell, _| shell.sidebar_hidden), "Show left it hidden");
+        let click = host.toast_run.borrow_mut().take().expect("the toast can't be clicked");
+        cx.update(|cx| click(cx));
+        assert!(!shell.read_with(cx, |shell, _| shell.sidebar_hidden), "the click left it hidden");
     }
 
     /// ⌥ tapped alone brings the hidden sidebar out wherever the pointer is, which keeps it out

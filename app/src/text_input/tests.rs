@@ -110,3 +110,31 @@ fn an_assistive_app_reads_a_secure_fields_dots(cx: &mut TestAppContext) {
     let tree = cx.a11y_tree().unwrap();
     assert!(!tree.nodes.iter().any(|(_, node)| format!("{node:?}").contains("hunter2")));
 }
+
+/// ⌘⌫ deletes what's before the caret and ⌥⌫ the word before it, as in any Mac field, or the
+/// selection where there is one, and an input method's composition keeps them (#1076).
+#[gpui::test]
+fn cmd_and_option_backspace_delete_back_to_the_start_and_a_word(cx: &mut TestAppContext) {
+    let (input, mut cx) = shown("example.com/some/path", cx);
+    let keys = |keys: &str, cx: &mut VisualTestContext| {
+        cx.simulate_keystrokes(keys);
+        cx.run_until_parked();
+        input.read_with(cx, |input, _| (input.text().to_string(), input.selection()))
+    };
+    let cx = &mut cx;
+    assert_eq!(keys("alt-backspace", cx), ("example.com/some/".into(), 17..17));
+    assert_eq!(keys("alt-backspace", cx), ("example.com/".into(), 12..12));
+    assert_eq!(keys("left left cmd-backspace", cx), ("m/".into(), 0..0));
+    // At the start there's nothing before the caret to delete.
+    assert_eq!(keys("cmd-backspace", cx), ("m/".into(), 0..0));
+    assert_eq!(keys("alt-backspace", cx), ("m/".into(), 0..0));
+    assert_eq!(keys("cmd-a cmd-backspace", cx), (String::new(), 0..0));
+    keys("x", cx);
+    input.update_in(cx, |input, window, cx| {
+        input.replace_and_mark_text_in_range(None, "か", None, window, cx)
+    });
+    let composing = ("xか".to_string(), 4..4);
+    assert_eq!(keys("cmd-backspace", cx), composing);
+    assert_eq!(keys("alt-backspace", cx), composing);
+    assert!(input.read_with(cx, |input, _| input.composing()));
+}

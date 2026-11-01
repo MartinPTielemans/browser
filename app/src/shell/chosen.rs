@@ -200,17 +200,32 @@ impl Shell {
         self.keep(What::MOVE_TABS_TO_SPACE, (!edits.is_empty()).then_some(Edit::Many(edits)), cx);
     }
 
-    /// New Folder with rows chosen pins them into a new folder at the bottom of the pinned tabs,
-    /// in their order, as Arc's does, and names it as New Folder does.
+    /// The chosen rows' Add to Folder › New Folder: as `add_to_new_folder`.
     pub(super) fn folder_chosen(&mut self, cx: &mut Context<Self>) {
-        let name = SharedString::from(NEW_FOLDER);
-        let folder = self.browser.create_folder(self.space, &name, 0, usize::MAX, cx);
+        self.add_to_new_folder(self.chosen_in_order(), cx);
+    }
+
+    /// Add to Folder › New Folder pins `rows` into a new folder, in their order, named for their
+    /// site, with its name in a field to type over (#1088). One pinned tab's folder takes its
+    /// place; a Today tab's, or several rows', goes at the bottom of the pinned tabs, as Arc's New
+    /// Folder with Tabs does.
+    pub(super) fn add_to_new_folder(&mut self, rows: Vec<u64>, cx: &mut Context<Self>) {
+        let name = self.folder_name_for(&rows);
+        let (parent, index) = match (rows.as_slice(), self.shown_space()) {
+            ([row], Some(space)) if space.pinned.contains(row) => {
+                let parent = space.folder_of(*row);
+                let before = space.pinned.iter().take_while(|&each| each != row);
+                (parent, before.filter(|&&each| space.folder_of(each) == parent).count())
+            }
+            _ => (0, usize::MAX),
+        };
+        let folder = self.browser.create_folder(self.space, &name, parent, index, cx);
         if folder == 0 {
             return;
         }
         let mut edits = vec![Edit::Delete(folder)];
         let mut index = 0;
-        for row in self.chosen_in_order() {
+        for row in rows {
             edits.extend(self.put_back(row));
             self.browser.move_tab(row, true, folder, index, cx);
             index += self.panes(row).len();
@@ -218,5 +233,101 @@ impl Shell {
         self.unchoose(cx);
         self.keep(What::NEW_FOLDER, Some(Edit::Many(edits)), cx);
         self.name_folder(folder, name, cx);
+    }
+
+    /// Add to Folder › one of the Space's folders: `rows` go to its bottom, pinned, in their
+    /// order, as one step to undo (#1088).
+    pub(super) fn add_to_folder(&mut self, rows: Vec<u64>, folder: u64, cx: &mut Context<Self>) {
+        let Some(space) = self.shown_space() else {
+            return;
+        };
+        let moving: Vec<u64> = rows.iter().flat_map(|&row| self.panes(row)).collect();
+        let held = |row: &&u64| space.folder_of(**row) == folder && !moving.contains(row);
+        let mut index = space.pinned.iter().filter(held).count();
+        let mut edits = Vec::new();
+        for row in rows {
+            edits.extend(self.put_back(row));
+            self.browser.move_tab(row, true, folder, index, cx);
+            index += self.panes(row).len();
+        }
+        self.unchoose(cx);
+        self.keep(What::MOVE_TAB, (!edits.is_empty()).then_some(Edit::Many(edits)), cx);
+    }
+
+    /// The name of a folder made from `rows`: their site's, if every tab in them is on one, else
+    /// New Folder.
+    fn folder_name_for(&self, rows: &[u64]) -> SharedString {
+        let tabs: Vec<(SharedString, SharedString)> = (rows.iter())
+            .flat_map(|&row| self.panes(row))
+            .map(|tab| (self.page(tab).url, self.title(tab)))
+            .collect();
+        let tabs = tabs.iter().map(|(url, title)| (url.as_ref(), title.as_ref()));
+        site_name(tabs).map_or_else(|| NEW_FOLDER.into(), Into::into)
+    }
+}
+
+/// The site every one of `tabs`, by URL and title, is on, by the name its titles give it, else its
+/// host without "www.": github.com's tabs, titled "Pull requests · GitHub", make "GitHub". None
+/// for tabs on different sites, or for a tab that isn't on a web site at all.
+pub(super) fn site_name<'a>(tabs: impl IntoIterator<Item = (&'a str, &'a str)>) -> Option<String> {
+    let mut site: Option<String> = None;
+    let mut titles = Vec::new();
+    for (url, title) in tabs {
+        let (scheme, rest) = url.split_once("://")?;
+        if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
+            return None;
+        }
+        let host = &rest[..rest.find(['/', '?', '#', ':']).unwrap_or(rest.len())];
+        let host = host.to_ascii_lowercase();
+        let host = host.strip_prefix("www.").unwrap_or(&host).to_owned();
+        if host.is_empty() || site.as_ref().is_some_and(|site| *site != host) {
+            return None;
+        }
+        site = Some(host);
+        titles.push(title);
+    }
+    let site = site?;
+    // A part of a title between the separators titles put round a site's name that spells one
+    // of the host's labels but its last, "GitHub" for github.com.
+    let letters = |text: &str| -> String {
+        text.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect()
+    };
+    let labels: Vec<&str> = site.split('.').collect();
+    let labels = &labels[..labels.len().saturating_sub(1)];
+    let named = (titles.iter())
+        .flat_map(|title| title.split(['-', '|', '·', '—', '–', ':', '•']))
+        .map(str::trim)
+        .find(|part| {
+            !part.is_empty() && labels.iter().any(|label| letters(part) == letters(label))
+        });
+    Some(named.map_or(site.clone(), str::to_owned))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::site_name;
+
+    /// A folder made from one site's tabs takes the site's name as its titles write it, else its
+    /// host; tabs on two sites, or a file, leave it New Folder.
+    #[test]
+    fn a_folder_of_one_sites_tabs_is_named_for_it() {
+        let github = [
+            ("https://github.com/pulls", "Pull requests · GitHub"),
+            ("https://www.github.com/zed-industries/zed", "GitHub - zed-industries/zed: Code"),
+        ];
+        assert_eq!(site_name(github).as_deref(), Some("GitHub"));
+        let docs = [("https://docs.github.com/en", "GitHub Docs")];
+        assert_eq!(site_name(docs).as_deref(), Some("docs.github.com"));
+        let example = [("https://example.com/", "Example Domain")];
+        assert_eq!(site_name(example).as_deref(), Some("example.com"));
+        let youtube = [
+            ("https://www.youtube.com/watch?v=1", "A talk - YouTube"),
+            ("https://youtube.com/", "YouTube"),
+        ];
+        assert_eq!(site_name(youtube).as_deref(), Some("YouTube"));
+        let two = [("https://github.com/", "GitHub"), ("https://example.com/", "Example")];
+        assert_eq!(site_name(two), None);
+        assert_eq!(site_name([("file:///tmp/notes.txt", "notes.txt")]), None);
+        assert_eq!(site_name([]), None);
     }
 }

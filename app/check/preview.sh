@@ -1,12 +1,12 @@
 # The link preview. A link to another site in a pinned tab's page opens in a card over the window,
 # its page in a tab of no Space, and the pinned tab stays on its page. Esc closes it and its page.
 # ⌘↩ keeps it as the top Today tab, shown, without loading it again. A click on the dim closes it,
-# and the page behind doesn't get the click. ⌘W with its page focused closes it, and not the tab
-# behind. ⌘Z reopens a closed one over its tab at its page, and so does ⇧⌘T while no tab has closed
-# since. A favorite's link opens it too. A call's link, such as Google Meet's, opens as a tab
-# instead. With the Settings switch off, the link goes in the pinned tab. Back on, a link rule to
-# another Space sends the link there as a tab instead. Reports how long the first preview took to
-# draw its first frame.
+# and the page behind doesn't get the click, and so does Settings taking the keyboard. ⌘W with its
+# page focused closes it, and not the tab behind. ⌘Z reopens a closed one over its tab at its page,
+# and so does ⇧⌘T while no tab has closed since. A favorite's link opens it too. A call's link, such
+# as Google Meet's, opens as a tab instead. With the Settings switch off, the link goes in the
+# pinned tab. Back on, a link rule to another Space sends the link there as a tab instead. Reports
+# how long the first preview took to draw its first frame.
 
 serve
 # The test page's top 40% is a link to the same server under another name, localhost, which is
@@ -99,6 +99,12 @@ home_row() {
   echo "100 $(($(pinned_row 0 | cut -d' ' -f2) + tiles))"
 }
 
+# Where Settings last drew what $1 names, as the platforms' fonts move its tabs and rows.
+settings_at() {
+  await "^browser: settings $1 at " || fail "Settings didn't draw its $1"
+  grep "^browser: settings $1 at " "$log" | tail -1 | sed "s/^browser: settings $1 at //"
+}
+
 # Pinned, the tab's links to other sites open in the preview, which grows from the link.
 send key d cmd
 expect '^browser: command toggle-pin via page$' "⌘D with the page focused didn't reach the UI"
@@ -139,6 +145,18 @@ send click $dim_point
 in_order "after a click on the dim" '^browser: link preview closing (click outside)$' \
   "^browser: tab $p closed\$"
 none_since "^browser: title $a pressed" || fail "the click on the dim reached the page behind"
+
+# Settings taking the keyboard is the user leaving it for another window, which closes it, and
+# Settings keeps the keyboard.
+open_preview "for Settings"
+# The preview's page takes no window's keys but its own, so Settings comes from the menu.
+send menu Settings…
+expect '^browser: settings shown General$' "Settings… didn't show Settings over the preview"
+in_order "after Settings took the keyboard" '^browser: link preview released$' \
+  '^browser: link preview closing (dismissed)$' "^browser: tab $p closed\$"
+send key w cmd
+expect '^browser: settings hidden$' "⌘W didn't hide Settings, so it didn't keep the keyboard"
+none_since '^browser: command close-tab' || fail "⌘W after Settings left the preview closed a tab"
 
 # ⌘W in its page closes it, not the pinned tab behind.
 open_preview "for ⌘W"
@@ -223,10 +241,12 @@ send click $page_point
 expect "^browser: title $a pressed [0-9]*\$" "a click on the test page's lower part didn't reach it"
 send key , cmd
 expect '^browser: settings shown General$' "⌘, didn't show Settings on its General tab"
-send clickkey 519 60
+# Settings takes no click until it has drawn, nor a tab's rows until the tab has (#1101, #1133).
+expect '^browser: settings drew General$' "Settings didn't draw General"
+send clickkey $(settings_at "toolbar Advanced")
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
-# Its switch is the row under the haptics', as General's rows are 42 apart.
-send clickkey 592 168
+settings_drew Advanced
+send clickkey $(settings_at "switch link previews")
 expect '^browser: link previews off$' "a click on the link previews switch didn't turn them off"
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
@@ -253,10 +273,13 @@ expect "^browser: space $first\( in .*\)\{0,1\}\$" "⌃1 didn't show the first S
 expect "^browser: selected $a\( in .*\)\{0,1\}\$" "the first Space didn't show the pinned tab again"
 send key , cmd
 expect '^browser: settings shown Advanced$' "⌘, didn't show Settings on its Advanced tab"
-send clickkey 592 168
+expect '^browser: settings drew Advanced$' "Settings didn't draw Advanced"
+send clickkey $(settings_at "switch link previews")
 expect '^browser: link previews on$' "a click on the link previews switch didn't turn them on"
-send clickkey 162 60
+send clickkey $(settings_at "toolbar Links")
 expect '^browser: settings tab Links$' "a click on Links didn't show its tab"
+settings_drew Links
+expect '^browser: link rules drawn ' "the Links tab didn't draw its rules"
 send clickkey 76 173
 expect '^browser: link rule 0 field has the keyboard$' "+ didn't give the new rule's field the keyboard"
 send type preview-target

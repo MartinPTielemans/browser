@@ -83,6 +83,8 @@ struct SavedSpace {
   std::string icon;
   // The theme the UI gave it, if any.
   std::string theme;
+  // Space::touched(), which a session saved before Spaces had it can't say, so it was.
+  bool touched = true;
   // Its profile's directory, or empty for the profile the core started with.
   std::string profile;
   // The agent it belongs to, or none for the user's own, as every Space saved before agents had
@@ -172,6 +174,9 @@ struct Settings {
   bool send_crash_reports = false;
   // Whether a link to another site in a pinned tab or a favorite opens in a link preview.
   bool link_previews = true;
+  // Whether a page may take its video or call into Picture in Picture as its tab is hidden, in
+  // every profile (ApplyAutoPictureInPicture).
+  bool auto_picture_in_picture = true;
   // Whether ⌥ pressed alone brings the hidden sidebar out over the page.
   bool option_reveals_sidebar = true;
   // What the Library button's hover lists, as bc_hover_kinds' bits.

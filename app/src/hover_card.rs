@@ -119,6 +119,8 @@ pub enum Action {
     Favorite,
     Unfavorite,
     Split,
+    /// The page sharing another tab shares this one instead.
+    ShareInstead,
 }
 
 impl Action {
@@ -130,6 +132,7 @@ impl Action {
             Action::Favorite => "Add to Favorites",
             Action::Unfavorite => "Remove from Favorites",
             Action::Split => "Open in Split View",
+            Action::ShareInstead => "Share This Tab Instead",
         }
     }
 
@@ -141,6 +144,7 @@ impl Action {
             Action::Favorite => "favorite",
             Action::Unfavorite => "unfavorite",
             Action::Split => "split",
+            Action::ShareInstead => "share-instead",
         }
     }
 
@@ -149,6 +153,7 @@ impl Action {
             Action::Pin | Action::Unpin => "icons/pin.svg",
             Action::Favorite | Action::Unfavorite => "icons/star.svg",
             Action::Split => "icons/columns-2.svg",
+            Action::ShareInstead => "icons/screen-share.svg",
         }
     }
 
@@ -736,6 +741,8 @@ impl Render for HoverCard {
         // The rim is its own layer, so the border doesn't shift what the fill's box holds.
         let rim = div()
             .absolute()
+            .top_0()
+            .left_0()
             .size_full()
             .rounded(px(RADIUS))
             .border(px(RIM))
