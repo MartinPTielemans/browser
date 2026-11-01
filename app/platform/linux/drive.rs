@@ -33,7 +33,8 @@
 //! without one. pip doubleclick, pip wheel, and pip press, dragto and release work in it, at
 //! points from its top-left corner as the command finds it, or as it was at the press. pip press,
 //! dragto and release alone move the display's pointer, through XTest, onto the window only, and
-//! the release puts it back.
+//! the release puts it back. A dragto after the first, which went past the drag threshold, is done
+//! once the window manager moves or sizes the window with it.
 //!
 //! It logs as drive.mm does: "browser: drive <n>: <command>" as command n arrives, "browser: drive
 //! <n>: can't do that" for one it can't, and "browser: drive <n> done, key <window>, focus <view>,
@@ -111,10 +112,13 @@ pub fn start() {
                     log!("browser: drive {n}: can't do that");
                 }
                 let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
-                match (ACTIVATING.take(), RESIZING.take()) {
-                    (Some(window), _) => await_focus(n, window, until),
-                    (_, Some((gpui, width, height))) => await_size(n, gpui, (width, height), until),
-                    (None, None) => settle(n),
+                match (ACTIVATING.take(), RESIZING.take(), PIP_DRAGGING.take()) {
+                    (Some(window), _, _) => await_focus(n, window, until),
+                    (_, Some((gpui, width, height)), _) => {
+                        await_size(n, gpui, (width, height), until)
+                    }
+                    (_, _, Some(drag)) => await_pip_drag(n, drag, 0, until),
+                    (None, None, None) => settle(n),
                 }
             }));
         }
@@ -234,6 +238,9 @@ thread_local! {
     static PRESSED: Cell<Option<Target>> = const { Cell::new(None) };
     /// The Mini Player's press through XTest, till its release (hold_mini_player).
     static PIP_HELD: Cell<Option<HeldPip>> = const { Cell::new(None) };
+    /// The drag of the Mini Player a pip dragto made, which it's done once the window manager
+    /// moves or sizes the window with it.
+    static PIP_DRAGGING: Cell<Option<PipDrag>> = const { Cell::new(None) };
     /// The window the pointer is in, which hears it leave.
     static HOVERED: Cell<Option<Target>> = const { Cell::new(None) };
     /// The modifiers the flags command holds, in an X state, which the keys go with until it lets
@@ -2191,14 +2198,12 @@ fn mini_player_command<'a>(mut words: impl Iterator<Item = &'a str>) -> Option<(
 
 /// pip press, pip dragto and pip release <x> <y>, at points where the window was at the press: the
 /// display's own pointer, through XTest. Sent events can't move it, as the window manager moves it
-/// with the pointer the X server has, as a hand moves it.
+/// with the pointer the X server has, as a hand moves it. A dragto after the first waits for the
+/// window manager to have the drag (await_pip_drag).
 fn hold_mini_player(window: xproto::Window, step: &str, x: f64, y: f64) -> Option<()> {
     let server = server()?;
     let (connection, root) = &*server;
-    let fake = |kind: u8, button: u8, (x, y): (i16, i16)| {
-        (connection.xtest_fake_input(kind, button, x11rb::CURRENT_TIME, *root, x, y, 0)).ok()?;
-        connection.get_input_focus().ok()?.reply().ok().map(drop)
-    };
+    let fake = fake_pointer;
     if step == "press" {
         let at = target_in(window, x, y)?;
         let was = connection.query_pointer(*root).ok()?.reply().ok()?;
@@ -2212,8 +2217,10 @@ fn hold_mini_player(window: xproto::Window, step: &str, x: f64, y: f64) -> Optio
             return fake(xproto::MOTION_NOTIFY_EVENT, 0, back);
         }
         first_press(at, 1, false);
-        PIP_HELD.set(Some(HeldPip { x, y, root: (at.root_x, at.root_y), back }));
-        return fake(xproto::BUTTON_PRESS_EVENT, 1, (at.root_x, at.root_y));
+        let pressed = (at.root_x, at.root_y);
+        let frame = frame(window)?;
+        PIP_HELD.set(Some(HeldPip { x, y, root: pressed, back, frame, dragged: false }));
+        return fake(xproto::BUTTON_PRESS_EVENT, 1, pressed);
     }
     let held = PIP_HELD.get()?;
     let scale = scale();
@@ -2223,6 +2230,12 @@ fn hold_mini_player(window: xproto::Window, step: &str, x: f64, y: f64) -> Optio
     );
     fake(xproto::MOTION_NOTIFY_EVENT, 0, to)?;
     if step == "dragto" {
+        // The drag before this one went past the threshold, so the window manager has been asked
+        // to move or size the window by now.
+        if held.dragged {
+            PIP_DRAGGING.set(Some(PipDrag { window, frame: held.frame, to }));
+        }
+        PIP_HELD.set(Some(HeldPip { dragged: true, ..held }));
         return Some(());
     }
     PIP_HELD.set(None);
@@ -2230,14 +2243,60 @@ fn hold_mini_player(window: xproto::Window, step: &str, x: f64, y: f64) -> Optio
     fake(xproto::MOTION_NOTIFY_EVENT, 0, held.back)
 }
 
-/// A press on the Mini Player through XTest: where it was in the window and on the screen, and
-/// where the display's pointer was before it, where the release puts it back.
+/// A press on the Mini Player through XTest: where it was in the window and on the screen, where
+/// the display's pointer was before it, where the release puts it back, the window's frame then,
+/// and whether a drag has followed it.
 #[derive(Clone, Copy)]
 struct HeldPip {
     x: f64,
     y: f64,
     root: (i16, i16),
     back: (i16, i16),
+    frame: [f64; 4],
+    dragged: bool,
+}
+
+/// A drag of the Mini Player `window`, whose frame was `frame` at the press, to `to` on the screen.
+#[derive(Clone, Copy)]
+struct PipDrag {
+    window: xproto::Window,
+    frame: [f64; 4],
+    to: (i16, i16),
+}
+
+/// An event of the display's own pointer at `at`, through XTest, once the X server has it.
+fn fake_pointer(kind: u8, button: u8, at: (i16, i16)) -> Option<()> {
+    let server = server()?;
+    let (connection, root) = &*server;
+    let time = x11rb::CURRENT_TIME;
+    (connection.xtest_fake_input(kind, button, time, *root, at.0, at.1, 0)).ok()?;
+    connection.get_input_focus().ok()?.reply().ok().map(drop)
+}
+
+/// Reports command `n`, a pip dragto, done once the window manager moves or sizes the Mini Player
+/// with the pointer, or at `until`. It takes the move from the core's request, or Chromium's for
+/// a page's window, a moment after the motion that asked, and a motion before it holds the pointer
+/// is lost to it. So is a release, after which it went on moving the window with the pointer, to
+/// the screen's corner where the release puts it back (#1151). Until the window follows, the
+/// pointer comes to `to` again, from a point beside it, as a motion to where it is makes no event.
+/// `again` counts the times it came again, which the log tells.
+fn await_pip_drag(n: u64, drag: PipDrag, again: u32, until: std::time::Instant) {
+    let followed = frame(drag.window).is_none_or(|frame| frame != drag.frame);
+    if !followed && std::time::Instant::now() < until {
+        let beside = (drag.to.0 + 1, drag.to.1);
+        fake_pointer(xproto::MOTION_NOTIFY_EVENT, 0, beside);
+        fake_pointer(xproto::MOTION_NOTIFY_EVENT, 0, drag.to);
+        after(10, Box::new(move || await_pip_drag(n, drag, again + 1, until)));
+        return;
+    }
+    match followed {
+        false => log!("browser: drive {n}: the window manager didn't move the Mini Player"),
+        true if again > 0 => {
+            log!("browser: drive {n}: the window manager took the drag after {again}");
+        }
+        true => {}
+    }
+    settle(n);
 }
 
 /// Logs the Mini Player's frame each time `window`, it, moves or resizes, from a thread of its own
