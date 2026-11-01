@@ -696,6 +696,31 @@ send move $page_point
 expect '^browser: reveal hidden$' "the pointer past the sidebar out didn't send it away after its menu"
 send key s cmd
 expect '^browser: sidebar shown$' "⌘S didn't bring the sidebar back after its menus out over the page"
+# In a second window, and in a window full screen, a click on the … shows the Space's menu too
+# (#1090).
+send key n cmd
+expect '^browser: window opened [0-9]*$' "⌘N didn't open a second window for the …"
+for where in second-window full-screen; do
+  if [ $where = full-screen ]; then
+    send fullscreen
+    expect '^browser: window entered full screen$' "the second window didn't go full screen"
+  fi
+  send move $page_point
+  send move $edit_point
+  send click $edit_point
+  expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, \
+Export as Markdown…, Delete Space")\$" \
+    "a click on the … didn't show the Space's menu in the $where"
+  expect '^browser: menu drawn ' "the Space's menu from the … didn't come on screen in the $where"
+  ../tools/window-screenshot.sh "$pid" "$out/space-edit-$where.png" || fail "no window to capture"
+  none_since '^browser: menu c' || fail "the Space's menu from the … closed in the $where"
+  send dismiss
+  expect '^browser: menu closed$' "the Space's menu from the … didn't close in the $where"
+done
+send fullscreen
+expect '^browser: window left full screen$' "the second window didn't leave full screen"
+send key w cmd shift
+expect '^browser: window closed [0-9]' "⇧⌘W didn't close the second window"
 # A press shows it too, and it stays once the button comes up after the menu shows, as it does
 # when the user holds the button.
 send move $edit_point
