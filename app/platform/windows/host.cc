@@ -130,6 +130,8 @@ struct Floating {
   void (*dismissed)(void) = nullptr;
   // Set while the host hides it, so that isn't the user leaving it.
   bool hiding = false;
+  // Which of the overlays it is (host_add_overlay), or -1.
+  int overlay = -1;
 };
 
 std::map<HWND, Floating*>& FloatingByHwnd() {
@@ -197,6 +199,11 @@ LRESULT CALLBACK FloatingProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpa
           IsWindowVisible(hwnd)) {
         // ilo's menu, opened over this overlay, isn't the user leaving it.
         if (g_menu.shown && reinterpret_cast<HWND>(lparam) == g_menu.hwnd) {
+          break;
+        }
+        // An overlay goes, saying so, before the UI hears, as the Mac's host closes one.
+        if (const int overlay = floating->overlay; overlay >= 0) {
+          Later([overlay] { host_dismiss_overlay(overlay); });
           break;
         }
         void (*dismissed)(void) = floating->dismissed;
@@ -2025,6 +2032,7 @@ void host_forget_window(void* ui_view) {
 
 void host_add_overlay(int overlay, void* overlay_view, double, void (*dismissed)(void)) {
   Adopt(g_overlays[overlay], overlay_view, false, dismissed);
+  g_overlays[overlay].overlay = overlay;
   // The command bar is a rounded rectangle, as Windows' frame is. The pickers and the folder
   // preview have a beak, whose shape a rectangle's corners and shadow would show round.
   if (overlay == 0) {
