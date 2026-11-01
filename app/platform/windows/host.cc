@@ -166,6 +166,8 @@ struct Floating {
   bool hiding = false;
   // Counts its fades, so one that ends after it showed or hid again leaves it be.
   int fades = 0;
+  // Counts the overlays' shows and hides, so a show still to come after a hide leaves it hidden.
+  int shows = 0;
 };
 
 bool HideOverlayOf(HWND hwnd);
@@ -753,6 +755,7 @@ const char* const kOverlayNames[std::size(g_overlays)] = {"command bar", "icon p
 // Hides overlay |index| if it's shown, saying so, and whether it was.
 bool HideOverlay(int index) {
   Floating& floating = g_overlays[index];
+  ++floating.shows;
   if (!floating.hwnd || !IsWindowVisible(floating.hwnd)) {
     return false;
   }
@@ -2307,22 +2310,48 @@ void host_show_overlay(int overlay,
     left = content_width - 8 - width;
   }
   Floating& floating = g_overlays[overlay];
-  const bool was_shown = floating.hwnd && IsWindowVisible(floating.hwnd);
-  Show(floating, ui_view, left, top, width, -1, true);
-  // The bar now has the keyboard, so the keys held since the shortcut go to it.
-  ReleaseKeys(floating.hwnd);
-  if (!floating.hwnd || !IsWindowVisible(floating.hwnd)) {
-    return;
-  }
-  double own_width, own_height;
-  WindowSize(floating.hwnd, &own_width, &own_height);
-  // check.sh reads these lines, in whole points, since at a fractional scale not every point is a
-  // whole number of pixels.
-  fprintf(stderr, "browser: %s at %g %g %g %g\n", kOverlayNames[overlay], left, top, width,
-          std::round(own_height));
-  if (!was_shown) {
-    fprintf(stderr, "browser: %s shown\n", kOverlayNames[overlay]);
-  }
+  const int shows = ++floating.shows;
+  // The window still holds what it drew when it last closed, such as the previous query, as the
+  // Mac's does. It goes on screen once the UI has drawn it as it is now, which can't happen while
+  // the UI is still handling the shortcut that opened it.
+  Later([=, &floating] {
+    if (shows != floating.shows || !floating.hwnd) {
+      ReleaseKeys(floating.hwnd);
+      return;
+    }
+    const bool was_shown = IsWindowVisible(floating.hwnd);
+    if (!was_shown) {
+      if (HWND root = Root(ui_view)) {
+        // Placed and drawn before it's on screen, as the menu is: Windows sends a hidden window no
+        // WM_PAINT, but GPUI's window draws on any it's sent.
+        const double scale = Scale(root);
+        POINT origin{std::lround(left * scale), std::lround(top * scale)};
+        ClientToScreen(root, &origin);
+        double own_width, own_height;
+        WindowSize(floating.hwnd, &own_width, &own_height);
+        SetWindowPos(floating.hwnd, nullptr, origin.x, origin.y,
+                     static_cast<int>(std::lround(width * scale)),
+                     static_cast<int>(std::lround(own_height * scale)),
+                     SWP_NOACTIVATE | SWP_NOZORDER);
+        SendMessageW(floating.hwnd, WM_PAINT, 0, 0);
+      }
+    }
+    Show(floating, ui_view, left, top, width, -1, true);
+    // The bar now has the keyboard, so the keys held since the shortcut go to it.
+    ReleaseKeys(floating.hwnd);
+    if (!IsWindowVisible(floating.hwnd)) {
+      return;
+    }
+    double own_width, own_height;
+    WindowSize(floating.hwnd, &own_width, &own_height);
+    // check.sh reads these lines, in whole points, since at a fractional scale not every point is
+    // a whole number of pixels.
+    fprintf(stderr, "browser: %s at %g %g %g %g\n", kOverlayNames[overlay], left, top, width,
+            std::round(own_height));
+    if (!was_shown) {
+      fprintf(stderr, "browser: %s shown\n", kOverlayNames[overlay]);
+    }
+  });
 }
 
 void host_set_overlay_height(int overlay, double height) {
