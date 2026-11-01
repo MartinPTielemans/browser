@@ -63,6 +63,10 @@ jobs:
           fi
           mkdir -p "$RUNNER_TEMP/notes"
           notes=$RUNNER_TEMP/notes/notes.md
+          # On a tag push, checkout writes the tag it ran for as a lightweight one on the commit
+          # (actions/checkout#290), so the annotated tag, and its message, comes again from the
+          # remote. A run by hand before the tag exists finds none, and stays a trial.
+          git fetch -q --force origin "+refs/tags/$TAG:refs/tags/$TAG" 2>/dev/null || true
           if [ "$(git cat-file -t "refs/tags/$TAG" 2>/dev/null)" = tag ]; then
             if [ "$(git rev-parse "$TAG^{commit}")" != "$GITHUB_SHA" ]; then
               echo "::error::$TAG is on another commit. Run the workflow from the tag: gh workflow run release.yml --ref $TAG -f tag=$TAG"

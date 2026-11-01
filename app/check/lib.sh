@@ -19,7 +19,7 @@ cased() {
       sub(/,$/, "", noun)
       sub(/…$/, "", noun)
       if (word ~ /^“/) quoted = 1
-      keep = first || quoted || noun ~ /^[A-Z][A-Z]+$/ || noun == "Space" || noun == "Spaces" || noun == "Library" || noun == "Markdown"
+      keep = first || quoted || noun ~ /^[A-Z][A-Z]+s?$/ || noun == "Space" || noun == "Spaces" || noun == "Library" || noun == "Markdown"
       printf "%s%s", (i > 1 ? " " : ""), (keep ? word : tolower(word))
       if (word ~ /”/) quoted = 0
       first = word ~ /,$/ || word == "›"
