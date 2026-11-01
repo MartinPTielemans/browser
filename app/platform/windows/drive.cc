@@ -347,10 +347,22 @@ void Press(const Target& target, UINT button, int modifiers, bool second) {
   HWND root = GetAncestor(target.hwnd, GA_ROOT);
   const LRESULT activate = SendMessageW(target.hwnd, WM_MOUSEACTIVATE,
                                         reinterpret_cast<WPARAM>(root), MAKELPARAM(HTCLIENT, down));
+  const bool eaten = activate == MA_ACTIVATEANDEAT || activate == MA_NOACTIVATEANDEAT;
+  // Windows makes the second press of a double click a double click for the windows that ask for
+  // them. GPUI's don't, and count clicks themselves.
+  const bool double_click =
+      second && (GetClassLongPtrW(target.hwnd, GCL_STYLE) & CS_DBLCLKS) && button == MK_LBUTTON;
+  // Queued before the activation, as Windows has taken a press off the queue by the time it
+  // activates: what the windows post as they activate comes after the press, as an overlay's
+  // dismissal does, which the press reads the bar still open before (#872).
+  if (!eaten) {
+    PostMessageW(target.hwnd, double_click ? WM_LBUTTONDBLCLK : down, MouseKeys(modifiers, button),
+                 ClientParam(target));
+  }
   if ((activate == MA_ACTIVATE || activate == MA_ACTIVATEANDEAT) && GetActiveWindow() != root) {
     SetActiveWindow(root);
   }
-  if (activate == MA_ACTIVATEANDEAT || activate == MA_NOACTIVATEANDEAT) {
+  if (eaten) {
     return;
   }
   for (HWND child = target.hwnd; GetWindowLongPtrW(child, GWL_STYLE) & WS_CHILD;) {
@@ -366,12 +378,6 @@ void Press(const Target& target, UINT button, int modifiers, bool second) {
     SendMessageW(parent, WM_PARENTNOTIFY, MAKEWPARAM(down, 0), MAKELPARAM(in.x, in.y));
     child = parent;
   }
-  // Windows makes the second press of a double click a double click for the windows that ask for
-  // them. GPUI's don't, and count clicks themselves.
-  const bool double_click =
-      second && (GetClassLongPtrW(target.hwnd, GCL_STYLE) & CS_DBLCLKS) && button == MK_LBUTTON;
-  PostMessageW(target.hwnd, double_click ? WM_LBUTTONDBLCLK : down, MouseKeys(modifiers, button),
-               ClientParam(target));
 }
 
 void Release(const Target& target, UINT button, int modifiers) {
