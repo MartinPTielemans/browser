@@ -2578,17 +2578,21 @@ void host_show_menu_window(void* ui_view,
                    origin.y + static_cast<LONG>(height * scale)};
   g_menu.frame = frame;
   const unsigned showing = ++g_menu.showing;
-  // It goes on screen after the event, so the press that opened it is over. shortcut: the host
-  // can't force GPUI to draw this menu first as the Mac does, so its first frame may be the last
-  // menu's until GPUI's loop draws; refine when the engine runs the checks on Windows.
+  // It goes on screen after the event, so the press that opened it is over.
   Later([=] {
     if (showing != g_menu.showing) {
       return;
     }
     SetWindowLongPtrW(g_menu.hwnd, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(base));
     WatchOwner(root);
-    PlaceAndShow(g_menu.hwnd, frame.left, frame.top, frame.right - frame.left,
-                 frame.bottom - frame.top, true);
+    const int wide = frame.right - frame.left, high = frame.bottom - frame.top;
+    // Placed and drawn before it's on screen, as the Mac's host draws it, so its first frame is
+    // this menu and not the last: Windows sends a hidden window no WM_PAINT, but GPUI's window
+    // draws on any it's sent, shown or not.
+    SetWindowPos(g_menu.hwnd, nullptr, frame.left, frame.top, wide, high,
+                 SWP_NOACTIVATE | SWP_NOZORDER);
+    SendMessageW(g_menu.hwnd, WM_PAINT, 0, 0);
+    PlaceAndShow(g_menu.hwnd, frame.left, frame.top, wide, high, true);
     SetForegroundWindow(g_menu.hwnd);
     SetFocus(g_menu.hwnd);
     InstallMenuHooks();
