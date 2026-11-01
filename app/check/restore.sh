@@ -63,7 +63,14 @@ fi
 # The page's downloads go in the check's folder, and ⇧⌘J from the page opens the Library on
 # Downloads, which lists them. The slow one runs until the quit.
 send type d
-expect '^browser: download [0-9]* done notes.txt$' "the page's download didn't finish"
+await '^browser: download [0-9]* \(done\|failed\) notes.txt$' || fail "the page's download didn't end"
+if grep -q '^browser: download [0-9]* failed notes.txt$' "$log"; then
+  exec 3>&-
+  quit
+  # Proof for #872: the History database's downloads table keeps Chromium's interrupt reason.
+  cp "$history_db" "$out/History" || true
+  fail "the page's download didn't finish"
+fi
 [ -f "$out/downloads/notes.txt" ] || fail "the download isn't in the check's folder"
 # On the Mac it carries macOS's quarantine flag, naming the app that downloaded it, so Gatekeeper
 # checks it the first time it opens (#685). Chromium's quarantine service sets it.
