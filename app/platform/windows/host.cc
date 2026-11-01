@@ -293,9 +293,13 @@ void Adopt(Floating& floating, void* view, bool mouse_through, void (*dismissed)
     SetWindowLongPtrW(floating.hwnd, GWL_EXSTYLE,
                       GetWindowLongPtrW(floating.hwnd, GWL_EXSTYLE) | WS_EX_NOACTIVATE);
   }
+  // GPUI made the window its content's size and the border it keeps round it. With the border
+  // gone (FloatingProc), the window is the content's size, as the UI lays it out, not 16 by 8 more.
+  RECT content{};
+  GetClientRect(floating.hwnd, &content);
   SetWindowSubclass(floating.hwnd, FloatingProc, 1, reinterpret_cast<DWORD_PTR>(&floating));
-  SetWindowPos(floating.hwnd, nullptr, 0, 0, 0, 0,
-               SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+  SetWindowPos(floating.hwnd, nullptr, 0, 0, content.right, content.bottom,
+               SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
   FloatingByHwnd()[floating.hwnd] = &floating;
   OwnShadow(floating.hwnd);
 }
