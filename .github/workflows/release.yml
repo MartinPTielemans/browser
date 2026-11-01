@@ -63,6 +63,10 @@ jobs:
           fi
           mkdir -p "$RUNNER_TEMP/notes"
           notes=$RUNNER_TEMP/notes/notes.md
+          # On a tag push, checkout writes the tag it ran for as a lightweight one on the commit
+          # (actions/checkout#290), so the annotated tag, and its message, comes again from the
+          # remote. A run by hand before the tag exists finds none, and stays a trial.
+          git fetch -q --force origin "+refs/tags/$TAG:refs/tags/$TAG" 2>/dev/null || true
           if [ "$(git cat-file -t "refs/tags/$TAG" 2>/dev/null)" = tag ]; then
             if [ "$(git rev-parse "$TAG^{commit}")" != "$GITHUB_SHA" ]; then
               echo "::error::$TAG is on another commit. Run the workflow from the tag: gh workflow run release.yml --ref $TAG -f tag=$TAG"
@@ -558,14 +562,28 @@ jobs:
   # and refs staged in pending/<tag>/ replace the live ones, then what no staged build's repository
   # holds goes: the builds they pruned, and the objects of drafts deleted unpublished. A draft
   # built before the previous one went live doesn't build on it, so publish each before the next.
+  # Its appcast.xml becomes the updates feed, the file the Mac and Windows builds read.
   publish:
     if: ${{ github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v') }}
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     env:
       AWS_DEFAULT_REGION: auto
       AWS_REQUEST_CHECKSUM_CALCULATION: when_required
       AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
     steps:
+      # The feed is release `updates`'s appcast.xml (app/branding/update-feed), so it's first: a
+      # Flatpak repository that fails doesn't keep the Mac and Windows from their update.
+      - name: Updates feed
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p appcast.xml -D "$RUNNER_TEMP/feed"
+          gh release upload updates "$RUNNER_TEMP/feed/appcast.xml" -R "$GITHUB_REPOSITORY" --clobber
+          echo "$TAG's appcast.xml is the updates feed." >> "$GITHUB_STEP_SUMMARY"
+
       - env:
           TAG: ${{ github.event.release.tag_name }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}

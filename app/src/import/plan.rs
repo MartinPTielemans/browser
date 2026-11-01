@@ -1,11 +1,12 @@
 //! What an import adds, worked out against what the browser has, so that running it again adds
 //! nothing: a Space joins the Space here with its name and profile, a folder the one with its name
-//! in the same place, and a tab or favorite whose URL is already there is skipped, as is an open
-//! tab whose URL the Space has among its pinned or Today tabs. History and addresses are added
-//! whole, and the core skips the pages and addresses it has (bc_profile_add_history,
-//! bc_profile_add_addresses).
+//! in the same place, a tab or favorite whose URL is already there is skipped, as is an open
+//! tab whose URL the Space has among its pinned or Today tabs, and so is a link rule the user has.
+//! History and addresses are added whole, and the core skips the pages and addresses it has
+//! (bc_profile_add_history, bc_profile_add_addresses).
 
 use super::found::{Address, Found, FromProfile, Node, Page, Tab};
+use crate::link_rules::{Condition, Rule};
 use crate::theme::Theme;
 
 /// What the browser has, as far as an import needs to know.
@@ -17,6 +18,8 @@ pub struct Existing {
     pub spaces: Vec<ExistingSpace>,
     /// Each favorite's profile and URL.
     pub favorites: Vec<(u64, String)>,
+    /// The link rules, in order.
+    pub link_rules: Vec<Rule>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -58,6 +61,24 @@ pub struct Plan {
     pub history: Vec<(ProfileRef, Vec<Page>)>,
     /// Each profile's addresses.
     pub addresses: Vec<(ProfileRef, Vec<Address>)>,
+    /// Link rules to add after the user's, in order.
+    pub link_rules: Vec<PlannedRule>,
+}
+
+/// A link rule to add, to a Space that's here or one the plan makes.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlannedRule {
+    pub condition: Condition,
+    pub text: String,
+    pub space: SpaceRef,
+}
+
+/// A Space a link rule goes to.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SpaceRef {
+    Existing(u64),
+    /// The plan's `spaces` at this index.
+    Planned(usize),
 }
 
 /// How much a plan brings in.
@@ -73,6 +94,8 @@ pub struct Counts {
     pub pages: usize,
     /// Addresses, which may be here already.
     pub addresses: usize,
+    /// Link rules, which aren't here already.
+    pub link_rules: usize,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -113,6 +136,7 @@ impl Plan {
             && self.favorites.is_empty()
             && self.history.is_empty()
             && self.addresses.is_empty()
+            && self.link_rules.is_empty()
     }
 
     pub fn counts(&self) -> Counts {
@@ -136,6 +160,7 @@ impl Plan {
             favorites: self.favorites.len(),
             pages: self.history.iter().map(|(_, pages)| pages.len()).sum(),
             addresses: (self.addresses.iter()).map(|(_, each)| each.len()).sum(),
+            link_rules: self.link_rules.len(),
         }
     }
 }
@@ -167,6 +192,8 @@ pub fn plan(found: &Found, names: &[(String, String)], existing: &Existing) -> P
             });
         ProfileRef::New(at)
     };
+    // Where each found Space goes, for the link rules to it.
+    let mut went = Vec::new();
     for space in &found.spaces {
         let profile = resolve(&space.profile, &mut plan);
         let here = existing
@@ -199,6 +226,15 @@ pub fn plan(found: &Found, names: &[(String, String)], existing: &Existing) -> P
                 today.push(tab.clone());
             }
         }
+        // Where the found Space goes, for the link rules to it: a Space here that gains Today tabs
+        // alone is one the plan adds to too.
+        went.push(match (planned, here) {
+            (Some(at), _) => SpaceRef::Planned(at),
+            (None, Some(here)) if adds.is_empty() && today.is_empty() => {
+                SpaceRef::Existing(here.id)
+            }
+            (None, _) => SpaceRef::Planned(plan.spaces.len()),
+        });
         match planned {
             Some(at) => {
                 merge(&mut plan.spaces[at].pinned, adds);
@@ -243,6 +279,36 @@ pub fn plan(found: &Found, names: &[(String, String)], existing: &Existing) -> P
     for (profile, addresses) in &found.addresses {
         let profile = resolve(profile, &mut plan);
         plan.addresses.push((profile, addresses.clone()));
+    }
+    for rule in &found.link_rules {
+        let Some(&space) = went.get(rule.space) else {
+            continue;
+        };
+        // A Space the plan only adds to is here already, and may have the rule.
+        let space = match space {
+            SpaceRef::Planned(at) => match plan.spaces[at].into {
+                Target::Existing(id) => SpaceRef::Existing(id),
+                Target::New { .. } => space,
+            },
+            here => here,
+        };
+        let same = |condition: Condition, text: &str| {
+            condition == rule.condition && text == rule.text
+        };
+        let here = match space {
+            SpaceRef::Existing(id) => (existing.link_rules.iter())
+                .any(|each| each.space == id && same(each.condition, &each.text)),
+            SpaceRef::Planned(_) => false,
+        };
+        let planned = (plan.link_rules.iter())
+            .any(|each| each.space == space && same(each.condition, &each.text));
+        if !here && !planned {
+            plan.link_rules.push(PlannedRule {
+                condition: rule.condition,
+                text: rule.text.clone(),
+                space,
+            });
+        }
     }
     plan
 }

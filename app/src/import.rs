@@ -1,13 +1,13 @@
 //! Import from the other browsers on the machine (#453): one view, shown in Settings › Import and
 //! as a step of the first launch, that lists the browsers found, the one used last first, and
 //! brings in what the user picks from one: Arc's Spaces with their names, icons, themes and
-//! profiles, their pinned tabs and folders, and its favorites; the other browsers' bookmarks, from
-//! Chromium's family, Firefox's and Safari, as a Space named after the browser, with Safari's
-//! Reading List and the tabs Chromium's family had open as its Today tabs; every one's history;
-//! and the addresses Chromium's family saved, never its cards. Saved passwords and cookies never
-//! come from another browser's files: passwords come from a file the user exports, behind that
-//! browser's own sign-in, which Chrome's password importer reads (bc_profile_import_passwords),
-//! and the user signs in again to the rest.
+//! profiles, their pinned tabs and folders, its link rules and its favorites; the other browsers'
+//! bookmarks, from Chromium's family, Firefox's and Safari, as a Space named after the browser,
+//! with Safari's Reading List and the tabs Chromium's family had open as its Today tabs; every
+//! one's history; and the addresses Chromium's family saved, never its cards. Saved passwords and
+//! cookies never come from another browser's files: passwords come from a file the user exports,
+//! behind that browser's own sign-in, which Chrome's password importer reads
+//! (bc_profile_import_passwords), and the user signs in again to the rest.
 //!
 //! It reads the user's data, so it's the user's alone: agents get no path to it, and nothing of a
 //! passwords file, its rows or its counts. It only reads
@@ -45,7 +45,7 @@ use crate::tokens::settings::{
 };
 use crate::tokens::text;
 use found::{Address, Found, FromProfile, Page, Tab};
-use plan::{Add, Counts, Existing, Plan, ProfileRef, Target};
+use plan::{Add, Counts, Existing, Plan, ProfileRef, SpaceRef, Target};
 use read::{Kind, ReadError};
 use sources::{Family, Os, Roots, Source};
 
@@ -72,6 +72,8 @@ pub trait Host {
     /// Opens a tab at `tab`'s URL at the top of `space`'s Today tabs, in its profile. Its page
     /// loads once it's first shown.
     fn add_today(&self, space: u64, tab: &Tab);
+    /// Puts `rules` after the user's link rules.
+    fn add_link_rules(&self, rules: &[crate::link_rules::Rule]);
     /// Whether `profile` has loaded, so its history can take pages.
     fn profile_loaded(&self, profile: u64) -> bool;
     /// Adds `pages` to `profile`'s history but for those it has, and returns whether it will. If
@@ -168,6 +170,7 @@ impl Host for Detached {
     fn add_pinned(&self, _: u64, _: u64, _: &Tab) {}
     fn add_favorite(&self, _: u64, _: &Tab) {}
     fn add_today(&self, _: u64, _: &Tab) {}
+    fn add_link_rules(&self, _: &[crate::link_rules::Rule]) {}
     fn profile_loaded(&self, _: u64) -> bool {
         true
     }
@@ -280,6 +283,19 @@ impl Job {
             for tab in space.today.iter().rev() {
                 host.add_today(id, tab);
             }
+        }
+        let rules: Vec<crate::link_rules::Rule> = (self.plan.link_rules.iter())
+            .map(|rule| crate::link_rules::Rule {
+                condition: rule.condition,
+                text: rule.text.clone(),
+                space: match rule.space {
+                    SpaceRef::Existing(id) => id,
+                    SpaceRef::Planned(at) => self.spaces[at].0,
+                },
+            })
+            .collect();
+        if !rules.is_empty() {
+            host.add_link_rules(&rules);
         }
         let existing = host.existing(cx);
         for (profile, tab) in &self.plan.favorites {
@@ -711,6 +727,8 @@ impl ImportView {
             counts.pages,
             counts.addresses
         );
+        // check.sh reads this line.
+        log!("browser: import from {name}: {} link rules", counts.link_rules);
         let Step::Running { run, .. } = &mut self.step else {
             return;
         };
@@ -1339,6 +1357,7 @@ fn summary(name: &str, counts: Counts, listed: usize) -> SharedString {
         count(counts.pinned, "pinned tab", "pinned tabs"),
         count(counts.today, "open tab", "open tabs"),
         count(counts.favorites, "favorite", "favorites"),
+        count(counts.link_rules, "link rule", "link rules"),
         count(counts.pages, "page of history", "pages of history"),
         count(counts.addresses, "address", "addresses"),
     ]

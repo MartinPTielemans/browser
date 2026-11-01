@@ -15,12 +15,13 @@ use super::chromium;
 use super::extensions::{self, Extension};
 use super::session;
 use super::suggested;
-use super::found::{Address, Field, Found, FromProfile, Node, Page, Tab};
+use super::found::{Address, Field, Found, FromProfile, LinkRule, Node, Page, Tab};
 use super::plan::{self, Counts, Existing, ExistingSpace, Row};
 use super::read::{self, Kind, ReadError};
 use super::sources::{self, Os, Roots};
 use super::{Exported, Host, ImportEvent, ImportView, Look, Passwords};
 use super::{firefox, safari};
+use crate::link_rules::{Condition, Rule};
 use crate::theme::{Appearance, Texture, Theme};
 
 fn fixture() -> PathBuf {
@@ -28,8 +29,10 @@ fn fixture() -> PathBuf {
 }
 
 fn sidebar() -> Found {
-    let path = fixture().join("Library/Application Support/Arc/StorableSidebar.json");
-    arc::parse(&fs::read_to_string(path).unwrap()).unwrap()
+    let arc = fixture().join("Library/Application Support/Arc");
+    let routing = fs::read_to_string(arc.join("StorableLinkRouting.json")).unwrap();
+    arc::parse(&fs::read_to_string(arc.join("StorableSidebar.json")).unwrap(), Some(&routing))
+        .unwrap()
 }
 
 /// The fixture's sidebar, with its Spaces or its favorites left out.
@@ -37,6 +40,7 @@ fn picked(spaces: bool, favorites: bool) -> Found {
     let mut found = sidebar();
     if !spaces {
         found.spaces.clear();
+        found.link_rules.clear();
     }
     if !favorites {
         found.favorites.clear();
@@ -152,7 +156,7 @@ fn arcs_appearance_comes_from_its_window_appearance_else_its_look() {
         let json = format!(
             r#"{{"sidebar": {{"containers": [{{"global": {{}}}}, {{"spaces": ["S", {{"id": "S", "title": "S", "customInfo": {{"windowTheme": {window_theme}}}}}], "items": []}}]}}}}"#
         );
-        arc::parse(&json).unwrap().spaces[0].theme.unwrap()
+        arc::parse(&json, None).unwrap().spaces[0].theme.unwrap()
     };
     let one = |color: &str, forced: &str| {
         theme_of(format!(r#"{{{forced} "background": {{"single": {{"_0": {}}}}}}}"#, look(color)))
@@ -173,8 +177,8 @@ fn arcs_appearance_comes_from_its_window_appearance_else_its_look() {
 
 #[test]
 fn a_file_that_isnt_arcs_sidebar_says_so() {
-    assert!(arc::parse("not json").is_err());
-    assert!(arc::parse(r#"{"sidebar": {"containers": [{"global": {}}]}}"#).is_err());
+    assert!(arc::parse("not json", None).is_err());
+    assert!(arc::parse(r#"{"sidebar": {"containers": [{"global": {}}]}}"#, None).is_err());
 }
 
 /// A folder the test makes, empty, for one test's browsers.
@@ -472,6 +476,7 @@ struct State {
     profiles: Vec<(u64, String)>,
     spaces: Vec<Space>,
     favorites: Vec<(u64, Tab)>,
+    link_rules: Vec<Rule>,
     /// Spaces put in a profile that hasn't loaded yet.
     loading: Vec<(u64, u64)>,
     /// Profiles made that haven't loaded yet.
@@ -627,6 +632,7 @@ impl Browser {
                 .iter()
                 .map(|(profile, tab)| (*profile, tab.url.clone()))
                 .collect(),
+            link_rules: state.link_rules.clone(),
         }
     }
 }
@@ -697,6 +703,10 @@ impl Host for Browser {
 
     fn add_today(&self, space: u64, tab: &Tab) {
         self.state.borrow_mut().space(space).today.insert(0, tab.clone());
+    }
+
+    fn add_link_rules(&self, rules: &[Rule]) {
+        self.state.borrow_mut().link_rules.extend_from_slice(rules);
     }
 
     fn profile_loaded(&self, profile: u64) -> bool {
@@ -872,6 +882,87 @@ fn an_import_brings_in_spaces_folders_and_favorites(cx: &mut TestAppContext) {
     );
 }
 
+/// Arc's link rules that match a link's URL and open it in one of its Spaces come in, in Arc's
+/// order, whichever way the file names the Space; one that matches the app a link came from, or
+/// goes to Little Arc, the Space in front or a Space that's gone, doesn't, nor does a file that
+/// can't be read.
+#[test]
+fn arcs_link_rules_read_as_ours() {
+    let rule = |condition, text: &str, space| LinkRule {
+        condition,
+        text: text.into(),
+        space,
+    };
+    let rules = [
+        rule(Condition::Contains, "work.example.com", 1),
+        rule(Condition::Is, "https://news.ycombinator.com/", 0),
+        rule(Condition::Is, "https://docs.example.com/", 1),
+    ];
+    assert_eq!(sidebar().link_rules, rules);
+    let arc = fixture().join("Library/Application Support/Arc");
+    let json = fs::read_to_string(arc.join("StorableSidebar.json")).unwrap();
+    assert!(arc::parse(&json, Some("not json")).unwrap().link_rules.is_empty());
+}
+
+/// Arc's link rules go after the user's, each to the Space its Arc Space became, and one the
+/// user has already, to the Space of that name here, doesn't come twice.
+#[gpui::test]
+fn arcs_link_rules_go_to_the_spaces_they_became(cx: &mut TestAppContext) {
+    let rule = |condition, text: &str, space| Rule {
+        condition,
+        text: text.into(),
+        space,
+    };
+    let browser = Browser::new(None);
+    let mine = rule(Condition::Contains, "mine.example.com", 2);
+    browser.state.borrow_mut().link_rules.push(mine.clone());
+    cx.update(|cx| import(&browser, &sidebar(), cx));
+    let state = browser.state.borrow();
+    let (personal, work) = (state.spaces[1].id, state.spaces[2].id);
+    let rules = [
+        mine,
+        rule(Condition::Contains, "work.example.com", work),
+        rule(Condition::Is, "https://news.ycombinator.com/", personal),
+        rule(Condition::Is, "https://docs.example.com/", work),
+    ];
+    assert_eq!(state.link_rules, rules);
+    drop(state);
+
+    let browser = Browser::new(None);
+    {
+        let mut state = browser.state.borrow_mut();
+        state.space(2).name = "Personal".into();
+        let hn = rule(Condition::Is, "https://news.ycombinator.com/", 2);
+        state.link_rules.push(hn);
+    }
+    let plan = plan::plan(&sidebar(), &profile_names(), &browser.here());
+    assert_eq!(plan.counts().link_rules, 2);
+}
+
+/// A Space here that an import gives only Today tabs is still the one its link rules go to.
+#[gpui::test]
+fn link_rules_go_to_a_space_that_gains_only_today_tabs(cx: &mut TestAppContext) {
+    let browser = Browser::new(None);
+    cx.update(|cx| import(&browser, &sidebar(), cx));
+    let rules = std::mem::take(&mut browser.state.borrow_mut().link_rules);
+    let mut found = sidebar();
+    found.spaces[0].today.push(Tab {
+        url: "https://open.example.com/".into(),
+        name: String::new(),
+    });
+    let plan = plan::plan(&found, &profile_names(), &browser.here());
+    let counts = Counts {
+        today: 1,
+        link_rules: 3,
+        ..Counts::default()
+    };
+    assert_eq!(plan.counts(), counts);
+    cx.update(|cx| import(&browser, &found, cx));
+    let state = browser.state.borrow();
+    assert_eq!(state.spaces.len(), 3, "the import made a Space again");
+    assert_eq!(state.link_rules, rules);
+}
+
 /// Running it again finds everything there, so it adds nothing: no Space, profile, folder, tab
 /// or favorite twice.
 #[gpui::test]
@@ -912,6 +1003,7 @@ fn a_space_already_here_gets_only_what_it_lacks(cx: &mut TestAppContext) {
     let counts = Counts {
         spaces: 1,
         pinned: 4,
+        link_rules: 3,
         ..Counts::default()
     };
     assert_eq!(plan.counts(), counts);
@@ -982,13 +1074,13 @@ fn the_view_imports_what_the_user_picks(cx: &mut TestAppContext) {
         };
         assert_eq!(
             said.as_ref(),
-            "2 Spaces, 6 pinned tabs and 3 favorites came in from Arc."
+            "2 Spaces, 6 pinned tabs, 3 favorites and 3 link rules came in from Arc."
         );
     });
     assert_eq!(browser.spaces()[2].rows.len(), 1);
     view.update(cx, |view, cx| view.done(cx));
     cx.run_until_parked();
-    let said = "2 Spaces, 6 pinned tabs and 3 favorites came in from Arc.";
+    let said = "2 Spaces, 6 pinned tabs, 3 favorites and 3 link rules came in from Arc.";
     assert_eq!(
         *events.borrow(),
         [

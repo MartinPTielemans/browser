@@ -23,7 +23,7 @@ pub const HISTORY_DAYS: u64 = 90;
 /// What the user can bring from a browser, each shown as a switch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
-    /// Arc's Spaces, with their pinned tabs and folders.
+    /// Arc's Spaces, with their pinned tabs and folders, and its link rules.
     Spaces,
     /// Arc's favorites.
     Favorites,
@@ -42,7 +42,7 @@ pub enum Kind {
 impl Kind {
     pub fn label(self) -> &'static str {
         match self {
-            Kind::Spaces => "Spaces, with their pinned tabs and folders",
+            Kind::Spaces => "Spaces, with their pinned tabs, folders and link rules",
             Kind::Favorites => "Favorites",
             Kind::Bookmarks => "Bookmarks, as a Space's pinned tabs",
             Kind::OpenTabs => "Open tabs, as that Space's Today tabs",
@@ -135,9 +135,14 @@ pub fn read(source: &Source, picked: &[Kind], now: SystemTime) -> Result<Found, 
     if let Some(path) = source.arc_sidebar()
         && (wants(Kind::Spaces) || wants(Kind::Favorites))
     {
-        let sidebar = super::arc::parse(&std::fs::read_to_string(&path)?)?;
+        // Arc's link rules come with its Spaces, each to the Space its Arc Space becomes.
+        let routing = (source.arc_link_routing())
+            .filter(|_| wants(Kind::Spaces))
+            .and_then(|routing| std::fs::read_to_string(routing).ok());
+        let sidebar = super::arc::parse(&std::fs::read_to_string(&path)?, routing.as_deref())?;
         if wants(Kind::Spaces) {
             found.spaces = sidebar.spaces;
+            found.link_rules = sidebar.link_rules;
         }
         if wants(Kind::Favorites) {
             found.favorites = sidebar.favorites;

@@ -11,6 +11,7 @@ use browser::import::{Exported, Passwords};
 use browser::import::found::{Address, Page, Tab};
 use browser::import::plan::{Existing, ExistingSpace, Row};
 use browser::import::sources::{Os, Roots};
+use browser::link_rules::{Host as _, Rule};
 use browser::theme::Theme;
 use gpui::{App, PathPromptOptions};
 
@@ -196,6 +197,7 @@ impl browser::import::Host for CoreImport {
             profiles,
             spaces,
             favorites,
+            link_rules: crate::link_rules_host::CoreLinkRules.rules().rules,
         }
     }
 
@@ -249,6 +251,13 @@ impl browser::import::Host for CoreImport {
 
     fn add_today(&self, space: u64, tab: &Tab) {
         open_in(space, &tab.url);
+    }
+
+    fn add_link_rules(&self, rules: &[Rule]) {
+        let host = crate::link_rules_host::CoreLinkRules;
+        let mut all = host.rules();
+        all.rules.extend_from_slice(rules);
+        host.set_rules(&all);
     }
 
     fn profile_loaded(&self, profile: u64) -> bool {

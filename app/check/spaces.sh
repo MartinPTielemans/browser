@@ -5,7 +5,8 @@
 # another Space, which shows the tab it showed last. Two fingers across the sidebar page to the
 # Space a flick or the pages' place points at, never past the last, fingers along it don't, and a
 # wheel's tick across pages once. A right-click on a row as a Space's rows slide in shows its
-# tab's menu. A tab's menu moves the tab to another Space, which the window shows with it. Return
+# tab's menu. A tab's menu moves the tab to another Space, which the window shows with it, and
+# into another Space's folder, listed under its Today, which ⌘Z undoes. Return
 # with no name does nothing, New Space from the footer's + shows a form
 # already open, and Cancel, or two fingers back, deletes its Space and goes back to the Space it
 # was made from; fingers going on rubber-band the form. A right-click on the Space's name, a
@@ -14,9 +15,12 @@
 # shows New Tab and New Folder… before them; an emoji committed after Change Icon…
 # is the Space's icon, in its dot's place, until Remove Icon. Rename, the Spaces
 # menu's too, and a double-click on the name, turn it into a field, where a right-click shows the
-# field's menu, return keeps the name and escape cancels. A Library card's brush opens the theme
-# picker, which makes the Space light and dark, and a click on the card's name makes it a field in
-# the card, the Library staying open. Delete asks first for a Space with tabs,
+# field's menu, return keeps the name and escape cancels. A Library card's field lights with the
+# pointer on its brush or icon slot too. The brush opens the theme picker beside itself, which
+# makes the Space light and dark, and the slot hangs the icon picker from itself, the Library
+# staying open under them; another card's slot moves the picker there, and escape closes the
+# picker, then the Library. A click on the card's name makes it a field in the card, the Library
+# staying open. Delete asks first for a Space with tabs,
 # in a dialog that a click around cancels and return confirms, and the Space goes once the dialog
 # has, which a toast says. ⌘Z brings it back where it was, with its name and tabs. Its tabs close
 # with it and reopen with ⇧⌘T in the Space shown, which ⌘Z then leaves out, and the last Space
@@ -347,6 +351,19 @@ expect "^browser: library field $second shown drawn\$" "the pointer on the secon
 ../tools/window-screenshot.sh "$pid" "$out/library-field-hover.png" || fail "no window to capture"
 send move 524 $((${content#*x} / 2))
 expect "^browser: library field $second at rest drawn\$" "the pointer leaving the second card's field left its plate"
+# The brush, 4 in from the field's end and 28 wide, and the icon's slot, 6 in and 24 wide, are on
+# the field, and light it too (#1074).
+card_y=$((48 + 33))
+brush_x=$((404 + 240 - 8 - 4 - 14))
+slot_x=$((404 + 8 + 6 + 12))
+send move $brush_x $card_y
+expect "^browser: library field $second shown drawn\$" "the pointer on the second card's brush didn't light its field"
+send move 524 $((${content#*x} / 2))
+expect "^browser: library field $second at rest drawn\$" "the pointer leaving the second card's brush left its plate"
+send move $slot_x $card_y
+expect "^browser: library field $second shown drawn\$" "the pointer on the second card's icon slot didn't light its field"
+send move 524 $((${content#*x} / 2))
+expect "^browser: library field $second at rest drawn\$" "the pointer leaving the second card's icon slot left its plate"
 # A right-click on the second card, 404 in and half its 240 wide, shows that Space's menu, with
 # the colour it was given, and leaves the Library open on the Space shown.
 post rightclick 524 $((${content#*x} / 2))
@@ -356,28 +373,30 @@ Export as Markdown…, Delete Space")\$" \
 none_since '^browser: library space ' || fail "a right-click on a card showed its Space"
 send dismiss
 # The card's field is 8 in from its sides and 36 tall around the middle of its name's row, 33
-# down. Its brush, 4 in from the field's end, opens the theme picker for the Space, where the
-# second gets its light and its dark appearance in turn, and then automatic again. The capture
-# comes while it's dark, and the window takes only the look of the Space it shows, the first, so
-# one capture shows the card's field. The Library opens again with ⇧⌘L. $1 is the appearance and
-# $2 its button's x in the picker's window, which holds the 13 wide arrow left of the card.
-card_y=$((48 + 33))
+# down. Its brush opens the theme picker for the Space beside itself, over the Library, which
+# stays open (#1074), where the second gets its light and its dark appearance in turn, and then
+# automatic again. The capture comes while it's dark, the card taking the theme as it's made and
+# the window only the look of the Space it shows, the first. $1 is the appearance and $2 its
+# button's x in the picker's window, which holds the 13 wide arrow left of the card.
 appear() {
-  send click $((404 + 240 - 8 - 4 - 14)) $card_y
+  send click $brush_x $card_y
   expect "^browser: theme picker for $second\$" "the second card's brush didn't open the theme picker"
-  expect '^browser: library hidden$' "the brush's theme picker didn't close the Library"
   expect '^browser: theme picker drawn$' "the brush's theme picker didn't draw itself on screen"
+  none_since '^browser: library hidden$' || fail "the brush's theme picker closed the Library"
   send clickkey $2 49
   expect "^browser: themed space $second .* appearance=$1\$" "the picker didn't make the Space $1"
+  if [ "$1" = dark ]; then
+    ../tools/window-screenshot.sh "$pid" "$out/library-theme-picker.png" ||
+      fail "no window to capture"
+  fi
   send key escape
   expect '^browser: theme picker hidden$' "escape didn't hide the brush's theme picker"
+  none_since '^browser: library hidden$' || fail "escape in the card's theme picker closed the Library"
 }
 # A click on the second card's name, past its icon's slot, makes the name a field there with the
 # keyboard, leaving the Library open and the Space where it was, and escape puts the name back.
 # $1 is the capture's name.
 rename_card() {
-  send key l cmd shift
-  expect '^browser: library shown$' "⇧⌘L didn't open the Library again"
   send click $((404 + 8 + 6 + 24 + 6 + 20)) $card_y
   expect "^browser: rename space $second in library\$" "a click on the card's name didn't edit it"
   none_since '^browser: library space ' || fail "a click on a card's name showed its Space"
@@ -390,13 +409,27 @@ rename_card() {
   none_since '^browser: library hidden$' || fail "escape in a card's name closed the Library"
 }
 appear light 191.3
-send key l cmd shift
-expect '^browser: library shown$' "⇧⌘L didn't open the Library again"
 appear dark 231.7
 rename_card library-rename.png
 appear automatic 150.9
-send key 1 ctrl
-expect "^browser: space $first in " "⌃1 didn't show the first Space after the card's theme"
+# The second card's slot hangs the icon picker from itself over the Library, which stays open,
+# and a click on the first card's slot, 264 to the left, moves the picker there. Escape closes the
+# picker, and then the Library.
+send click $slot_x $card_y
+expect "^browser: icon picker for $second on " "the second card's icon slot didn't open the icon picker"
+none_since '^browser: library hidden$' || fail "the card's icon picker closed the Library"
+../tools/window-screenshot.sh "$pid" "$out/library-icon-picker.png" || fail "no window to capture"
+send click $((slot_x - 264)) $card_y
+expect "^browser: icon picker for $first on " "a click on the first card's slot didn't move the icon picker"
+none_since '^browser: library hidden$' || fail "moving the icon picker closed the Library"
+send key escape
+expect '^browser: icon picker hidden$' "escape didn't close the card's icon picker"
+none_since '^browser: library hidden$' || fail "escape in the card's icon picker closed the Library"
+send key escape
+expect '^browser: library hidden$' "escape didn't close the Library once the picker had gone"
+# The cards' pickers left the Space shown as it was.
+shown=$(grep '^browser: space [0-9]* in ' "$log" | tail -1 | cut -d' ' -f3)
+[ "$shown" = "$first" ] || fail "the cards' pickers showed Space $shown, not the first"
 send key l cmd shift
 expect '^browser: library shown$' "⇧⌘L didn't open the Library again"
 library_to "wheel $swipe_point -1" wheel hidden
@@ -424,6 +457,45 @@ send key z cmd shift
 expect '^browser: command redo via \(ui\|page\)$' "⇧⌘Z didn't redo Move to Space"
 expect "^browser: space $first\( in .*\)\{0,1\}\$" "⇧⌘Z didn't move the tab to the first Space"
 expect_tabs "$a" "$a" "after redoing Move to Space"
+# Move to › lists another Space's folders under its Today, as Arc's does, and moves the tab into
+# the one picked, which ⌘Z undoes. The second Space's folder goes again after.
+send key 2 ctrl
+expect "^browser: space $second in " "⌃2 didn't show the second Space"
+send menu New Folder…
+expect '^browser: rename folder [0-9]*$' "New Folder in the second Space gave no name field"
+g=$(grep '^browser: rename folder' "$log" | tail -1 | cut -d' ' -f4)
+send type shelf
+send key return
+expect "^browser: renamed folder $g shelf\$" "the second Space's folder didn't take its name"
+send key 1 ctrl
+expect "^browser: space $first in " "⌃1 didn't show the first Space"
+expect "^browser: settled space $first\$" "the first Space's page didn't settle"
+post rightclick $(row 0)
+expect "^browser: menu shown .*, $(cased 'Move to') › reading 日本語 › Today, \
+$(cased 'Move to') › reading 日本語 › shelf, $(cased 'Move to › New Space…'), " \
+  "Move to › didn't list the second Space's Today and its folder: $(grep '^browser: menu shown' "$log" | tail -1)"
+../tools/window-screenshot.sh "$pid" "$out/move-to-folder.png" || fail "no window to capture"
+send choose shelf
+expect '^browser: command move-to-folder via tab menu$' "Move to › reading 日本語 › shelf didn't run"
+expect '^browser: today $' "Move to › shelf left the tab in the first Space's Today"
+# The window follows the tab into its Space, as Move to › a Space does.
+expect "^browser: space $second\$" "the window didn't show the second Space after Move to › shelf"
+expect "^browser: outline $g+\\[$a\\]\$" \
+  "Move to › shelf didn't put the tab in the second Space's folder: $(grep '^browser: outline' "$log" | tail -1)"
+undo=$((step + 1))
+send key z cmd
+send key 1 ctrl
+expect "^browser: today $a\$" "⌘Z didn't bring the tab back to the first Space's Today" "$undo"
+send key 2 ctrl
+expect "^browser: outline $g+\\[\\]\$" "⌘Z left the tab in the folder: $(grep '^browser: outline' "$log" | tail -1)" "$undo"
+expect "^browser: settled space $second\$" "the second Space's page didn't settle"
+post rightclick $(pinned_row 0)
+expect "^browser: menu shown $(cased 'Rename Folder'), " "a right-click on the second Space's folder showed no menu"
+send choose "$(cased 'Delete Folder')"
+expect '^browser: outline *$' "Delete Folder didn't take the second Space's folder away"
+send key 1 ctrl
+expect "^browser: space $first in " "⌃1 didn't show the first Space again"
+expect_tabs "$a" "$a" "back in the first Space after Move to › shelf"
 show_space "key 2 ctrl" select-space ui "$second" "$b"
 
 # Fingers pull the last Space's page past its place and bring in a circle, which readies a new
@@ -957,5 +1029,5 @@ paged=$(sed -n '/^browser: paged frames /s/[^0-9.][^0-9.]*/ /gp' "$log" | sort -
   awk '{ n += $1; m[NR] = $2; if ($3 > x) x = $3 }
     END { if (NR) printf "%d page changes, %d frames, median %.2f ms, max %.2f ms",
       NR, n, m[int((NR + 1) / 2)], x }')
-echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; past the first Space, fingers and a wheel's tick bring the Library out and put it back, its Spaces section as wide as its cards, and fingers let go short of halfway put it back, and past where it opens take it on a little, its column's fill at the window's edge; a right-click on a row as the Space's rows slide in shows its tab's menu; a tab's menu moves it to another Space, which shows with it; a row held at the sidebar's edge pages to the next Space without joining the row under it in a split, and let go there moves to it; fingers held past the last Space ready a new Space and let go make it, with its form, and let go short of that don't; Cancel, and two fingers back, delete a new Space and go back to the Space it was made from, and fingers going on past its form rubber-band it. A right-click on a Space's name, dot or Library card shows Rename, Change Icon…, Edit Theme Color… and Delete, and one on the sidebar's empty space New Tab before them, which opens the command bar; the theme picker, from the form's row and the menu, gives a Space its colours from its field, a swatch's own, + and the wave, and a colour dragged alone to a place of its own, the window taking them as they're made, and Remove Theme Color, offered once it has one, takes them away; an emoji picked in its icon picker, by a search and ↩, is its icon, in its dot's place in the switcher, until Remove Icon, and escape leaves it as it was; a double-click on the name renames it too, a right-click in its field shows the field's menu, return keeps the name and escape cancels; a Library card's brush opens the theme picker, which makes the Space light and dark, and a click on the card's name edits it in the card with the Library left open. Delete asks first for a Space with tabs, in a dialog a click around cancels and return confirms, closes them once it has gone, and the toast says so; ⌘Z brings the Space back where it was with its name and tabs, ⇧⌘T reopens them in the Space shown, and ⌘Z then leaves those out; the last Space can't go. The Spaces menu names each Space and shows it, and its Rename Space opens the name's field. Move to Space offers Undo, ⌘Z takes the tab back to its Space and ⇧⌘Z moves it again. With two windows, each one's ⌘Z undoes only what was done in it: a Space deleted in one, the archive cleared in the other. A page behind another tab, in a Space not shown, in a minimized window or a hidden app is hidden and runs no animation frames, and is visible once back. Paging, the sidebar a frame: ${paged:-not logged}. Windows: $out/swipe.png, $out/library-swipe.png, $out/library-end.png, $out/library-spaces.png, $out/library-field-hover.png, $out/library-rename.png, $out/new-space-pull.png, $out/space-empty-menu.png, $out/space-menu.png, $out/space-delete.png, $out/space-deleted.png"
-echo "  Space switch, key to the core's report: $spaces_ms. Windows: $out/space-form.png, $out/space-form-ime.png, $out/theme-picker.png, $out/space-theme.png, $out/new-space.png, $out/spaces.png, $out/space-icon-picker.png, $out/space-icon.png, $out/space-emoji.png"
+echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; past the first Space, fingers and a wheel's tick bring the Library out and put it back, its Spaces section as wide as its cards, and fingers let go short of halfway put it back, and past where it opens take it on a little, its column's fill at the window's edge; a right-click on a row as the Space's rows slide in shows its tab's menu; a tab's menu moves it to another Space, which shows with it; a row held at the sidebar's edge pages to the next Space without joining the row under it in a split, and let go there moves to it; fingers held past the last Space ready a new Space and let go make it, with its form, and let go short of that don't; Cancel, and two fingers back, delete a new Space and go back to the Space it was made from, and fingers going on past its form rubber-band it. A right-click on a Space's name, dot or Library card shows Rename, Change Icon…, Edit Theme Color… and Delete, and one on the sidebar's empty space New Tab before them, which opens the command bar; the theme picker, from the form's row and the menu, gives a Space its colours from its field, a swatch's own, + and the wave, and a colour dragged alone to a place of its own, the window taking them as they're made, and Remove Theme Color, offered once it has one, takes them away; an emoji picked in its icon picker, by a search and ↩, is its icon, in its dot's place in the switcher, until Remove Icon, and escape leaves it as it was; a double-click on the name renames it too, a right-click in its field shows the field's menu, return keeps the name and escape cancels; a Library card's field lights with the pointer on its brush or icon slot, the brush opens the theme picker beside itself, which makes the Space light and dark, and the slot the icon picker, which another card's slot moves, both over the Library, which stays open until escape closes the picker and then it, and a click on the card's name edits it in the card with the Library left open. Delete asks first for a Space with tabs, in a dialog a click around cancels and return confirms, closes them once it has gone, and the toast says so; ⌘Z brings the Space back where it was with its name and tabs, ⇧⌘T reopens them in the Space shown, and ⌘Z then leaves those out; the last Space can't go. The Spaces menu names each Space and shows it, and its Rename Space opens the name's field. Move to Space offers Undo, ⌘Z takes the tab back to its Space and ⇧⌘Z moves it again. Move to › lists the other Space's Today and its folder, and moves the tab into the folder, which ⌘Z undoes. With two windows, each one's ⌘Z undoes only what was done in it: a Space deleted in one, the archive cleared in the other. A page behind another tab, in a Space not shown, in a minimized window or a hidden app is hidden and runs no animation frames, and is visible once back. Paging, the sidebar a frame: ${paged:-not logged}. Windows: $out/swipe.png, $out/library-swipe.png, $out/library-end.png, $out/library-spaces.png, $out/library-field-hover.png, $out/library-theme-picker.png, $out/library-icon-picker.png, $out/library-rename.png, $out/new-space-pull.png, $out/space-empty-menu.png, $out/space-menu.png, $out/space-delete.png, $out/space-deleted.png"
+echo "  Space switch, key to the core's report: $spaces_ms. Windows: $out/space-form.png, $out/space-form-ime.png, $out/theme-picker.png, $out/space-theme.png, $out/new-space.png, $out/spaces.png, $out/space-icon-picker.png, $out/space-icon.png, $out/space-emoji.png, $out/move-to-folder.png"

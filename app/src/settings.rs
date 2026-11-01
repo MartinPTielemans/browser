@@ -341,6 +341,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Check for Updates", Keys::Of(Command::CheckForUpdates)),
             ("Settings", Keys::Of(Command::Settings)),
             ("Import from Other Browsers", Keys::Of(Command::Import)),
+            ("Privacy Policy", Keys::Of(Command::PrivacyPolicy)),
             ("Passwords", Keys::Of(Command::Passwords)),
             ("Site Search Settings", Keys::Of(Command::SiteSearchSettings)),
             // main.rs binds these.
@@ -698,6 +699,10 @@ fn show_now(cx: &mut App) {
         .ok();
     check_default_browser(cx);
     unsafe { platform::host_show_settings() };
+    // check.sh waits for this line, which the Mac's and Linux's hosts log as they show the window.
+    if cfg!(target_os = "windows") {
+        log!("browser: settings shown {}", title());
+    }
 }
 
 /// Looks again for the agent clients on this computer, as the Agents tab shows.
@@ -740,8 +745,8 @@ thread_local! {
     static SHOWN_TAB: Cell<&'static str> = const { Cell::new("") };
 }
 
-/// The window's title, for a host that logs it as the Mac's reads it off the window.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+/// The window's title, logged as the Mac's host reads it off the window.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 pub fn title() -> &'static str {
     SHOWN_TAB.get()
 }
@@ -956,6 +961,9 @@ impl Settings {
                 .when(shown, |plate| {
                     plate.bg(rgb(PLATE_FILL)).border(px(0.5)).border_color(rgb(PLATE_EDGE))
                 })
+                // check.sh clicks a tab where this says, as its labels' widths differ by platform.
+                .relative()
+                .child(self.drawn(format!("toolbar {}", tab.name())))
                 // A press here picks the tab, and doesn't move the window.
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(cx.listener(move |settings, _, window, cx| {
@@ -2429,6 +2437,13 @@ fn about() -> AnyElement {
     if let Some(engine) = build_info::ENGINE_VERSION.as_deref() {
         version = format!("{version}, on Chromium {engine}");
     }
+    // check.sh reads the engine's version here.
+    let line = format!("browser: settings about {version}");
+    ABOUT_LOGGED.with_borrow_mut(|logged| {
+        if logged.insert(line.clone()) {
+            log!("{line}");
+        }
+    });
     let open = |id: &'static str, url: Option<String>| {
         url.map(|url| {
             // check.sh clicks Open where this line says it is.

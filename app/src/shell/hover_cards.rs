@@ -246,6 +246,16 @@ impl Shell {
         self.browser.folder_preview(Ask::Close, cx);
     }
 
+    /// The page the popovers point into is going, as a swipe or a wheel turns it, which sends no
+    /// click outside them that would close them: they all go, hovers and menus and pickers alike.
+    pub(super) fn leave_popovers(&self, cx: &mut App) {
+        self.end_hovers(cx);
+        crate::menu::dismissed(cx);
+        crate::icon_picker::leave(cx);
+        crate::theme_picker::leave(cx);
+        crate::site_controls::dismissed(cx);
+    }
+
     /// The tab shown was `before`'s pages and is now another's: those it hid are pictured once
     /// the switches have been quiet for QUIET, as the Dock's dot waits, so nothing lands on the
     /// switch, and a run of switches pictures only what it left hidden.

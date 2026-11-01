@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use gpui::{Context, Focusable, SharedString, Window, div, point, prelude::*, px};
+use gpui::{App, Context, Focusable, Point, SharedString, Window, div, point, prelude::*, px};
 
 use super::{
     undo::{Prop, Value},
@@ -19,6 +19,7 @@ use crate::{
     icon_picker::{self, Picked, Subject},
     space_icon::has_icon,
     text_input::TextInput,
+    theme_picker,
 };
 
 /// How long a picker waits for the name row it points at to stop moving.
@@ -179,6 +180,92 @@ impl Shell {
         self.open_picker(space, Pending::Theme(space), cx);
     }
 
+    /// Hangs the icon picker from the icon slot of `space`'s card in the Library, which stays open
+    /// with the Space shown where it was, so several can be changed in a row, as in Arc (#1074).
+    /// The press closed a picker showing for another card, which on Linux hears so only after the
+    /// click, so it opens from this card once that one has closed.
+    pub(super) fn change_space_icon_in_card(&mut self, space: u64, cx: &mut Context<Self>) {
+        let showing = icon_picker::open_for(cx);
+        if let Some(other) = showing.filter(|&other| other != Subject::Space(space)) {
+            let picker = icon_picker::entity(cx);
+            self.card_move = picker.map(|picker| {
+                cx.observe(&picker, move |shell, _, cx| match icon_picker::open_for(cx) {
+                    Some(now) if now == other => {}
+                    None => {
+                        shell.card_move = None;
+                        shell.change_space_icon_in_card(space, cx);
+                    }
+                    Some(_) => shell.card_move = None,
+                })
+            });
+            return;
+        }
+        let Some(slot) = self.slot_frames.borrow().get(&space).copied() else {
+            return;
+        };
+        let anchor = point(f32::from(slot.center().x), f32::from(slot.center().y));
+        self.show_space_icon_picker(space, anchor, cx);
+        self.light_card_while_picking(space, cx);
+    }
+
+    /// Opens the theme picker beside the brush of `space`'s card in the Library, which stays open
+    /// under it, the card's gradient taking the theme as it's made (#1074), once a picker showing
+    /// for another card has closed, as the icon picker does.
+    pub(super) fn edit_space_theme_in_card(&mut self, space: u64, cx: &mut Context<Self>) {
+        if let Some(other) = theme_picker::open_for(cx).filter(|&other| other != space) {
+            let picker = theme_picker::entity(cx);
+            self.card_move = picker.map(|picker| {
+                cx.observe(&picker, move |shell, _, cx| match theme_picker::open_for(cx) {
+                    Some(now) if now == other => {}
+                    None => {
+                        shell.card_move = None;
+                        shell.edit_space_theme_in_card(space, cx);
+                    }
+                    Some(_) => shell.card_move = None,
+                })
+            });
+            return;
+        }
+        let Some(brush) = self.brush_frames.borrow().get(&space).copied() else {
+            return;
+        };
+        let anchor = point(f32::from(brush.right()), f32::from(brush.center().y));
+        self.show_theme_picker(space, anchor, cx);
+        self.light_card_while_picking(space, cx);
+    }
+
+    /// Keeps `space`'s card's field lit while a picker shows for it, as the pointer leaves the
+    /// field for the picker.
+    fn light_card_while_picking(&mut self, space: u64, cx: &mut Context<Self>) {
+        let showing = move |cx: &App| {
+            icon_picker::open_for(cx) == Some(Subject::Space(space))
+                || theme_picker::open_for(cx) == Some(space)
+        };
+        if !showing(cx) {
+            return;
+        }
+        let watch = move |shell: &mut Self, cx: &mut Context<Self>| {
+            if !showing(cx) {
+                shell.card_picker = None;
+                cx.notify();
+            }
+        };
+        let watch = if icon_picker::open_for(cx) == Some(Subject::Space(space)) {
+            let picker = icon_picker::entity(cx);
+            picker.map(|picker| cx.observe(&picker, move |shell, _, cx| watch(shell, cx)))
+        } else {
+            let picker = theme_picker::entity(cx);
+            picker.map(|picker| cx.observe(&picker, move |shell, _, cx| watch(shell, cx)))
+        };
+        self.card_picker = watch.map(|watch| (space, watch));
+        cx.notify();
+    }
+
+    /// Whether `space`'s card's field is held lit for a picker shown from it.
+    pub(super) fn card_picking(&self, space: u64) -> bool {
+        self.card_picker.as_ref().is_some_and(|(picking, _)| *picking == space)
+    }
+
     fn open_picker(&mut self, space: u64, picker: Pending, cx: &mut Context<Self>) {
         if !self.spaces.iter().any(|each| each.id == space) {
             return;
@@ -239,6 +326,19 @@ impl Shell {
             return;
         };
         let subject = match picker {
+            Pending::Icon(Subject::Space(space)) => {
+                let anchor = point(
+                    f32::from(row.left()) + SPACE_ICON_X + SPACE_ICON_SLOT / 2.,
+                    f32::from(row.center().y),
+                );
+                let iconless =
+                    self.spaces.iter().any(|each| each.id == space && !has_icon(&each.icon));
+                self.show_space_icon_picker(space, anchor, cx);
+                if iconless {
+                    self.hold_icon_place(space, cx);
+                }
+                return;
+            }
             Pending::Icon(subject) => subject,
             Pending::Theme(space) => {
                 let anchor = point(f32::from(row.right()), f32::from(row.center().y));
@@ -247,23 +347,8 @@ impl Shell {
         };
         let shell = cx.weak_entity();
         let (icon, anchor, picked) = match subject {
-            Subject::Space(space) => {
-                let Some(icon) = self.spaces.iter().find(|each| each.id == space) else {
-                    return;
-                };
-                let anchor = point(
-                    f32::from(row.left()) + SPACE_ICON_X + SPACE_ICON_SLOT / 2.,
-                    f32::from(row.center().y),
-                );
-                let picked: Picked = Rc::new(move |icon, cx| {
-                    shell
-                        .update(cx, |shell, cx| {
-                            shell.change(Prop::SpaceIcon(space), Value::Text(icon.to_string()), cx)
-                        })
-                        .ok();
-                });
-                (icon.icon.clone(), anchor, picked)
-            }
+            // Shown above.
+            Subject::Space(_) => return,
             Subject::Tab(tab) => {
                 // The favicon's middle: a tile's, else in from the row by the folders the tab is
                 // in.
@@ -304,15 +389,29 @@ impl Shell {
                 (self.folder_icon(folder), anchor, picked)
             }
         };
-        let iconless = !has_icon(&icon);
         // A card showing would stay under the picker, as rows' cards wait while it shows.
         self.browser.hover_card(crate::hover_card::Hover::Close, cx);
         icon_picker::show(subject, icon, anchor, picked, cx);
-        if let Subject::Space(space) = subject
-            && iconless
-        {
-            self.hold_icon_place(space, cx);
-        }
+    }
+
+    /// Shows the icon picker for `space`, its arrow at `anchor` in the window, giving the Space
+    /// the icon picked.
+    fn show_space_icon_picker(&mut self, space: u64, anchor: Point<f32>, cx: &mut Context<Self>) {
+        let Some(icon) = self.spaces.iter().find(|each| each.id == space).map(|each| &each.icon)
+        else {
+            return;
+        };
+        let shell = cx.weak_entity();
+        let picked: Picked = Rc::new(move |icon, cx| {
+            shell
+                .update(cx, |shell, cx| {
+                    shell.change(Prop::SpaceIcon(space), Value::Text(icon.to_string()), cx)
+                })
+                .ok();
+        });
+        // As for a tab's or a folder's.
+        self.browser.hover_card(crate::hover_card::Hover::Close, cx);
+        icon_picker::show(Subject::Space(space), icon.clone(), anchor, picked, cx);
     }
 
     /// Holds the icon's place in `space`'s name row, which has no icon, with the placeholder, the

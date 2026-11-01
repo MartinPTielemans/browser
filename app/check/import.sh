@@ -1,6 +1,7 @@
 # Settings › Import finds the made-up Arc in src/import/fixture and a made-up Chrome and Firefox
 # beside it, never the Mac's own browsers. From Arc it brings its two Spaces, one in a new profile
-# named Work as Arc's Local State names it, their pinned tabs and folders, and its favorites; from
+# named Work as Arc's Local State names it, their pinned tabs and folders, its favorites, and the
+# three of its link rules that can be ours, each to the Space its Arc Space became; from
 # Chrome and from Firefox their bookmarks as a Space named after each and their history, which the
 # core adds, with Chrome's open tabs, but for the one a bookmark pins, as that Space's Today tabs,
 # and its saved address, which the core adds too, never its card. Run again, each adds nothing. A
@@ -17,7 +18,8 @@ serve
 printf '%s' '<title>import ready</title>' > "$out/site/import.html"
 log="$out/import.log"
 step=0
-rm -f "$saved"
+rules_file="$(dirname "$saved")/Link rules"
+rm -f "$saved" "$rules_file"
 # A copy of the fixture's home, with Chrome's History and Web Data and Firefox's places.sqlite
 # written as SQLite here rather than kept in the repo as binary files.
 home="$out/import-home"
@@ -174,9 +176,18 @@ if [ -n "$arc" ]; then
   click_drawn import-go
   expect '^browser: import from Arc: 2 Spaces, 6 pinned tabs, 0 open tabs, 3 favorites, 0 pages, 0 addresses$' \
     "Import didn't plan Arc's 2 Spaces, 6 pinned tabs and 3 favorites"
+  expect '^browser: import from Arc: 3 link rules$' "Import didn't plan Arc's 3 link rules"
   expect '^browser: added profile [0-9]* Work$' "Arc's Work profile didn't come in"
-  await '^browser: import done: 2 Spaces, 6 pinned tabs and 3 favorites came in from Arc\.$' ||
+  arc_done='2 Spaces, 6 pinned tabs, 3 favorites and 3 link rules came in from Arc'
+  await "^browser: import done: $arc_done\\.\$" ||
     fail "the import didn't finish once the Work profile loaded"
+  # The rules go to Arc's Spaces by their places among the user's: Personal second, Work third.
+  t=$(printf '\t')
+  rules="rule${t}contains${t}3${t}work.example.com
+rule${t}is${t}2${t}https://news.ycombinator.com/
+rule${t}is${t}3${t}https://docs.example.com/"
+  [ "$(cat "$rules_file" 2>/dev/null)" = "$rules" ] ||
+    fail "Arc's link rules didn't come in to its Spaces: $(cat "$rules_file" 2>/dev/null)"
   ../tools/window-screenshot.sh "$pid" "$out/import-done.png" || fail "no window to capture"
   expect "^browser: spaces $first [0-9]* [0-9]*\$" "the import didn't add Arc's two Spaces after the first"
   expect '^browser: toast shown Added 2 Spaces \[show\]$' \
@@ -197,6 +208,8 @@ if [ -n "$arc" ]; then
   click_drawn import-go
   expect '^browser: import from Arc: 0 Spaces, 0 pinned tabs, 0 open tabs, 0 favorites, 0 pages, 0 addresses$' \
     "the second import would add something again"
+  expect '^browser: import from Arc: 0 link rules$' \
+    "the second import would add Arc's link rules again"
   expect '^browser: import done: Everything from Arc is here already\.$' "the second import said it added something"
   ../tools/window-screenshot.sh "$pid" "$out/import-again.png" || fail "no window to capture"
   expect '^browser: import drawn done$' "the import's end didn't draw"
