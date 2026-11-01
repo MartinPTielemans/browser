@@ -574,6 +574,10 @@ void host_video_close(void* video);
 // never touch the user's clipboard.
 void host_copy(const char* text);
 
+// Whether the key event being handled now is the key repeating as it's held, not a press. False
+// where the host can't tell.
+bool host_key_repeated(void);
+
 // Copies the text host_copy's clipboard or pasteboard holds into |text|, |capacity| bytes with its
 // NUL, and returns its whole length in bytes without the NUL, 0 if it holds none.
 size_t host_paste(char* text, size_t capacity);
