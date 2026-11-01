@@ -364,7 +364,7 @@ expect "^browser: today $d\$" "⌘W didn't close Clear browsing data: Today is \
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
 settings_drew
-send clickkey 218 60
+send clickkey $(drawn "toolbar Profiles")
 expect '^browser: settings tab Profiles$' "a click on Profiles didn't show its tab"
 settings_drew Profiles
 at=$(drawn "download folder $work") || fail "Settings didn't draw the second profile's Change…"

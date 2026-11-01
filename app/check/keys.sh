@@ -349,7 +349,7 @@ in_browser RenderWidgetHostViewCocoa "after the history tab closed"
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
 settings_drew
-send clickkey 401 60
+send clickkey $(drawn "toolbar Shortcuts")
 expect '^browser: settings tab Shortcuts$' "a click on Shortcuts didn't show its tab"
 settings_drew Shortcuts
 send clickkey 300 120
@@ -457,7 +457,7 @@ in_browser RenderWidgetHostViewCocoa "after the command bar closed"
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
 settings_drew
-send clickkey 401 60
+send clickkey $(drawn "toolbar Shortcuts")
 expect '^browser: settings tab Shortcuts$' "a click on Shortcuts didn't show its tab"
 settings_drew Shortcuts
 send clickkey 300 120

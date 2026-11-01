@@ -138,7 +138,7 @@ if [ "$(uname)" = Darwin ] && [ "$active" = 1 ]; then
   send key , cmd
   expect '^browser: settings shown General$' "⌘, didn't show Settings"
   settings_drew General
-  send clickkey 430 60
+  send clickkey $(drawn "toolbar Privacy")
   expect '^browser: settings tab Privacy$' "a click on Privacy didn't show its tab"
   settings_drew Privacy
   ../tools/window-screenshot.sh "$pid" "$out/privacy.png" || fail "no window to capture"

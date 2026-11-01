@@ -163,7 +163,7 @@ click_drawn() {
     sed -n "s/^browser: settings $1 at //p" | tail -1)
 }
 settings_drew
-send clickkey 342 60
+send clickkey $(drawn "toolbar Import")
 expect '^browser: settings tab Import$' "a click on Import didn't show its tab"
 settings_drew Import
 expect "^browser: import found $found\$" \
@@ -312,8 +312,8 @@ await "^browser: import done: 1 password came in${arc:+ to Default} from passwor
   fail "the import didn't say 1 came in and 1 conflicted: $(grep '^browser: import done' "$log" | tail -1)"
 ../tools/window-screenshot.sh "$pid" "$out/import-passwords-conflict.png" || fail "no window to capture"
 rm -f "$passwords"
-# Passwords, the fourth of Settings' tabs, lists the three logins, not their passwords.
-send clickkey 280 60
+# Passwords, among Settings' tabs, lists the three logins, not their passwords.
+send clickkey $(drawn "toolbar Passwords")
 expect '^browser: settings tab Passwords$' "a click on Passwords didn't show its tab"
 settings_drew Passwords
 await '^browser: passwords [0-9]*: login\.example\.test check@example\.test, mail\.example\.test check@example\.test, new\.example\.test new@example\.test$' ||
