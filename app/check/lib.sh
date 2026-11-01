@@ -509,6 +509,7 @@ serve() {
 # pasteboard is the run's own, which nothing else reads, so it passes there, as under Xvfb.
 clipboard_holds() {
   case "${BROWSER_HEADLESS:-xvfb}" in xvfb) return 0 ;; esac
+  command -v wl-paste > /dev/null || fail "reading the clipboard needs wl-clipboard's wl-paste"
   for _ in $(seq 30); do
     [ "$(WAYLAND_DISPLAY="$BROWSER_HEADLESS" wl-paste -n 2>/dev/null)" = "$1" ] && return 0
     sleep 0.1
