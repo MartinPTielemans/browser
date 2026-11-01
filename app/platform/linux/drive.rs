@@ -2233,7 +2233,8 @@ fn hold_mini_player(window: xproto::Window, step: &str, x: f64, y: f64) -> Optio
         // The drag before this one went past the threshold, so the window manager has been asked
         // to move or size the window by now.
         if held.dragged {
-            PIP_DRAGGING.set(Some(PipDrag { window, frame: held.frame, to }));
+            let by = (x - held.x, y - held.y);
+            PIP_DRAGGING.set(Some(PipDrag { window, frame: held.frame, to, by }));
         }
         PIP_HELD.set(Some(HeldPip { dragged: true, ..held }));
         return Some(());
@@ -2256,13 +2257,20 @@ struct HeldPip {
     dragged: bool,
 }
 
-/// A drag of the Mini Player `window`, whose frame was `frame` at the press, to `to` on the screen.
+/// A drag of the Mini Player `window`, whose frame was `frame` at the press, to `to` on the screen,
+/// `by` points from the press.
 #[derive(Clone, Copy)]
 struct PipDrag {
     window: xproto::Window,
     frame: [f64; 4],
     to: (i16, i16),
+    by: (f64, f64),
 }
+
+/// How far short of the pointer a window manager's move or resize may be, in points: it starts
+/// from where the pointer was when Chromium asked, a step past the drag threshold, as the floating
+/// call's window moves 140 for a drag of 150.
+const PIP_SLACK: f64 = 16.;
 
 /// An event of the display's own pointer at `at`, through XTest, once the X server has it.
 fn fake_pointer(kind: u8, button: u8, at: (i16, i16)) -> Option<()> {
@@ -2279,9 +2287,17 @@ fn fake_pointer(kind: u8, button: u8, at: (i16, i16)) -> Option<()> {
 /// is lost to it. So is a release, after which it went on moving the window with the pointer, to
 /// the screen's corner where the release puts it back (#1151). Until the window follows, the
 /// pointer comes to `to` again, from a point beside it, as a motion to where it is makes no event.
-/// `again` counts the times it came again, which the log tells.
+/// The window has followed once it has moved or grown about as far as the pointer, not when it
+/// has changed alone, as a floating call's does under Chrome's prompt to float (#1161). `again`
+/// counts the times the pointer came again, which the log tells.
 fn await_pip_drag(n: u64, drag: PipDrag, again: u32, until: std::time::Instant) {
-    let followed = frame(drag.window).is_none_or(|frame| frame != drag.frame);
+    let [x, y, width, height] = drag.frame;
+    let near = |(across, down): (f64, f64)| {
+        (across - drag.by.0).abs() <= PIP_SLACK && (down - drag.by.1).abs() <= PIP_SLACK
+    };
+    let followed = frame(drag.window).is_none_or(|now| {
+        near((now[0] - x, now[1] - y)) || near((now[2] - width, now[3] - height))
+    });
     if !followed && std::time::Instant::now() < until {
         let beside = (drag.to.0 + 1, drag.to.1);
         fake_pointer(xproto::MOTION_NOTIFY_EVENT, 0, beside);
