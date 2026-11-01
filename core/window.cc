@@ -36,6 +36,7 @@
 #include "browser_core/side_panel.h"
 #include "browser_core/space.h"
 #include "browser_core/suggest.h"
+#include "browser_core/sync.h"
 #include "browser_core/tab.h"
 #include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
@@ -2300,6 +2301,7 @@ void Window::OnWidgetActivationChanged(views::Widget* widget, bool active) {
     if (Host().window_activated) {
       Host().window_activated(Host().context, id_);
     }
+    sync::WindowActivated();
   }
   ReportActiveBrowser();
 }
