@@ -103,11 +103,16 @@ expect '^browser: toast shown Saved to Library$' "Save to Library didn't say so"
 expect '^browser: saved to library ' "Save to Library didn't save the picture"
 library=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: saved to library ' |
   sed 's/^browser: saved to library //')
-case "$library" in
+# The app names it as its OS does, C:\... on Windows, where the check's paths are Unix ones, and
+# the log lines naming it are matched with its name as itself, since Windows' has backslashes.
+file=$library
+! windows || file=$(cygpath -u "$library")
+named=$(printf '%s\n' "$library" | sed 's/[][\\.*^$]/\\&/g')
+case "$file" in
   "$profile_dir/Media/Capture "*.png) ;;
   *) fail "Save to Library saved to $library, not the profile's Media" ;;
 esac
-[ -s "$library" ] || fail "Save to Library's $library is empty"
+[ -s "$file" ] || fail "Save to Library's $library is empty"
 expect '^browser: toast settled$' "Save to Library's toast didn't settle"
 ../tools/window-screenshot.sh "$pid" "$out/capture-library.png" || fail "no window to capture"
 
@@ -121,7 +126,7 @@ expect '^browser: library shown$' "the Library didn't settle open on Media"
 ../tools/window-screenshot.sh "$pid" "$out/library-media.png" || fail "no window to capture"
 # Rows from 112 + 8 across and 56 + 27 down, the heading over them; tiles 93.7 square.
 send click $((112 + 8 + 47)) $((56 + 27 + 47))
-expect "^browser: open media $library\$" "a click on the capture's tile didn't open it"
+expect "^browser: open media $named\$" "a click on the capture's tile didn't open it"
 expect '^browser: library hidden$' "opening the capture didn't close the Library"
 expect '^browser: loaded [0-9]* file://.*\.png$' "the capture's tab didn't load it"
 media=$(sed -n 's|^browser: loaded \([0-9]*\) file://.*\.png$|\1|p' "$log" | tail -1)
@@ -135,9 +140,9 @@ expect "^browser: menu shown $(cased 'Open, Delete')\$" \
   "a right-click on the capture's tile didn't show its menu"
 ../tools/window-screenshot.sh "$pid" "$out/media-menu.png" || fail "no window to capture"
 send choose Delete
-expect "^browser: delete capture $library\$" "the tile's Delete didn't run"
+expect "^browser: delete capture $named\$" "the tile's Delete didn't run"
 expect '^browser: library captures [0-9]*$' "Media wasn't listed again after Delete"
-[ ! -e "$library" ] || fail "Delete left $library where it was"
+[ ! -e "$file" ] || fail "Delete left $library where it was"
 # Media also tiles the profile's downloaded pictures and videos, and the captures a run that
 # failed kept, which an earlier run can leave in a dev profile (restore's clip.mp4 on a VM). The
 # app clears them, as a user would: Downloads' Clear List takes the downloads off the list and
