@@ -9,8 +9,9 @@
 //! session's scale of 1. Keys go where sway's keyboard focus is, the browser window or Settings,
 //! and the core hands them on to the UI or an overlay as it does a real keyboard's. The done line's
 //! key window is sway's focused window, and in a browser window the overlay that has the keys, else
-//! whose the core says they are. The scripted input method, title, order, front, resize, place,
-//! drags from another app and page swipes aren't here yet.
+//! whose the core says they are. Every window floats (tools/headless.sh), so sway stacks them as a
+//! desktop does, and moves and sizes them as it's told. The scripted input method, drags from
+//! another app and page swipes aren't here yet.
 
 use std::{
     cell::{Cell, RefCell},
@@ -319,6 +320,63 @@ fn driven() -> Option<(bc::bc_id, Node)> {
 /// The driven browser window's id, for drive.rs's commands.
 pub(crate) fn driven_id() -> Option<bc::bc_id> {
     driven().map(|(id, _)| id)
+}
+
+/// The open browser windows, front to back, as sway stacks them: its floating windows go up its
+/// list as they're focused, and a window in full screen is over them all.
+fn stacked() -> Vec<(bc::bc_id, Node)> {
+    let nodes = ours();
+    let open = browsers(&nodes);
+    let mut open: Vec<_> = (nodes.iter().rev())
+        .filter_map(|node| open.iter().find(|(_, each)| each.id == node.id).cloned())
+        .collect();
+    open.sort_by_key(|(_, node)| !node.full_screen);
+    open
+}
+
+/// A browser window as order and front name it: "window <n>", numbered as the window command
+/// numbers them.
+fn name_of(id: bc::bc_id) -> String {
+    let index = PAIRED.with_borrow(|paired| paired.iter().position(|&(each, _)| each == id));
+    index.map_or_else(|| "none".to_string(), |index| format!("window {}", index + 1))
+}
+
+/// The browser window with sway's focus.
+fn focused_browser() -> Option<bc::bc_id> {
+    let nodes = ours();
+    let focused = nodes.iter().find(|node| node.focused)?;
+    browsers(&nodes).into_iter().find(|(_, node)| node.id == focused.id).map(|(id, _)| id)
+}
+
+/// The title of the window with sway's focus, as drive.rs's key_title: a dialog of Chromium's in a
+/// browser window, which sway has no window for, by the core's.
+pub(crate) fn key_title() -> Option<String> {
+    let nodes = ours();
+    let focused = nodes.iter().find(|node| node.focused)?;
+    if let Some((id, _)) = browsers(&nodes).into_iter().find(|(_, node)| node.id == focused.id)
+        && unsafe { bc::bc_window_keyboard_in_child(id) }
+    {
+        return Some(drive::child_title(id));
+    }
+    Some(focused.name.clone())
+}
+
+/// Moves the driven browser window's content to (`x`, `y`) in sway's layout, or keeps it where it
+/// is, as sway sizes a floating window about its centre, and sizes it `width` by `height`, which
+/// the command waits for the UI to have.
+fn frame(at: Option<(f64, f64)>, width: f64, height: f64) -> Option<()> {
+    let (id, node) = driven()?;
+    let handle =
+        WINDOWS.with_borrow(|windows| windows.iter().find(|w| w.id == id).map(|w| w.handle))?;
+    let cx = CX.with_borrow(Clone::clone)?;
+    let view = cx.update(|cx| handle.update(cx, |_, window, _| crate::ns_view(window))).ok()?;
+    let (x, y) = at.unwrap_or((node.x, node.y));
+    let con = node.id;
+    sway_command(&format!(
+        "[con_id={con}] resize set width {width} px height {height} px, move position {x} {y}"
+    ))?;
+    drive::resizing(view as usize, width, height);
+    Some(())
 }
 
 /// Settings while it has sway's focus.
@@ -702,8 +760,39 @@ pub(crate) fn run(action: &str, line: &str) -> Option<Option<()>> {
         "keyup" => (|| key_events(words.next()?, 0, &[false]))(),
         "type" => rest.chars().try_for_each(|c| key_events(&c.to_string(), 0, &[true, false])),
         "insert" => insert(rest),
-        "ime" | "title" | "order" | "front" | "resize" | "place" | "pageswipe" | "dragover"
-        | "dragdrop" | "dragleave" => None,
+        "resize" | "place" => (|| {
+            let numbers: Vec<f64> = words.map(|w| w.parse().ok()).collect::<Option<_>>()?;
+            match numbers[..] {
+                [width, height] if action == "resize" => frame(None, width, height),
+                [x, y, width, height] if action == "place" => frame(Some((x, y)), width, height),
+                _ => None,
+            }
+        })(),
+        "order" => {
+            let mut order = String::new();
+            for (id, node) in stacked() {
+                let name = name_of(id);
+                order += &format!(" {name}");
+                let [x, y, width, height] = [node.x, node.y, node.width, node.height];
+                log!("browser: frame {name} {x:.0} {y:.0} {width:.0} {height:.0}");
+            }
+            let key = focused_browser().map_or("none".to_string(), name_of);
+            log!("browser: order{order}, key {key}");
+            Some(())
+        }
+        "front" => {
+            let driven = driven_id();
+            let describe = |id: Option<bc::bc_id>| match id {
+                Some(id) if Some(id) == driven => "driven".to_string(),
+                Some(id) => name_of(id),
+                None => "none".to_string(),
+            };
+            let first = describe(stacked().first().map(|&(id, _)| id));
+            let key = describe(focused_browser());
+            log!("browser: front {first}, main {key}, key {key}, ax focused {key}, ax main {key}");
+            Some(())
+        }
+        "ime" | "pageswipe" | "dragover" | "dragdrop" | "dragleave" => None,
         "layout" => layout(),
         _ => return None,
     })
