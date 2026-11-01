@@ -234,6 +234,8 @@ mod platform {
         pub fn host_hide_overlay(overlay: c_int);
         pub fn host_can_draw_emoji(emoji: *const c_char) -> bool;
         pub fn host_dismiss_overlay(overlay: c_int);
+        #[cfg(target_os = "macos")]
+        pub fn host_take_overlay_keyboard(overlay: c_int);
         pub fn host_hold_keys();
         pub fn host_release_held_keys();
         pub fn host_add_find_bar(
@@ -1723,6 +1725,14 @@ impl command_bar::Host for Bar {
 
     fn dismiss(&self) {
         unsafe { platform::host_dismiss_overlay(COMMAND_BAR) };
+    }
+
+    fn take_keyboard(&self) {
+        // Linux's and Windows' hosts close the bar once its keyboard goes elsewhere.
+        #[cfg(target_os = "macos")]
+        unsafe {
+            platform::host_take_overlay_keyboard(COMMAND_BAR)
+        };
     }
 
     fn commands(&self, text: &str, cx: &App) -> Vec<shell::BarCommand> {

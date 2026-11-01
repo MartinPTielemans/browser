@@ -355,6 +355,22 @@ Overlay* OverlayAt(int index) {
              : nullptr;
 }
 
+// What a log line calls |object|, by its class.
+const char* ClassName(id object) {
+  return object ? NSStringFromClass([object class]).UTF8String : "nothing";
+}
+
+// The overlay's view takes the keys only as its window's first responder. GPUI makes it that and
+// nothing here changes it, but an assistive app can, which would leave the overlay key and deaf.
+void KeepFirstResponder(Overlay& overlay) {
+  NSResponder* responder = overlay.window.firstResponder;
+  if (responder != overlay.view) {
+    fprintf(stderr, "browser: %s takes its window's keys back from %s\n", overlay.name,
+            ClassName(responder));
+    [overlay.window makeFirstResponder:overlay.view];
+  }
+}
+
 // The dialog's window and view, and the browser it shows over.
 Browser* g_dialog_over;
 NSWindow* g_dialog;
@@ -1910,10 +1926,19 @@ void host_add_overlay(int index, void* overlay_view, double radius, void (*dismi
                       return;
                     }
                     Browser* browser = BrowserOf(window);
-                    if (each->shown && window != each->window) {
+                    if (each->shown && window == each->window) {
+                      KeepFirstResponder(*each);
+                    } else if (each->shown) {
+                      // What took the keyboard, for the next time an overlay is shown and deaf
+                      // (#1314): the release build's log is stderr alone.
                       if (browser == each->over) {
+                        fprintf(stderr,
+                                "browser: %s takes the keyboard back from its window's %s\n",
+                                each->name, ClassName(window.firstResponder));
                         [each->window makeKeyWindow];
                       } else {
+                        fprintf(stderr, "browser: %s closes as %s takes the keyboard\n",
+                                each->name, ClassName(window));
                         host_dismiss_overlay(index);
                       }
                     } else if (index == 0 && !g_dialog_shown && browser &&
@@ -2191,6 +2216,27 @@ void host_dismiss_overlay(int index) {
       dismissed();
     });
   }
+}
+
+void host_take_overlay_keyboard(int index) {
+  Overlay* overlay = OverlayAt(index);
+  // Not yet on screen, it takes the keyboard as it goes there.
+  if (!overlay || !overlay->shown || !overlay->window.visible || !NSApp.active) {
+    return;
+  }
+  if (overlay->window.keyWindow) {
+    KeepFirstResponder(*overlay);
+    return;
+  }
+  // ilo's menu over it has the keyboard, or another window took it, which closed the overlay.
+  NSWindow* key = NSApp.keyWindow;
+  if (key && (HostIsMenuWindow(key) || BrowserOf(key) != overlay->over)) {
+    return;
+  }
+  fprintf(stderr, "browser: %s takes the keyboard back from %s\n", overlay->name,
+          key ? ClassName(key.firstResponder) : "no window");
+  [overlay->window makeKeyWindow];
+  KeepFirstResponder(*overlay);
 }
 
 void host_hold_keys(void) {

@@ -1349,6 +1349,7 @@ impl command_bar::Host for PreviewBar {
     fn set_height(&self, _: f32) {}
     fn hide(&self) {}
     fn dismiss(&self) {}
+    fn take_keyboard(&self) {}
     fn commands(&self, text: &str, cx: &App) -> Vec<shell::BarCommand> {
         shell::bar_commands(text, cx)
     }
