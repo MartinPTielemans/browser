@@ -581,12 +581,15 @@ serve() {
 # substitutes for its domains, but the security components' updates that engine/README.md › What
 # reaches Google lets through and every user's browser makes, the first a minute after launch: the
 # update check, and CRLSet's, PKI Metadata's and the SSL error assistant's downloads, over https,
-# from the hosts it names.
+# from the hosts it names. A profile that has a component already gets its update as a diff, at
+# diffgen-puffin/<id>/<hash>.
 google_asked() {
   hosts='\(dl\.google\.com\|[a-z0-9.-]*\.gvt1\.com\|www\.google\.com/dl\)'
+  ids='\(hfnkpimlhhgieaddgfemjhofmfblmnib\|efniojlnjndmcbiieegkicadnoecjjef\)'
   grep -i '^[a-z]*://[^/]*\(google\|gstatic\|gvt1\|9oo91e\|qjz9zk\)' |
     grep -v -e '^https://update\.googleapis\.com/service/update2/json\(?[^/]*\)\{0,1\}$' \
-      -e "^https://$hosts/.*/\(hfnkpimlhhgieaddgfemjhofmfblmnib\|efniojlnjndmcbiieegkicadnoecjjef\)_[0-9.]*_[a-z0-9_]*\.crx3\$" \
+      -e "^https://$hosts/.*/${ids}_[0-9.]*_[a-z0-9_]*\.crx3\$" \
+      -e "^https://$hosts/.*/diffgen-puffin/$ids/[0-9a-f]*\$" \
       -e "^https://$hosts/.*/[0-9.]*_all_sslErrorAssistant\.crx3\$" || true
 }
 # Waits up to 3 s for the clipboard to hold the text $1, off the Mac, where a run's clipboard is its
