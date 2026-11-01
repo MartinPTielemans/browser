@@ -303,23 +303,11 @@ expect "^browser: title $f asked 1\$" "blocked in its Site Controls, the call st
 floats Allow
 shown "$b"
 expect "^browser: title $f floating\$" "allowed in its Site Controls, the call didn't float"
-shown "$f"
-expect "^browser: title $f landed\$" "the call allowed to float didn't come back with its tab"
-send click $page_point
-floats Ask
-mini_player off
-shown "$b"
-shown_again "$f"
-send key k
-expect "^browser: title $f asked 2\$" "with the Mini Player off in Settings, the call still floated"
-send click $page_point
-mini_player on
-shown "$b"
-expect "^browser: title $f floating\$" "with the Mini Player on again, the call didn't float"
 # The call's window moves and sizes as Chrome's does, by its frame, so the page keeps its own
 # scroll, pinch and double-click: a drag on its top bar, off the buttons at its ends, moves it, and
 # one from its bottom right corner, in the 10 its edges keep for sizing, sizes it. The window
-# manager does both, with the display's pointer. Linux alone: drive.mm doesn't find it yet.
+# manager does both, with the display's pointer. Allowed, so Chrome's prompt to float on every
+# visit doesn't size the window as it moves (#1161). Linux alone: drive.mm doesn't find it yet.
 if [ "$(uname)" = Linux ]; then
   px=0 py=0 pw=0 ph=0
   send pip
@@ -343,6 +331,19 @@ if [ "$(uname)" = Linux ]; then
 else
   echo "skip: moving and sizing the floating call on $(uname): drive.mm has no pip."
 fi
+shown "$f"
+expect "^browser: title $f landed\$" "the call allowed to float didn't come back with its tab"
+send click $page_point
+floats Ask
+mini_player off
+shown "$b"
+shown_again "$f"
+send key k
+expect "^browser: title $f asked 2\$" "with the Mini Player off in Settings, the call still floated"
+send click $page_point
+mini_player on
+shown "$b"
+expect "^browser: title $f floating\$" "with the Mini Player on again, the call didn't float"
 shown "$f"
 expect "^browser: title $f landed\$" "the call floating again didn't come back with its tab"
 send click $page_point
