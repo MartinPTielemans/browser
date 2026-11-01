@@ -4,7 +4,10 @@
 # else is open on the owner's Mac. With "all", it takes every window of the process on that display,
 # such as two browser windows, in one picture.
 # On Windows, under Git Bash, it draws each of the process's windows itself with PrintWindow, in
-# their order on screen, so nothing of another app's can get into the picture.
+# their order on screen, so nothing of another app's can get into the picture. PrintWindow can't
+# read what DirectComposition leaves see-through, as an overlay's round corners, or the invisible
+# borders a window is resized by, and draws both black, so on a CI runner, whose desktop holds
+# nothing but the app, it copies the screen where the windows show instead, as Windows composes it.
 # On Linux it captures the private session tools/headless.sh --run starts, or check.sh's Xvfb,
 # which hold nothing but the app, and refuses outside one rather than capture the owner's screen.
 # Usage: tools/window-screenshot.sh <pid> <output.png> [all]
@@ -15,6 +18,7 @@ case "$(uname)" in
   MINGW* | MSYS*)
     [ -e "/proc/$1/winpid" ] || { echo "process $1 isn't running" >&2; exit 1; }
     exec env PID="$(cat "/proc/$1/winpid")" OUT="$(cygpath -w "$2")" ALL="${3:-}" \
+      SCREEN="${GITHUB_ACTIONS:-}" \
       powershell.exe -NoProfile -NonInteractive -Command '
 Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @"
 using System;
@@ -34,8 +38,7 @@ public static class Capture {
   [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr hwnd, uint cmd);
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
   [DllImport("user32.dll")] static extern bool PrintWindow(IntPtr hwnd, IntPtr dc, uint flags);
-  [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hwnd, uint attribute,
-      out RECT rect, int size);
+  [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out RECT rect, int size);
 
   static Rectangle Bounds(IntPtr hwnd) {
     RECT r;
@@ -43,18 +46,15 @@ public static class Capture {
     return Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom);
   }
 
-  // The window as it shows: its rect less the borders Windows 10 and 11 leave clear round it to
-  // resize by, which drew as black strips and put a fraction of the picture off its content.
-  static Rectangle Frame(IntPtr hwnd) {
-    const uint DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+  // The window as it shows, without the invisible borders that resize it
+  // (DWMWA_EXTENDED_FRAME_BOUNDS).
+  static Rectangle Shown(IntPtr hwnd) {
     RECT r;
-    if (DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, out r,
-        Marshal.SizeOf(typeof(RECT))) != 0)
-      return Bounds(hwnd);
+    if (DwmGetWindowAttribute(hwnd, 9, out r, Marshal.SizeOf(typeof(RECT))) != 0) return Bounds(hwnd);
     return Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom);
   }
 
-  public static string Run(uint pid, string path, bool all) {
+  public static string Run(uint pid, string path, bool all, bool screen) {
     // Rects in pixels, as PrintWindow draws.
     SetProcessDPIAware();
     // Top-level windows come front to back. Each window owned by another, a menu or the command
@@ -73,8 +73,17 @@ public static class Capture {
     // The largest window, as a process also has windows nobody sees.
     mains.Sort((a, b) => (Bounds(b).Width * Bounds(b).Height).CompareTo(
         Bounds(a).Width * Bounds(a).Height));
-    var area = Frame(mains[0]);
-    if (all) mains.ForEach(w => area = Rectangle.Union(area, Frame(w)));
+    // The window as it shows, without the clear borders it resizes by, in both ways of capturing.
+    var area = Shown(mains[0]);
+    if (all) mains.ForEach(w => area = Rectangle.Union(area, Shown(w)));
+    if (screen) {
+      using (var image = new Bitmap(area.Width, area.Height, PixelFormat.Format32bppArgb)) {
+        using (var graphics = Graphics.FromImage(image))
+          graphics.CopyFromScreen(area.Location, Point.Empty, area.Size);
+        image.Save(path, ImageFormat.Png);
+      }
+      return null;
+    }
     using (var image = new Bitmap(area.Width, area.Height, PixelFormat.Format32bppArgb))
     using (var graphics = Graphics.FromImage(image)) {
       for (int i = windows.Count - 1; i >= 0; i--) {
@@ -98,7 +107,7 @@ public static class Capture {
   }
 }
 "@
-$failed = [Capture]::Run([uint32]$env:PID, $env:OUT, $env:ALL -eq "all")
+$failed = [Capture]::Run([uint32]$env:PID, $env:OUT, $env:ALL -eq "all", $env:SCREEN -eq "true")
 if ($failed) { [Console]::Error.WriteLine($failed); exit 1 }'
     ;;
 esac
