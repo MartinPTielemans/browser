@@ -810,6 +810,9 @@ struct Drag {
     /// and since when, for paging to the Space on that side.
     space: u64,
     edge: Option<(bool, Instant)>,
+    /// Pressed with ⌥, whose click splits once it's let go without having moved, so that a drag
+    /// with ⌥ held can drop a copy instead (#690).
+    alt_click: bool,
 }
 
 /// How far a dragged tab has turned from its row into its tile as it crossed into or out of the
@@ -2470,7 +2473,8 @@ impl Shell {
             let pip = page.media_picture_in_picture;
             (page.media, page.media_playing, page.media_next, pip, page.media_title.clone())
         };
-        if media(&page) != media(&entry.page) {
+        let media_changed = media(&page) != media(&entry.page);
+        if media_changed {
             // check.sh waits for this line.
             log!(
                 "browser: page {tab} media {} playing {} next {} pip {} {}",
@@ -2500,6 +2504,10 @@ impl Shell {
             self.update_title(cx);
         }
         self.tab_changed(tab, changed, cx);
+        // A player is for a tab out of sight, whose row may not be drawn.
+        if media_changed && self.lists(tab) {
+            cx.notify();
+        }
         if let Some(trouble) = trouble {
             self.trouble_changed(tab, trouble, cx);
         }
