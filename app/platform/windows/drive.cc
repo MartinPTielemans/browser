@@ -599,6 +599,10 @@ void LogLayout(HWND root) {
   char part[160];
   snprintf(part, sizeof part, "browser: layout content %.0fx%.0f", width, height);
   line += part;
+  // The page with the keyboard, as drive.mm finds the WebContentsViewCocoa its first responder is
+  // in: the pane whose window has the focus, or holds the one that has it.
+  const HWND focus = GetFocus();
+  std::string keyboard = "none";
   // Back to front, as AppKit lists a view's subviews: GPUI's view, then the pages over it. Frames
   // as the Mac's are, from the content's bottom-left corner.
   for (HWND child = GetWindow(GetWindow(root, GW_CHILD), GW_HWNDLAST); child;
@@ -615,10 +619,13 @@ void LogLayout(HWND root) {
     RECT rect;
     GetWindowRect(child, &rect);
     MapWindowPoints(HWND_DESKTOP, root, reinterpret_cast<POINT*>(&rect), 2);
-    snprintf(part, sizeof part, ", %s %.0f,%.0f %.0fx%.0f", name, rect.left / scale,
+    snprintf(part, sizeof part, "%.0f,%.0f %.0fx%.0f", rect.left / scale,
              (client.bottom - rect.bottom) / scale, (rect.right - rect.left) / scale,
              (rect.bottom - rect.top) / scale);
-    line += part;
+    line += std::string(", ") + name + " " + part;
+    if (IsChromium(child) && focus && (focus == child || IsChild(child, focus))) {
+      keyboard = part;
+    }
     // As the Mac's driver gives a page view's rounded layer.
     if (const double radius = IsChromium(child) ? CornerRadius(child, scale) : 0; radius > 0) {
       snprintf(part, sizeof part, " radius %.0f", radius);
@@ -636,6 +643,7 @@ void LogLayout(HWND root) {
              dialog.width, dialog.height);
     line += part;
   }
+  line += "\nbrowser: layout keyboard " + keyboard;
   // The overlays over it, such as the find bar: from the content's top-left corner, and their size.
   POINT origin{0, 0};
   ClientToScreen(root, &origin);
@@ -1249,9 +1257,13 @@ bool Run(const std::string& line) {
     return true;
   }
   if (action == "front") {
+    // As other apps list windows, such as WebRTC's window capture, which T3 Code's uses: an owned
+    // window, as each overlay is, isn't one unless it has the taskbar's style.
     HWND first = nullptr;
     for (HWND top = GetTopWindow(nullptr); top && !first; top = GetWindow(top, GW_HWNDNEXT)) {
-      first = Ours(top) && IsWindowVisible(top) ? top : nullptr;
+      const bool listed = !GetWindow(top, GW_OWNER) ||
+                          (GetWindowLongPtrW(top, GWL_EXSTYLE) & WS_EX_APPWINDOW);
+      first = Ours(top) && IsWindowVisible(top) && listed ? top : nullptr;
     }
     const std::string key = Describe(GetActiveWindow());
     fprintf(stderr, "browser: front %s, main %s, key %s, ax focused %s, ax main %s\n",
