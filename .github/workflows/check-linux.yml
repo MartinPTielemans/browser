@@ -53,7 +53,7 @@ jobs:
       # The runs that pass on Wayland so far, in the headless sway session.
       WAYLAND_RUNS: >-
         tabs load agents extensions adblock adblock-lists preview access dialogs crash import
-        onboarding passkeys appearance about
+        onboarding passkeys appearance about mcp
       # The runs that don't apply to Linux, a line each with why, which the summary gives. They're
       # skipped even when named.
       LINUX_SKIPS: |
