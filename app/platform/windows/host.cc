@@ -2693,13 +2693,16 @@ bool host_menu_window_dismiss(void) {
 
 namespace {
 
-// The task dialog host_ask shows, for host_choose, and its buttons' labels and ids.
+// The task dialog host_ask shows, for host_choose, its message and its buttons' labels and ids.
 HWND g_alert = nullptr;
+std::string g_alert_message;
 std::vector<std::pair<std::wstring, int>> g_alert_buttons;
 
 HRESULT CALLBACK AlertEvent(HWND hwnd, UINT event, WPARAM, LPARAM, LONG_PTR texts) {
   if (event == TDN_CREATED) {
     g_alert = hwnd;
+    // As the Mac's host logs its alert, once host_choose can answer it.
+    fprintf(stderr, "browser: alert shown %s\n", g_alert_message.c_str());
     // Its texts and buttons, as the Mac's driver logs an alert's, for check.sh to wait for.
     if (GetEnvironmentVariableW(L"BROWSER_DRIVE", nullptr, 0) > 0) {
       fprintf(stderr, "browser: modal shown %s\n", reinterpret_cast<const char*>(texts));
@@ -2740,7 +2743,8 @@ int host_ask(const char* message, const char* detail, const char* const* buttons
   config.cButtons = static_cast<UINT>(task_buttons.size());
   config.pButtons = task_buttons.data();
   config.nDefaultButton = task_buttons.empty() ? 0 : task_buttons[0].nButtonID;
-  std::string texts = std::string(message ? message : "") + ", " + (detail ? detail : "");
+  g_alert_message = message ? message : "";
+  std::string texts = g_alert_message + ", " + (detail ? detail : "");
   g_alert_buttons.clear();
   for (const TASKDIALOG_BUTTON& button : task_buttons) {
     texts += ", " + Utf8(button.pszButtonText);
