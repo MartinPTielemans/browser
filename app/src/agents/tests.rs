@@ -228,13 +228,24 @@ fn agents(
     path: Option<PathBuf>,
     cx: &mut TestAppContext,
 ) -> Entity<Agents> {
+    agents_running(vec!["/app/mcp-bridge".into()], browser, configs, path, cx)
+}
+
+/// The Agents, whose clients reach the server by running `bridge` with the socket.
+fn agents_running(
+    bridge: Vec<String>,
+    browser: &Rc<Made>,
+    configs: &Arc<Configs>,
+    path: Option<PathBuf>,
+    cx: &mut TestAppContext,
+) -> Entity<Agents> {
     let (browser, configs) = (browser.clone(), configs.clone());
     // A socket of the test's own, so the tests run beside a browser and each other.
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let number = NEXT.fetch_add(1, Ordering::SeqCst);
     let folder = std::env::temp_dir().join(format!("agents-ui-{}-{number}", std::process::id()));
     std::fs::create_dir_all(&folder).unwrap();
-    let (socket, bridge) = (address(&folder), PathBuf::from("/app/mcp-bridge"));
+    let socket = address(&folder);
     cx.new(|_| Agents::new(browser, configs, path, socket, bridge))
 }
 
@@ -323,9 +334,9 @@ fn connect_gives_the_client_a_token_the_server_takes(cx: &mut TestAppContext) {
     let (client, entry) = configs.connected.lock().unwrap()[0].clone();
     assert_eq!(client, Client::ClaudeCode);
     assert_eq!(entry.name, server_name());
-    assert_eq!(entry.bridge, "/app/mcp-bridge");
+    assert_eq!(entry.command, "/app/mcp-bridge");
     let socket = agents.read_with(cx, |agents, _| agents.socket.clone());
-    assert_eq!(entry.socket, socket.to_str().unwrap());
+    assert_eq!(entry.args, [socket.to_str().unwrap()]);
     assert_eq!(entry.token.len(), 64);
     let tokens = |cx: &mut TestAppContext| {
         agents.read_with(cx, |agents, _| agents.tokens.lock().unwrap().clone())
@@ -410,6 +421,30 @@ fn another_client_gets_its_setup_to_paste(cx: &mut TestAppContext) {
     assert_eq!(server["args"], json!([socket.to_str().unwrap()]));
     let token = configs.connected.lock().unwrap()[0].1.token.clone();
     assert_eq!(server["env"][bridge::TOKEN], token);
+}
+
+/// In a Flatpak, the bridge is a path in the sandbox, so the setup runs it there with flatpak,
+/// which a client on the host can.
+#[gpui::test]
+fn a_flatpaks_setup_runs_the_bridge_in_its_sandbox(cx: &mut TestAppContext) {
+    let (browser, configs) = (Made::with_agent_space(), Arc::new(Configs::default()));
+    let bridge = bridge::launch(std::path::Path::new("/app/ilo/mcp-bridge"), Some("app.ilo.browser"));
+    let agents = agents_running(bridge, &browser, &configs, None, cx);
+    agents.update(cx, |agents, cx| agents.connect(Client::Other, cx));
+    cx.run_until_parked();
+    let setup = agents
+        .read_with(cx, |agents, _| agents.setup(Client::Other))
+        .unwrap();
+    let setup: Value = serde_json::from_str(&setup).unwrap();
+    let server = &setup["mcpServers"][server_name()];
+    let socket = agents.read_with(cx, |agents, _| agents.socket.clone());
+    assert_eq!(server["command"], "flatpak");
+    assert_eq!(
+        server["args"],
+        json!(["run", "--command=/app/ilo/mcp-bridge", "app.ilo.browser", socket.to_str().unwrap()])
+    );
+    let command = agents.read_with(cx, |agents, _| agents.command());
+    assert!(command.starts_with(r#""flatpak" "run" "--command=/app/ilo/mcp-bridge" "app.ilo.browser" ""#), "{command}");
 }
 
 /// list_tabs makes the agent's Space the first time, named as the agent, and lists only its tabs,
