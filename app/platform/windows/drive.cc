@@ -1046,6 +1046,8 @@ bool Run(const std::string& line) {
     const bool right = action.rfind("right", 0) == 0;
     const std::string step = right ? action.substr(5) : action;
     const UINT button = right ? MK_RBUTTON : MK_LBUTTON;
+    // The keys named after the point, such as ⌥ for a drag that drops a copy.
+    const int keys = Modifiers(words);
     if (step == "press") {
       Target target;
       if (!TargetAt(x, y, &target)) {
@@ -1053,7 +1055,7 @@ bool Run(const std::string& line) {
       }
       g_pressed = target.hwnd;
       g_steps.push_back({[=] { Move(target, 0, 0); }});
-      g_steps.push_back({[=] { Press(target, button, 0, false); }});
+      g_steps.push_back({[=] { Press(target, button, keys, false); }});
       return true;
     }
     Target target;
@@ -1063,10 +1065,10 @@ bool Run(const std::string& line) {
       return false;
     }
     if (step == "dragto") {
-      g_steps.push_back({[=] { Move(target, 0, button); }});
+      g_steps.push_back({[=] { Move(target, keys, button); }});
     } else {
       g_pressed = nullptr;
-      g_steps.push_back({[=] { Release(target, button, 0); }});
+      g_steps.push_back({[=] { Release(target, button, keys); }});
     }
     return true;
   }

@@ -550,6 +550,14 @@ void Window::OnPageClicked(bc_id tab) {
 }
 
 // static
+void Window::ActivateContents(content::WebContents* contents) {
+  const bc_id tab = Tab::IdOf(contents);
+  if (Window* window = tab ? Holding(tab) : nullptr) {
+    window->Select(tab);
+  }
+}
+
+// static
 bool Window::CanDockDevTools(BrowserWindowInterface* browser) {
   return ForBrowser(browser);
 }
@@ -571,7 +579,7 @@ void Window::TrimPageMenu(BrowserWindowInterface* browser, ui::SimpleMenuModel& 
   }
   // Arc's menu is Chrome's without Lens, Reading Mode, Listen, QR Code, Send to Your Devices, Copy
   // Link Text and the items whose UI is Chrome's side panel or Gemini's (ux-spec.md › Page menu).
-  // Cast and Translate wait for the browser to have them.
+  // Translate waits for the browser to have it. Cast… opens the app's card (CastDialog).
   static constexpr int kTrimmed[] = {
       IDC_CONTENT_CONTEXT_SEARCHLENSFORIMAGE,
       IDC_CONTENT_CONTEXT_SEARCHLENSFORVIDEOFRAME,
@@ -590,7 +598,6 @@ void Window::TrimPageMenu(BrowserWindowInterface* browser, ui::SimpleMenuModel& 
       IDC_CONTENT_CONTEXT_GLICSHAREIMAGE,
       IDC_CONTENT_CONTEXT_RELOAD_GLIC,
       IDC_CONTENT_CONTEXT_ARCHIVE_GLIC,
-      IDC_ROUTE_MEDIA,
       IDC_CONTENT_CONTEXT_TRANSLATE,
       IDC_CONTENT_CONTEXT_PARTIAL_TRANSLATE,
   };

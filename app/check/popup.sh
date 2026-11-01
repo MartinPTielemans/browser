@@ -201,9 +201,9 @@ expect '^browser: menu shown Back' "the page didn't show its menu again after a 
 menu=$(grep '^browser: menu shown' "$log" | tail -1 | cut -d' ' -f4-)
 # No tab came before it, and none after.
 if windows || [ "$(uname)" = Linux ]; then
-  page_items="Back (disabled), Forward (disabled), Reload, Save as…, Print…, View page source, Inspect"
+  page_items="Back (disabled), Forward (disabled), Reload, Save as…, Print…, Cast…, View page source, Inspect"
 else
-  page_items="Back (disabled), Forward (disabled), Reload, Save As…, Print…, View Page Source, Inspect"
+  page_items="Back (disabled), Forward (disabled), Reload, Save As…, Print…, Cast…, View Page Source, Inspect"
 fi
 [ "$menu" = "$page_items" ] ||
   fail "the page's menu is $menu"

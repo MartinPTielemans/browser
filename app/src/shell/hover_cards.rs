@@ -184,11 +184,15 @@ impl Shell {
         if !favorite && self.split_partner(tab).is_some() {
             actions.push(Action::Split);
         }
+        // Chrome offers it on every tab but those the share is from and of.
+        if self.page(tab).share_instead {
+            actions.push(Action::ShareInstead);
+        }
         actions
     }
 
     /// Whether `tab`'s page is on screen in this window, alone or in the split view shown.
-    fn on_screen(&self, tab: u64) -> bool {
+    pub(super) fn on_screen(&self, tab: u64) -> bool {
         self.selected != 0 && !self.new_tab && self.panes(self.selected).contains(&tab)
     }
 
@@ -229,6 +233,7 @@ impl Shell {
                             self.join_split(tab, with, false, false, cx);
                         }
                     }
+                    Action::ShareInstead => self.browser.share_instead(tab, cx),
                 }
             }
         }
@@ -239,6 +244,16 @@ impl Shell {
         self.browser.tooltip(None, cx);
         self.browser.hover_card(Hover::Close, cx);
         self.browser.folder_preview(Ask::Close, cx);
+    }
+
+    /// The page the popovers point into is going, as a swipe or a wheel turns it, which sends no
+    /// click outside them that would close them: they all go, hovers and menus and pickers alike.
+    pub(super) fn leave_popovers(&self, cx: &mut App) {
+        self.end_hovers(cx);
+        crate::menu::dismissed(cx);
+        crate::icon_picker::leave(cx);
+        crate::theme_picker::leave(cx);
+        crate::site_controls::dismissed(cx);
     }
 
     /// The tab shown was `before`'s pages and is now another's: those it hid are pictured once

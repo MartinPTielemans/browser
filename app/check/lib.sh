@@ -19,7 +19,7 @@ cased() {
       sub(/,$/, "", noun)
       sub(/…$/, "", noun)
       if (word ~ /^“/) quoted = 1
-      keep = first || quoted || noun ~ /^[A-Z][A-Z]+$/ || noun == "Space" || noun == "Spaces" || noun == "Library" || noun == "Markdown"
+      keep = first || quoted || noun ~ /^[A-Z][A-Z]+s?$/ || noun == "Space" || noun == "Spaces" || noun == "Library" || noun == "Markdown"
       printf "%s%s", (i > 1 ? " " : ""), (keep ? word : tolower(word))
       if (word ~ /”/) quoted = 0
       first = word ~ /,$/ || word == "›"
@@ -54,6 +54,7 @@ cleanup() {
   [ -z "${collector:-}" ] || kill "$collector" 2>/dev/null || true
   [ -z "${stuck:-}" ] || kill "$stuck" 2>/dev/null || true
   [ -z "${helper:-}" ] || kill "$helper" 2>/dev/null || true
+  [ -z "${tls:-}" ] || kill "$tls" 2>/dev/null || true
   # The access run's session and AT-SPI buses.
   [ -z "${buses:-}" ] || kill $buses 2>/dev/null || true
   # A run's temp dir, such as the updates run's with its key.

@@ -8,7 +8,7 @@
 use std::{cell::OnceCell, f32::consts::TAU, rc::Rc, sync::Arc, time::Instant};
 
 use gpui::{
-    App, Bounds, Context, DispatchPhase, FocusHandle, Focusable, FontWeight, Global, Hsla,
+    App, Bounds, Context, DispatchPhase, Entity, FocusHandle, Focusable, FontWeight, Global, Hsla,
     KeyBinding, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PathBuilder, Pixels,
     Point, RenderImage, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds,
     WindowHandle, WindowKind, WindowOptions, actions, canvas, div, fill, point, prelude::*, px,
@@ -307,11 +307,28 @@ pub fn dismissed(cx: &mut App) {
     }
 }
 
+/// The Space it edits is going from under it, as a swipe turns the page: it closes as Esc closes
+/// it, where `dismissed` hears of a close the host has made.
+pub fn leave(cx: &mut App) {
+    if let Some(window) = cx.try_global::<ThemePickerWindow>().map(|picker| picker.0) {
+        window.update(cx, |picker, window, cx| picker.dismiss(&Dismiss, window, cx)).ok();
+    }
+}
+
 /// Whether the picker shows, for a click on what opened it to close it rather than open it again.
 pub fn is_open(cx: &App) -> bool {
-    cx.try_global::<ThemePickerWindow>()
-        .and_then(|picker| picker.0.read(cx).ok())
-        .is_some_and(|picker| picker.editing.as_ref().is_some_and(|editing| editing.open))
+    open_for(cx).is_some()
+}
+
+/// The Space the picker shows for, if it shows.
+pub fn open_for(cx: &App) -> Option<u64> {
+    let picker = cx.try_global::<ThemePickerWindow>()?.0.read(cx).ok()?;
+    picker.editing.as_ref().filter(|editing| editing.open).map(|editing| editing.space)
+}
+
+/// The picker, for the window it opens over to watch whether it still shows.
+pub fn entity(cx: &App) -> Option<Entity<ThemePicker>> {
+    cx.try_global::<ThemePickerWindow>()?.0.entity(cx).ok()
 }
 
 /// What a press at `x`, `y` from the card's top left lands on, with `theme` in the field.

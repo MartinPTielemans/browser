@@ -427,6 +427,25 @@ fn right_keeps_the_completion_as_typed(cx: &mut TestAppContext) {
     assert_eq!(bar.calls(), ["open https://example.com/", "hide"]);
 }
 
+/// A host and port typed on to the end of a completion to a page under it keeps that completion
+/// only until the core answers. Then the bar fills in what the core's first row does, as Chrome's
+/// omnibox does: nothing when the host's root comes first, so ↩ goes to the root, not to the page
+/// below it in the rows (#1148).
+#[gpui::test]
+fn a_typed_host_and_port_completes_only_as_the_core_says(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("127.0.0.1:5835");
+    let back = "http://127.0.0.1:58351/back.html";
+    bar.suggest("127.0.0.1:5835", vec![completing(back, "1/back.html")]);
+    assert_eq!(bar.input(), ("127.0.0.1:58351/back.html".into(), 14..25));
+    bar.type_text("1");
+    assert_eq!(bar.input(), ("127.0.0.1:58351/back.html".into(), 15..25));
+    bar.suggest("127.0.0.1:58351", vec![page("http://127.0.0.1:58351/"), page(back)]);
+    assert_eq!(bar.input(), ("127.0.0.1:58351".into(), 15..15));
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["open http://127.0.0.1:58351/", "hide"]);
+}
+
 #[gpui::test]
 fn return_before_the_suggestions_goes_where_the_text_names(cx: &mut TestAppContext) {
     let mut bar = Bar::new(cx);
@@ -1158,6 +1177,7 @@ fn a_command_has_its_own_glyph_where_lucide_names_it_and_each_is_built_in() {
         Command::ViewHistory, Command::Settings, Command::KeyboardShortcuts, Command::About,
         Command::Import, Command::NewSpace, Command::SiteSearchSettings, Command::ClearBrowsingData,
         Command::HelpCenter, Command::WhatsNew, Command::ReportProblem, Command::CopyBuildInfo,
+        Command::PrivacyPolicy,
     ];
     for command in commands {
         let Icon::Glyph(path) = glyph(command) else {

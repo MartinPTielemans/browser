@@ -30,8 +30,8 @@ use browser::{
 };
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
-    ExtensionAction, ExtensionCommand, FilePreview, Folders, MenuEntry, Page, PagePicture, Shell,
-    SidePanel, Split, Trouble, WindowButton,
+    ExtensionAction, ExtensionCommand, FilePreview, Folders, MediaAction, MenuEntry, Page,
+    PagePicture, Shell, SidePanel, Split, Trouble, WindowButton,
 };
 use browser::theme::Appearance;
 use browser::text_input::{
@@ -247,6 +247,10 @@ mod platform {
         pub fn host_focus(view: *mut c_void);
         pub fn host_show_window_buttons(ui_view: *mut c_void, shown: bool);
         pub fn host_press_window_button(ui_view: *mut c_void, button: i32);
+        #[cfg(target_os = "windows")]
+        pub fn host_start_window_move(ui_view: *mut c_void);
+        #[cfg(target_os = "windows")]
+        pub fn host_window_maximized(ui_view: *mut c_void) -> bool;
         pub fn host_add_reveal(
             ui_view: *mut c_void,
             reveal_view: *mut c_void,
@@ -287,6 +291,8 @@ mod platform {
         pub fn host_video_close(video: *mut c_void);
         #[cfg(not(target_os = "linux"))]
         pub fn host_copy(text: *const c_char);
+        #[cfg(not(target_os = "linux"))]
+        pub fn host_paste(text: *mut c_char, capacity: usize) -> usize;
         pub fn host_open_in_safari(url: *const c_char);
         pub fn host_open_full_disk_access();
         pub fn host_share(
@@ -1076,6 +1082,8 @@ extern "C" fn site_controls_dismissed() {
 struct LinkPreviewHost {
     /// The view the host puts the preview's page in.
     holder: Cell<*mut c_void>,
+    /// The browser window it shows over, until that window's page has the keyboard back.
+    over: Cell<u64>,
 }
 
 impl link_preview::Host for LinkPreviewHost {
@@ -1088,6 +1096,7 @@ impl link_preview::Host for LinkPreviewHost {
             windows.iter().find(|each| each.id == window).map(|each| each.ui_view)
         });
         if let Some(ui_view) = ui_view {
+            self.over.set(window);
             unsafe { platform::host_show_link_preview(ui_view) };
         }
     }
@@ -1107,9 +1116,17 @@ impl link_preview::Host for LinkPreviewHost {
 
     fn release(&self) {
         unsafe { platform::host_release_link_preview() };
+        // The window's page has the keyboard back from the preview's, which goes, or no page has
+        // it. Linux's host gives it as it releases; Windows' can't name the window.
+        let window = self.over.replace(0);
+        if cfg!(target_os = "windows") && window != 0 {
+            unsafe { bc::bc_window_focus_page(window) };
+        }
     }
 
     fn hide(&self) {
+        // Released as it left, unless it goes at once.
+        self.release();
         unsafe { platform::host_hide_link_preview() };
     }
 
@@ -2084,6 +2101,33 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_set_muted(tab, muted) };
     }
 
+    fn share_instead(&self, tab: u64, _: &mut App) {
+        unsafe { bc::bc_tab_share_instead(tab) };
+    }
+
+    fn media(&self, tab: u64, action: MediaAction, _: &mut App) {
+        let action = match action {
+            MediaAction::Play => bc::BC_MEDIA_PLAY,
+            MediaAction::Pause => bc::BC_MEDIA_PAUSE,
+            MediaAction::Next => bc::BC_MEDIA_NEXT,
+            MediaAction::PictureInPicture => bc::BC_MEDIA_PICTURE_IN_PICTURE,
+        };
+        unsafe { bc::bc_tab_media(tab, action as i32) };
+    }
+
+    fn cast(&self, tab: u64, _: &mut App) {
+        unsafe { bc::bc_tab_cast(tab) };
+    }
+
+    fn cast_close(&self, _: &mut App) {
+        unsafe { bc::bc_cast_close() };
+    }
+
+    fn cast_to(&self, tab: u64, id: SharedString, _: &mut App) {
+        let id = CString::new(id.as_ref()).unwrap_or_default();
+        unsafe { bc::bc_tab_cast_to(tab, id.as_ptr()) };
+    }
+
     fn clear(&self, _: &mut App) -> u64 {
         unsafe { bc::bc_window_clear(self.window) }
     }
@@ -2827,11 +2871,18 @@ impl Browser for Engine {
     }
 
     fn start_window_move(&self, _: &mut App) {
+        // The core moves a window on Linux alone; on Windows the host does, from the app.
+        #[cfg(target_os = "windows")]
+        unsafe { platform::host_start_window_move(self.ui_view) };
+        #[cfg(not(target_os = "windows"))]
         unsafe { bc::bc_window_start_move(self.window) };
     }
 
     fn window_maximized(&self) -> bool {
-        cfg!(target_os = "linux") && unsafe { bc::bc_window_is_maximized(self.window) }
+        #[cfg(target_os = "windows")]
+        return unsafe { platform::host_window_maximized(self.ui_view) };
+        #[cfg(not(target_os = "windows"))]
+        return cfg!(target_os = "linux") && unsafe { bc::bc_window_is_maximized(self.window) };
     }
 
     fn window_full_screen(&self) -> bool {
@@ -2878,6 +2929,21 @@ impl Browser for Engine {
             _ = cx;
             let text = CString::new(text.replace('\0', "")).unwrap_or_default();
             unsafe { platform::host_copy(text.as_ptr()) };
+        }
+    }
+
+    fn pasted(&self, cx: &App) -> Option<String> {
+        #[cfg(target_os = "linux")]
+        return system::pasted(cx);
+        #[cfg(not(target_os = "linux"))]
+        {
+            _ = cx;
+            // Asked for its length first, then for the text.
+            let length = unsafe { platform::host_paste(std::ptr::null_mut(), 0) };
+            let mut text = vec![0u8; length.checked_add(1)?];
+            unsafe { platform::host_paste(text.as_mut_ptr().cast(), text.len()) };
+            text.truncate(length);
+            Some(String::from_utf8_lossy(&text).into_owned()).filter(|text| !text.is_empty())
         }
     }
 
@@ -3287,7 +3353,10 @@ impl Browser for Engine {
             check: None,
             return_cancels: false,
         };
-        dialog::pose(question, Box::new(|_, _| quit_because("the user's Quit, answered")), cx);
+        // A Quit as the window comes on screen, before its overlays are made, asks too (#905):
+        // with no dialog to ask in, pose would drop it and the app would never quit.
+        let quit = Box::new(|_: Vec<String>, _: &mut App| quit_because("the user's Quit, answered"));
+        with_overlays(move |cx| dialog::pose(question, quit, cx), cx);
     }
 }
 
@@ -4251,7 +4320,10 @@ fn finish_opening(
     {
         unsafe { platform::host_add_capture(view, capture_dismissed) };
     }
-    let host = Rc::new(LinkPreviewHost { holder: Cell::new(std::ptr::null_mut()) });
+    let host = Rc::new(LinkPreviewHost {
+        holder: Cell::new(std::ptr::null_mut()),
+        over: Cell::new(0),
+    });
     if let Some(preview) = link_preview::open(host.clone(), cx)
         && let Ok(view) = preview.update(cx, |_, window, _| ns_view(window))
     {
@@ -4553,6 +4625,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
     app.extend([
         item("Settings…", Command::Settings),
         item("Import from Other Browsers…", Command::Import),
+        item("Privacy Policy", Command::PrivacyPolicy),
         MenuItem::separator(),
         MenuItem::os_submenu("Services", SystemMenuType::Services),
         MenuItem::separator(),
@@ -4643,6 +4716,8 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 item("Zoom to Actual Size", Command::ActualSize),
                 item("Zoom In", Command::ZoomIn),
                 item("Zoom Out", Command::ZoomOut),
+                MenuItem::separator(),
+                item("Cast…", Command::Cast),
                 MenuItem::separator(),
                 MenuItem::submenu(menu(
                     "Developer",
@@ -5313,6 +5388,23 @@ unsafe extern "C" fn tab_state_changed(
             _ => Trouble::Fine,
         },
         system_engine: state.system_engine,
+        camera: state.camera,
+        microphone: state.microphone,
+        sharing: state.sharing,
+        shared: state.shared,
+        share_instead: state.share_instead,
+        media: state.media,
+        media_playing: state.media_playing,
+        media_title: unsafe { CStr::from_ptr(state.media_title) }
+            .to_string_lossy()
+            .into_owned()
+            .into(),
+        media_artist: unsafe { CStr::from_ptr(state.media_artist) }
+            .to_string_lossy()
+            .into_owned()
+            .into(),
+        media_next: state.media_next,
+        media_picture_in_picture: state.media_picture_in_picture,
         developer_mode: state.developer_mode,
     };
     if unsafe { bc::bc_tab_window(tab) } == 0 {
@@ -6011,6 +6103,56 @@ unsafe extern "C" fn tab_permission_asked(
     update_shells(|shell, cx| shell.set_question(tab, question.clone(), cx));
 }
 
+/// A tab's Cast dialog, or that it closed (a null header), for the window showing the tab.
+unsafe extern "C" fn tab_cast(
+    _: *mut c_void,
+    tab: bc::bc_id,
+    header: *const c_char,
+    devices: *const bc::bc_cast_device,
+    count: usize,
+) {
+    let string = |text: *const c_char| -> SharedString {
+        unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned().into()
+    };
+    let cast = (!header.is_null()).then(|| {
+        let devices = match count {
+            0 => &[][..],
+            _ => unsafe { std::slice::from_raw_parts(devices, count) },
+        };
+        shell::Cast {
+            header: string(header),
+            devices: (devices.iter())
+                .map(|device| shell::CastDevice {
+                    id: string(device.id),
+                    name: string(device.name),
+                    state: match device.state as u32 {
+                        bc::BC_CAST_AVAILABLE => shell::CastState::Available,
+                        bc::BC_CAST_CONNECTING => shell::CastState::Connecting,
+                        bc::BC_CAST_CONNECTED => shell::CastState::Connected,
+                        bc::BC_CAST_DISCONNECTING => shell::CastState::Disconnecting,
+                        _ => shell::CastState::Unavailable,
+                    },
+                    status: string(device.status),
+                })
+                .collect(),
+        }
+    });
+    // check.sh waits for these lines.
+    match &cast {
+        Some(cast) => {
+            let devices: Vec<String> = (cast.devices.iter())
+                .map(|device| format!("{} {:?}", device.name, device.state))
+                .collect();
+            log!("browser: cast {tab} {} devices {}", cast.header, devices.len());
+            for device in devices {
+                log!("browser: cast {tab} device {device}");
+            }
+        }
+        None => log!("browser: cast {tab} closed"),
+    }
+    update_shells(|shell, cx| shell.set_cast(tab, cast.clone(), cx));
+}
+
 /// The user right-clicked a page: its menu, as the core has Chrome build it, in ilo's menu over the
 /// window that shows it. With no window, the menu went with its page.
 unsafe extern "C" fn tab_page_menu(
@@ -6279,6 +6421,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         tab_fullscreen_changed: Some(tab_fullscreen_changed),
         tab_find_changed: Some(tab_find_changed),
         tab_permission_asked: Some(tab_permission_asked),
+        tab_cast: Some(tab_cast),
         tab_site_controls: Some(tab_site_controls),
         tab_element_box: Some(tab_element_box),
         tab_link_target: Some(tab_link_target),

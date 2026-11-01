@@ -27,7 +27,12 @@
 //! Chromium's, and it can't compose in a page. dragover and dragdrop are XDND's source, as
 //! another app's drag is, to the browser window's top-level window or its proxy, and wait for its
 //! answer. The others, such as swipe and displays, the driver can't do yet, and says so as drive.mm
-//! does.
+//! does. pip, which drive.mm doesn't have yet, finds a video's Picture in Picture window, the Mini
+//! Player, and logs "browser: pip at <x> <y> <width> <height>" as it is and each time it moves or
+//! resizes, then "browser: pip gone", or "browser: pip none" without one. pip doubleclick, pip
+//! wheel, and pip press, dragto and release work in it, at points from its top-left corner as the
+//! command finds it, or as it was at the press. pip press, dragto and release alone move the
+//! display's pointer, through XTest, onto the Mini Player only, and the release puts it back.
 //!
 //! It logs as drive.mm does: "browser: drive <n>: <command>" as command n arrives, "browser: drive
 //! <n>: can't do that" for one it can't, and "browser: drive <n> done, key <window>, focus <view>,
@@ -45,7 +50,10 @@ use std::{
     ffi::{CString, c_int, c_uint, c_void},
     io::BufRead,
     rc::Rc,
-    sync::{Arc, OnceLock},
+    sync::{
+        Arc, OnceLock,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use browser::log;
@@ -54,6 +62,7 @@ use x11rb::{
     connection::Connection,
     protocol::{
         Event,
+        xtest::ConnectionExt as _,
         xproto::{
             self, ButtonPressEvent, ChangeWindowAttributesAux, ConfigureWindowAux,
             ConnectionExt as _, EnterNotifyEvent, EventMask, KeyButMask, KeyPressEvent,
@@ -222,6 +231,8 @@ thread_local! {
     /// The window a press went to, which gets the drag's events until the release, as the X
     /// server's grab of the pointer does.
     static PRESSED: Cell<Option<Target>> = const { Cell::new(None) };
+    /// The Mini Player's press through XTest, till its release (hold_mini_player).
+    static PIP_HELD: Cell<Option<HeldPip>> = const { Cell::new(None) };
     /// The window the pointer is in, which hears it leave.
     static HOVERED: Cell<Option<Target>> = const { Cell::new(None) };
     /// The modifiers the flags command holds, in an X state, which the keys go with until it lets
@@ -1739,12 +1750,14 @@ fn run_command(line: &str) -> Option<()> {
                 Some(step) => (3, step),
                 None => (1, action),
             };
-            let held = button_mask(which);
+            // The keys named after the point, such as ⌥ for a drag that drops a copy.
+            let keys = click_modifiers(words);
+            let held = button_mask(which) | keys;
             if step == "press" {
                 let at = target_at(x, y)?;
                 PRESSED.set(Some(at));
                 first_press(at, which, false);
-                return button(at, which, true, none);
+                return button(at, which, true, none | keys);
             }
             let to = target_in(driven()?.window, x, y)?;
             let to = match PRESSED.get() {
@@ -2098,8 +2111,166 @@ fn run_command(line: &str) -> Option<()> {
             unsafe { bc::bc_age_tabs_for_testing(seconds) };
             Some(())
         }
+        "pip" => mini_player_command(words),
         _ => None,
     }
+}
+
+/// Chromium's Picture in Picture window for a video, the Mini Player, if it shows: a window of the
+/// X client's that made the driven browser window, titled as Chrome titles it.
+fn mini_player() -> Option<xproto::Window> {
+    let browser = driven()?;
+    let x = server()?;
+    let (connection, root) = &*x;
+    let client = !connection.setup().resource_id_mask;
+    let ours = |window: xproto::Window| {
+        window & client == browser.window & client
+            && (text_property(window, "_NET_WM_NAME"))
+                .is_some_and(|title| title.eq_ignore_ascii_case("Picture in Picture"))
+            && (connection.get_window_attributes(window).ok())
+                .and_then(|cookie| cookie.reply().ok())
+                .is_some_and(|a| a.map_state == xproto::MapState::VIEWABLE)
+    };
+    let tops = connection.query_tree(*root).ok()?.reply().ok()?.children;
+    // A window manager that reparents, as openbox does, holds it in a frame of its own.
+    tops.into_iter().find_map(|top| {
+        if ours(top) {
+            return Some(top);
+        }
+        let children = connection.query_tree(top).ok()?.reply().ok()?.children;
+        children.into_iter().find(|&child| ours(child))
+    })
+}
+
+/// pip, and pip doubleclick, wheel, press, dragto and release (run_command's header).
+fn mini_player_command<'a>(mut words: impl Iterator<Item = &'a str>) -> Option<()> {
+    let Some(window) = mini_player() else {
+        log!("browser: pip none");
+        return Some(());
+    };
+    let action = words.next();
+    let Some(action) = action else {
+        let [x, y, width, height] = frame(window)?;
+        log!("browser: pip at {x:.0} {y:.0} {width:.0} {height:.0}");
+        watch_mini_player(window);
+        return Some(());
+    };
+    let (x, y) = point(&mut words)?;
+    if let "press" | "dragto" | "release" = action {
+        return hold_mini_player(window, action, x, y);
+    }
+    let at = target_in(window, x, y)?;
+    match action {
+        "doubleclick" => {
+            click(at, 1, 0, false)?;
+            click(at, 1, 0, true)
+        }
+        // pip wheel <x> <y> <notches> [cmd]: a notch of the wheel for each, down for content moving
+        // up, as scroll's.
+        "wheel" => {
+            let notches: i32 = words.next()?.parse().ok()?;
+            let state = click_modifiers(words);
+            for _ in 0..notches.unsigned_abs() {
+                click(at, if notches > 0 { 5 } else { 4 }, state, false)?;
+            }
+            Some(())
+        }
+        _ => None,
+    }
+}
+
+/// pip press, pip dragto and pip release <x> <y>, at points where the window was at the press: the
+/// display's own pointer, through XTest. Sent events can't move it, as the window manager moves it
+/// with the pointer the X server has, as a hand moves it.
+fn hold_mini_player(window: xproto::Window, step: &str, x: f64, y: f64) -> Option<()> {
+    let server = server()?;
+    let (connection, root) = &*server;
+    let fake = |kind: u8, button: u8, (x, y): (i16, i16)| {
+        (connection.xtest_fake_input(kind, button, x11rb::CURRENT_TIME, *root, x, y, 0)).ok()?;
+        connection.get_input_focus().ok()?.reply().ok().map(drop)
+    };
+    if step == "press" {
+        let at = target_in(window, x, y)?;
+        let was = connection.query_pointer(*root).ok()?.reply().ok()?;
+        let back = (was.root_x, was.root_y);
+        fake(xproto::MOTION_NOTIFY_EVENT, 0, (at.root_x, at.root_y))?;
+        // The pointer is the display's, so a press anywhere but on the Mini Player would be
+        // another window's.
+        let under = connection.query_pointer(*root).ok()?.reply().ok()?.child;
+        if !within(connection, window, under) {
+            log!("browser: pip press: another window is over the Mini Player there");
+            return fake(xproto::MOTION_NOTIFY_EVENT, 0, back);
+        }
+        first_press(at, 1, false);
+        PIP_HELD.set(Some(HeldPip { x, y, root: (at.root_x, at.root_y), back }));
+        return fake(xproto::BUTTON_PRESS_EVENT, 1, (at.root_x, at.root_y));
+    }
+    let held = PIP_HELD.get()?;
+    let scale = scale();
+    let to = (
+        held.root.0 + ((x - held.x) * scale).round() as i16,
+        held.root.1 + ((y - held.y) * scale).round() as i16,
+    );
+    fake(xproto::MOTION_NOTIFY_EVENT, 0, to)?;
+    if step == "dragto" {
+        return Some(());
+    }
+    PIP_HELD.set(None);
+    fake(xproto::BUTTON_RELEASE_EVENT, 1, to)?;
+    fake(xproto::MOTION_NOTIFY_EVENT, 0, held.back)
+}
+
+/// A press on the Mini Player through XTest: where it was in the window and on the screen, and
+/// where the display's pointer was before it, where the release puts it back.
+#[derive(Clone, Copy)]
+struct HeldPip {
+    x: f64,
+    y: f64,
+    root: (i16, i16),
+    back: (i16, i16),
+}
+
+/// Logs the Mini Player's frame each time `window`, it, moves or resizes, from a thread of its own
+/// on a connection of its own, as watch_zoom does.
+fn watch_mini_player(window: xproto::Window) {
+    static WATCHER: OnceLock<Option<Arc<RustConnection>>> = OnceLock::new();
+    // The display's scale, which the thread can't ask the core for.
+    static SCALE: AtomicU64 = AtomicU64::new(0);
+    SCALE.store(scale().to_bits(), Ordering::Relaxed);
+    let watcher = WATCHER.get_or_init(|| {
+        let (connection, screen) = x11rb::connect(None).ok()?;
+        let root = connection.setup().roots.get(screen)?.root;
+        let connection = Arc::new(connection);
+        let reader = connection.clone();
+        std::thread::spawn(move || {
+            while let Ok(event) = reader.wait_for_event() {
+                match event {
+                    // Placed in the root's terms, as the event places it only where no window
+                    // manager reparents it, as none does in sway, but openbox does.
+                    Event::ConfigureNotify(e) => {
+                        let Some(at) = (reader.translate_coordinates(e.window, root, 0, 0).ok())
+                            .and_then(|cookie| cookie.reply().ok())
+                        else {
+                            continue;
+                        };
+                        let scale = f64::from_bits(SCALE.load(Ordering::Relaxed));
+                        let [x, y] = [at.dst_x, at.dst_y].map(|n| f64::from(n) / scale);
+                        let [width, height] = [e.width, e.height].map(|n| f64::from(n) / scale);
+                        log!("browser: pip at {x:.0} {y:.0} {width:.0} {height:.0}");
+                    }
+                    Event::UnmapNotify(_) | Event::DestroyNotify(_) => log!("browser: pip gone"),
+                    _ => {}
+                }
+            }
+        });
+        Some(connection)
+    });
+    let Some(connection) = watcher else { return };
+    let aux = ChangeWindowAttributesAux::new().event_mask(EventMask::STRUCTURE_NOTIFY);
+    if let Ok(cookie) = connection.change_window_attributes(window, &aux) {
+        cookie.ignore_error();
+    }
+    connection.flush().ok();
 }
 
 /// `to`, a point in the root's terms, in `window`, which a press grabbed the pointer for.

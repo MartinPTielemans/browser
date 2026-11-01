@@ -490,6 +490,8 @@ std::optional<std::string> ToJson(const Saved& saved) {
                            .Set("ad_blocking", saved.settings.ad_blocking)
                            .Set("send_crash_reports", saved.settings.send_crash_reports)
                            .Set("link_previews", saved.settings.link_previews)
+                           .Set("auto_picture_in_picture",
+                                saved.settings.auto_picture_in_picture)
                            .Set("option_reveals_sidebar", saved.settings.option_reveals_sidebar)
                            .Set("hover_kinds", saved.settings.hover_kinds)
                            .Set("crash_report_offered", saved.settings.crash_report_offered)
@@ -736,6 +738,8 @@ std::optional<Saved> Read(const base::FilePath& path) {
     saved.settings.send_crash_reports =
         settings->FindBool("send_crash_reports").value_or(false);
     saved.settings.link_previews = settings->FindBool("link_previews").value_or(true);
+    saved.settings.auto_picture_in_picture =
+        settings->FindBool("auto_picture_in_picture").value_or(true);
     saved.settings.option_reveals_sidebar =
         settings->FindBool("option_reveals_sidebar").value_or(true);
     saved.settings.hover_kinds = settings->FindInt("hover_kinds").value_or(15);
@@ -821,6 +825,7 @@ class Saver : public base::ImportantFileWriter::BackgroundDataSerializer {
     }
     // The profile the browser started in loaded before the settings were read.
     ApplyAdBlocking();
+    ApplyAutoPictureInPicture(/*changed=*/false);
     ArchiveDefaultRead();
     // The profiles the Spaces and favorites are in load before they come back.
     std::set<std::string> profiles;
