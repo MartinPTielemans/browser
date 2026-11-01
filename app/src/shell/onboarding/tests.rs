@@ -8,6 +8,7 @@ use std::{
 use gpui::{Entity, Focusable, Modifiers, TestAppContext, VisualTestContext, point, px};
 
 use super::{Drawn, END_FADE, INTRO_END, OptIn, STEP_MOTION, STILL_END, STILL_FADE, Step};
+use crate::account::{self, State, Status};
 use crate::import::ImportEvent;
 use crate::theme::Theme;
 use crate::theme_picker::SWATCHES;
@@ -524,4 +525,126 @@ fn an_import_offers_its_most_visited_sites_as_favorites(cx: &mut TestAppContext)
     shown.update(cx, |view, cx| view.offer(Vec::new(), cx));
     shown.update(cx, |_, cx| cx.emit(ImportEvent::Started));
     assert_eq!(step(&shell, cx), Some(Step::DefaultBrowser), "none offered, no step");
+}
+
+/// The account as the core says it is, at `server`, as the core hands it over before the flow.
+fn synced(cx: &mut VisualTestContext, status: Status, server: &str) {
+    let state = State { status, server: server.into(), default_server: true, ..State::default() };
+    cx.update(|_, cx| cx.set_global(account::Synced(state)));
+    cx.run_until_parked();
+}
+
+/// The steps this launch shows.
+fn steps(shell: &Entity<Shell>, cx: &VisualTestContext) -> Vec<Step> {
+    shell.read_with(cx, |shell, _| shell.onboarding.as_ref().map(|o| o.steps.clone()))
+        .unwrap_or_default()
+}
+
+/// What the account step asked of the core since the last look.
+fn account_calls(host: &Recorder) -> Vec<String> {
+    host.account.calls.take()
+}
+
+/// The account step comes after the colour while the browser isn't signed in, which it isn't until
+/// the core says, and only in a build with a sync server, whose core it signs in through.
+#[gpui::test]
+fn the_account_step_comes_while_signed_out(cx: &mut TestAppContext) {
+    let (shell, cx, host) = first_window(cx);
+    host.sync_server.set(true);
+    started(&shell, cx);
+    let shown = steps(&shell, cx);
+    let at = |step| shown.iter().position(|&each| each == step);
+    assert_eq!(at(Step::Account), at(Step::Color).map(|at| at + 1), "right after the colour");
+
+    synced(cx, Status::On, "https://sync.example.org");
+    started(&shell, cx);
+    assert!(!steps(&shell, cx).contains(&Step::Account), "signed in already");
+
+    synced(cx, Status::SignedOut, "https://sync.example.org");
+    host.sync_server.set(false);
+    started(&shell, cx);
+    assert!(!steps(&shell, cx).contains(&Step::Account), "a build that names no server");
+}
+
+/// The core reads the account a moment into the launch, after the flow may have started: signed in
+/// by the colour step, the flow goes on past the account's.
+#[gpui::test]
+fn signed_in_by_then_the_account_step_is_left_out(cx: &mut TestAppContext) {
+    let (shell, cx, host) = first_window(cx);
+    host.sync_server.set(true);
+    host.crash_reports.set(Some(false));
+    started(&shell, cx);
+    skip_to(&shell, cx, Step::Color);
+    synced(cx, Status::On, "https://sync.example.org");
+    cx.simulate_keystrokes("escape");
+    assert_eq!(step(&shell, cx), Some(Step::OptIns));
+}
+
+/// Esc goes on from the account step without signing in, as Skip does.
+#[gpui::test]
+fn skip_leaves_the_account_step_signed_out(cx: &mut TestAppContext) {
+    let (shell, cx, host) = first_window(cx);
+    host.sync_server.set(true);
+    host.crash_reports.set(Some(false));
+    synced(cx, Status::SignedOut, "https://sync.example.org");
+    started(&shell, cx);
+    skip_to(&shell, cx, Step::Account);
+    later(&shell, cx, STEP_MOTION);
+    cx.simulate_keystrokes("escape");
+    assert_eq!(step(&shell, cx), Some(Step::OptIns));
+    assert!(!account_calls(&host).contains(&"sign in".to_string()), "skipped, it didn't sign in");
+}
+
+/// ↩ signs in, as the step's button does, and the step waits while the sign-in does; once another
+/// device adds this one and the account syncs, the flow goes on by itself.
+#[gpui::test]
+fn a_finished_sign_in_goes_on(cx: &mut TestAppContext) {
+    let (shell, cx, host) = first_window(cx);
+    host.sync_server.set(true);
+    let server = "https://sync.example.org";
+    synced(cx, Status::SignedOut, server);
+    started(&shell, cx);
+    skip_to(&shell, cx, Step::Account);
+    later(&shell, cx, STEP_MOTION);
+    cx.simulate_keystrokes("enter");
+    assert_eq!(account_calls(&host), ["sign in"]);
+    assert_eq!(step(&shell, cx), Some(Step::Account), "it waits for the sign-in");
+
+    synced(cx, Status::SigningIn, server);
+    cx.simulate_keystrokes("enter");
+    assert_eq!(account_calls(&host), Vec::<String>::new(), "↩ doesn't sign in twice");
+    synced(cx, Status::NeedsSecret, server);
+    assert_eq!(account_calls(&host), ["request pairing"], "it asks the other devices, as Settings");
+    synced(cx, Status::Pairing, server);
+    assert_eq!(step(&shell, cx), Some(Step::Account));
+    synced(cx, Status::On, server);
+    later(&shell, cx, END_FADE);
+    assert_eq!(step(&shell, cx), None, "signed in, it went on, here out of the flow");
+}
+
+/// The account's first device shows its recovery words, which show once, so neither Esc nor Skip
+/// goes on from them; their Done does.
+#[gpui::test]
+fn the_first_devices_words_go_on_with_done(cx: &mut TestAppContext) {
+    let (shell, cx, host) = first_window(cx);
+    host.sync_server.set(true);
+    cx.simulate_resize(gpui::size(px(1280.), px(800.)));
+    host.crash_reports.set(Some(false));
+    let server = "https://sync.example.org";
+    synced(cx, Status::SignedOut, server);
+    started(&shell, cx);
+    skip_to(&shell, cx, Step::Account);
+    later(&shell, cx, STEP_MOTION);
+    synced(cx, Status::FirstDevice, server);
+    assert_eq!(account_calls(&host), ["recovery words"]);
+    // The core has made them, and syncs.
+    synced(cx, Status::On, server);
+    cx.simulate_keystrokes("escape");
+    assert_eq!(step(&shell, cx), Some(Step::Account), "Esc keeps the words");
+    let view = shell.read_with(cx, |shell, _| shell.account_view()).expect("the account shows");
+    let skip = shell.read_with(cx, |shell, cx| shell.keeping_words(cx));
+    assert!(skip, "no Skip while the words show");
+    let done = view.read_with(cx, |view, _| view.drawn("done")).expect("Done is drawn");
+    cx.simulate_click(done.center(), Modifiers::none());
+    assert_eq!(step(&shell, cx), Some(Step::OptIns));
 }
