@@ -118,6 +118,10 @@ stage() {
 # hang-sample.txt: started after the limit, it found no app to attach to when the app went just
 # then (#960).
 exited() {
+  # The driver's pipe goes with the app, so the next launch's is a new one: under Git Bash a native
+  # app opening it while the last writer is still open reads that writer's pipe, which ends as
+  # `exec 3>` replaces it, and the relaunched app never gets a command.
+  exec 3>&-
   ticks=$((${1:-10} * 2))
   sampler=
   stopping=
