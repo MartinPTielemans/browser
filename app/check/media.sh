@@ -323,18 +323,20 @@ if [ "$(uname)" = Linux ]; then
   px=0 py=0 pw=0 ph=0
   send pip
   mini_player_at 1 "the floating call had no window"
+  # Up and left, as it floats in the screen's bottom right: the window manager moves it with the
+  # pointer from where Chromium hands the drag over, at the press or past the drag's threshold.
   send pip press $((pw / 2)) 17
   send pip dragto $((pw / 2 - 10)) 17
-  send pip dragto $((pw / 2 - 150)) 57
-  send pip release $((pw / 2 - 150)) 57
-  mini_player_at "x == px - 150 && y == py + 40 && w == pw && h == ph" \
+  send pip dragto $((pw / 2 - 150)) -23
+  send pip release $((pw / 2 - 150)) -23
+  mini_player_at "x >= px - 150 && x <= px - 140 && y == py - 40 && w == pw && h == ph" \
     "a drag on the floating call's top bar didn't move it"
   send pip press $((pw - 3)) $((ph - 3))
   send pip dragto $((pw + 7)) $((ph + 7))
   send pip dragto $((pw + 57)) $((ph + 37))
   send pip release $((pw + 57)) $((ph + 37))
-  mini_player_at "x == px && y == py && w == pw + 60 && h == ph + 40" \
-    "a drag from the floating call's corner didn't size it"
+  mini_player_at "x == px && y == py && w >= pw + 50 && w <= pw + 60 && h >= ph + 30 &&
+    h <= ph + 40" "a drag from the floating call's corner didn't size it"
   ../tools/window-screenshot.sh "$pid" "$out/media-call-floating.png" all ||
     fail "no window to capture"
 else
