@@ -6,7 +6,7 @@ use std::sync::Arc;
 use gpui::{App, Context, Hsla, Image, Pixels, Point, Rgba, SharedString, rgb};
 
 use super::{
-    AgentGrants, Command, MAX_PANES, ProfileChoice, Row, Shell, UserKeys, clean_link,
+    AgentGrants, Command, MAX_PANES, ProfileChoice, Row, Shell, UserKeys, clean_link, files,
     commands::markdown_text,
     undo::{Prop, Value},
     user_keys,
@@ -26,7 +26,9 @@ const PROPER_NOUNS: [&str; 4] = ["Space", "Spaces", "Library", "Markdown"];
 fn sentence_case(title: &str) -> String {
     let word = |(i, word): (usize, &str)| {
         let noun = word.trim_end_matches('…');
-        let acronym = noun.len() > 1 && noun.chars().all(|c| c.is_ascii_uppercase());
+        // An acronym's plural too, as Copy URLs.
+        let stem = noun.strip_suffix('s').unwrap_or(noun);
+        let acronym = stem.len() > 1 && stem.chars().all(|c| c.is_ascii_uppercase());
         match i == 0 || acronym || PROPER_NOUNS.contains(&noun) {
             true => word.to_string(),
             false => word.to_lowercase(),
@@ -1223,14 +1225,33 @@ impl Shell {
         ];
         let split = self.selected != 0 && self.panes(self.selected).len() < MAX_PANES;
         let enabled = |command| command != Command::AddSplit || split;
-        let entries =
+        let mut entries: Vec<MenuEntry> =
             items.iter().map(|&(title, command)| MenuEntry::new(title, enabled(command))).collect();
+        // From the desktop, after a line: the Mac's panel picks files and folders together, the
+        // others' one or the other (ours, as Arc adds both from its +).
+        let disk: &[(&str, bool, bool)] = match files::PANEL_PICKS_BOTH {
+            true => &[("Add File or Folder…", true, true)],
+            false => &[("Add Files…", true, false), ("Add Folder…", false, true)],
+        };
+        if !self.private {
+            entries.push(MenuEntry::line());
+            entries.extend(disk.iter().map(|&(title, ..)| MenuEntry::new(title, true)));
+        }
         self.context_menu(
             entries,
             position,
             Box::new(move |chosen, shell, cx| {
-                if let Some(&(_, command)) = chosen.and_then(|at| items.get(at)) {
-                    shell.run(command, "footer", cx);
+                let Some(at) = chosen else {
+                    return;
+                };
+                if let Some(&(_, command)) = items.get(at) {
+                    return shell.run(command, "footer", cx);
+                }
+                // After the line.
+                if let Some(&(title, files, folders)) = disk.get(at - items.len() - 1) {
+                    // check.sh waits for this line.
+                    log!("browser: footer {title}");
+                    shell.add_from_disk(files, folders, cx);
                 }
             }),
             cx,
@@ -1360,6 +1381,8 @@ mod tests {
             ("In Each Profile's Spaces", "In each profile's Spaces"),
             ("Duplicate", "Duplicate"),
             ("Show in Folder", "Show in folder"),
+            ("Copy URLs", "Copy URLs"),
+            ("Close Tabs", "Close tabs"),
         ];
         for (title, sentence) in cases {
             assert_eq!(sentence_case(title), sentence);
@@ -1473,6 +1496,31 @@ mod tests {
         let title = shell.read_with(cx, |shell, _| shell.title(10));
         let markdown = format!("copy [{title}](https://example.com/)");
         assert!(host.take().contains(&markdown), "{markdown}");
+    }
+
+    /// Move to › lists another Space of the profile with folders as a submenu of its Today and its
+    /// folders, and the folder moves the tab into it.
+    #[gpui::test]
+    fn move_to_lists_another_spaces_folders(cx: &mut TestAppContext) {
+        let (shell, host) = shell_with(cx, &[], &[10], Folders::default());
+        shell.update(cx, |shell, cx| {
+            let work = (1, "Work".into(), None, 0, "".into(), "".into(), "".into());
+            let reading = (2, "Reading".into(), None, 0, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![work, reading], cx);
+            let mut folders = Folders::default();
+            folders.folders.insert(20, ("Shelf".into(), false));
+            shell.set_tabs(2, vec![20], vec![21], Vec::new(), folders, cx);
+        });
+        tab_menu(&shell, &host, cx, 10);
+        // As check.sh reads it, each submenu's items after its path.
+        let shown = crate::menu::described(&host.entries.borrow());
+        let moves = "Move to › Work (checked), Move to › Reading › Today, \
+                     Move to › Reading › Shelf, Move to › New Space…";
+        assert!(shown.contains(moves), "{shown}");
+        host.take();
+        cx.update(|cx| host.choose("Shelf", cx));
+        let (calls, edits) = (host.take(), host.take_edits());
+        assert!(edits.iter().any(|edit| edit.starts_with("move 10 ")), "{calls:?} {edits:?}");
     }
 
     /// A split's menu offers Mute under each of its tabs' names, and its Duplicate copies the whole
@@ -1626,7 +1674,7 @@ mod tests {
         let markdown = format!("copy {a}\n[{title}]({b})");
         assert!(host.take().contains(&markdown), "{markdown}");
 
-        cx.write_to_clipboard(gpui::ClipboardItem::new_string("https://d.example/".into()));
+        host.copied.borrow_mut().push("https://d.example/".into());
         tab_menu(&shell, &host, cx, 22);
         host.take();
         cx.update(|cx| host.choose("Paste URL as New Tab", cx));

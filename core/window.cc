@@ -572,6 +572,19 @@ void Window::UpdateDevTools(BrowserWindowInterface* browser, content::WebContent
 }
 
 // static
+void Window::ShowDevTools(BrowserWindowInterface* browser, content::WebContents* inspected) {
+  Window* window = ForBrowser(browser);
+  content::WebContents* devtools = DevToolsWindow::GetInTabWebContents(inspected, nullptr);
+  if (!window || !devtools) {
+    return;
+  }
+  // The keyboard stays where it is until LayOutPage has them past the page, so a key typed while
+  // the frontend's first bounds are on their way goes to the page.
+  window->devtools_to_show_ = devtools->GetWeakPtr();
+  UpdateDevTools(browser, inspected);
+}
+
+// static
 void Window::TrimPageMenu(BrowserWindowInterface* browser, ui::SimpleMenuModel& menu) {
   if (!ForBrowser(browser)) {
     return;
@@ -712,6 +725,15 @@ void Window::OnTabClosing(bc_id tab) {
       window->selected_ = 0;
       Space* shown = space ? nullptr : Space::FromId(window->space_);
       window->next_after_closing_ = shown ? shown->NextAfterLeaving(tab, &Tab::Loaded) : next;
+#if BUILDFLAG(IS_LINUX)
+      // Until the next page shows, keys in nothing reach no shortcut, as ⌘T straight after ⌘W
+      // would, where the Mac's menu bar takes them: the UI holds them for it, as with no page
+      // (#1178).
+      views::Widget* widget = window->widget_.get();
+      if (!window->closing_ && widget->IsActive() && platform::KeyboardForPage(widget)) {
+        platform::UITakesKeyboard(widget, /*until_page=*/true);
+      }
+#endif
       // Posted: Chrome is part way through closing the tab, and its tab strip can't change yet.
       base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE,
@@ -1277,6 +1299,11 @@ void Window::LayOutPage() {
       const bool covered = !docked.page_under && docked.page_frame == gfx::Rect(pane.frame.size());
       if (!toolbox || !covered) {
         pane.devtools = docked;
+      }
+      if (!covered && devtools == devtools_to_show_.get()) {
+        devtools_to_show_ = nullptr;
+        devtools_to_focus_ = devtools->GetWeakPtr();
+        FocusPageSoon();
       }
     }
   }
@@ -2449,6 +2476,12 @@ void Window::FocusPageSoon() {
 
 void Window::FocusPage() {
   if (!shown_ || !widget_->IsActive()) {
+    return;
+  }
+  if (content::WebContents* devtools = devtools_to_focus_.get()) {
+    devtools_to_focus_ = nullptr;
+    page_had_keyboard_ = false;
+    devtools->SetInitialFocus();
     return;
   }
   if (std::exchange(page_had_keyboard_, false) || platform::KeyboardForPage(widget_.get())) {

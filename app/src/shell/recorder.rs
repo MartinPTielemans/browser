@@ -314,6 +314,10 @@ impl Browser for Recorder {
         Default::default()
     }
 
+    fn open_behind(&self, urls: &[String], pinned: bool, folder: u64, index: usize, _: &mut App) {
+        self.record(format!("open behind {} {pinned} {folder} {index}", urls.join(" ")));
+    }
+
     fn create_folder(&self, space: u64, name: &str, folder: u64, index: usize, _: &mut App) -> u64 {
         let made = self.make();
         self.edit(format!("folder {made} {space} {name} {folder} {index}"));
@@ -972,6 +976,11 @@ impl Browser for Recorder {
     fn copy(&self, text: &str, _: &mut App) {
         self.copied.borrow_mut().push(text.to_owned());
         self.record(format!("copy {text}"))
+    }
+
+    /// The host's clipboard holds what was copied last.
+    fn pasted(&self, _: &App) -> Option<String> {
+        self.copied.borrow().last().cloned()
     }
 
     fn share_services(&self, _: &str) -> Vec<SharedString> {

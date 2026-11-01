@@ -49,6 +49,9 @@ mod drop_targets;
 #[cfg(target_os = "windows")]
 #[path = "../platform/windows/drive_menus.rs"]
 mod drive_menus;
+#[cfg(target_os = "windows")]
+#[path = "../platform/windows/fade.rs"]
+mod fade;
 mod find_bar;
 mod import_host;
 #[cfg(target_os = "linux")]
@@ -60,7 +63,7 @@ mod drive_wayland;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/drops.rs"]
 mod drops;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 #[path = "../platform/linux/emoji.rs"]
 mod emoji;
 #[cfg(target_os = "linux")]
@@ -90,6 +93,9 @@ mod popovers;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/previews.rs"]
 mod previews;
+#[cfg(target_os = "linux")]
+#[path = "../platform/linux/reduce_motion.rs"]
+mod reduce_motion;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/reveal_window.rs"]
 mod reveal_window;
@@ -190,6 +196,10 @@ mod platform {
         pub fn host_after_menus(apply: extern "C" fn()) -> bool;
         pub fn host_watch_resigning_active(resigning: extern "C" fn());
         pub fn host_watch_active(became_active: extern "C" fn());
+        #[cfg(not(target_os = "linux"))]
+        pub fn host_reduce_motion() -> bool;
+        #[cfg(not(target_os = "linux"))]
+        pub fn host_watch_reduce_motion(changed: extern "C" fn());
         pub fn host_is_default_browser() -> bool;
         pub fn host_make_default_browser(answered: extern "C" fn());
         pub fn host_since_launch() -> f64;
@@ -291,6 +301,9 @@ mod platform {
         pub fn host_video_close(video: *mut c_void);
         #[cfg(not(target_os = "linux"))]
         pub fn host_copy(text: *const c_char);
+        pub fn host_key_repeated() -> bool;
+        #[cfg(not(target_os = "linux"))]
+        pub fn host_paste(text: *mut c_char, capacity: usize) -> usize;
         pub fn host_open_in_safari(url: *const c_char);
         pub fn host_open_full_disk_access();
         pub fn host_share(
@@ -690,6 +703,14 @@ fn update_app_later(change: impl FnOnce(&mut App) + 'static) {
     }
 }
 
+/// The view of a window the host fades, as the tooltip's: on Windows the app paints its fades.
+fn fading_view(window: &mut Window) -> *mut c_void {
+    let view = ns_view(window);
+    #[cfg(target_os = "windows")]
+    fade::attach(window, view);
+    view
+}
+
 /// The window's NSView, for the host.
 fn ns_view(window: &Window) -> *mut c_void {
     match HasWindowHandle::window_handle(window).map(|handle| handle.as_raw()) {
@@ -1080,6 +1101,8 @@ extern "C" fn site_controls_dismissed() {
 struct LinkPreviewHost {
     /// The view the host puts the preview's page in.
     holder: Cell<*mut c_void>,
+    /// The browser window it shows over, until that window's page has the keyboard back.
+    over: Cell<u64>,
 }
 
 impl link_preview::Host for LinkPreviewHost {
@@ -1092,6 +1115,7 @@ impl link_preview::Host for LinkPreviewHost {
             windows.iter().find(|each| each.id == window).map(|each| each.ui_view)
         });
         if let Some(ui_view) = ui_view {
+            self.over.set(window);
             unsafe { platform::host_show_link_preview(ui_view) };
         }
     }
@@ -1111,9 +1135,18 @@ impl link_preview::Host for LinkPreviewHost {
 
     fn release(&self) {
         unsafe { platform::host_release_link_preview() };
+        // The window's page has the keyboard back from the preview's, which goes, or no page has
+        // it, unless the user left for another window. Linux's host gives it as it releases;
+        // Windows' can't name the window.
+        let window = self.over.replace(0);
+        if cfg!(target_os = "windows") && window != 0 && !LINK_PREVIEW_LEFT.get() {
+            unsafe { bc::bc_window_focus_page(window) };
+        }
     }
 
     fn hide(&self) {
+        // Released as it left, unless it goes at once.
+        self.release();
         unsafe { platform::host_hide_link_preview() };
     }
 
@@ -1136,12 +1169,16 @@ impl link_preview::Host for LinkPreviewHost {
 }
 
 extern "C" fn link_preview_dismissed() {
+    LINK_PREVIEW_LEFT.set(true);
     update_app(link_preview::dismissed);
+    LINK_PREVIEW_LEFT.set(false);
 }
 
 thread_local! {
     /// Whether the host has a view for a link preview's page.
     static LINK_PREVIEWS: Cell<bool> = const { Cell::new(false) };
+    /// The user left the preview for another window, which keeps the keyboard.
+    static LINK_PREVIEW_LEFT: Cell<bool> = const { Cell::new(false) };
 }
 
 /// A link is dragged over `tab`'s page: the window showing it shows the split view's targets, and
@@ -1986,6 +2023,13 @@ impl Browser for Engine {
             unsafe { bc::bc_window_select(self.window, first) };
         }
         first
+    }
+
+    fn open_behind(&self, urls: &[String], pinned: bool, folder: u64, index: usize, _: &mut App) {
+        let tabs = urls.iter().map(|url| open_tab_behind(self.window, url, true));
+        for (at, tab) in tabs.filter(|&tab| tab != 0).enumerate() {
+            unsafe { bc::bc_tab_move(tab, pinned, folder, index + at) };
+        }
     }
 
     fn create_folder(&self, space: u64, name: &str, folder: u64, index: usize, _: &mut App) -> u64 {
@@ -2919,6 +2963,21 @@ impl Browser for Engine {
         }
     }
 
+    fn pasted(&self, cx: &App) -> Option<String> {
+        #[cfg(target_os = "linux")]
+        return system::pasted(cx);
+        #[cfg(not(target_os = "linux"))]
+        {
+            _ = cx;
+            // Asked for its length first, then for the text.
+            let length = unsafe { platform::host_paste(std::ptr::null_mut(), 0) };
+            let mut text = vec![0u8; length.checked_add(1)?];
+            unsafe { platform::host_paste(text.as_mut_ptr().cast(), text.len()) };
+            text.truncate(length);
+            Some(String::from_utf8_lossy(&text).into_owned()).filter(|text| !text.is_empty())
+        }
+    }
+
     fn can_open_in_safari(&self) -> bool {
         true
     }
@@ -3387,6 +3446,11 @@ fn run_page_shortcut(tab: bc::bc_id, key: *const bc::bc_key, reserved: bool) -> 
     update_tab_window(tab, |shell, cx| shell.run_for_page(command, cx)).unwrap_or(false)
 }
 
+thread_local! {
+    /// The shortcut a page got first last, which a second press runs ilo's of if the page kept it.
+    static SECOND_PRESS: RefCell<shell::SecondPress> = RefCell::default();
+}
+
 unsafe extern "C" fn tab_key_before_page(
     _: *mut c_void,
     tab: bc::bc_id,
@@ -3417,8 +3481,20 @@ unsafe extern "C" fn tab_key_before_page(
     {
         return true;
     }
-    // The keys typed after ⌘L would reach the page before it hands ⌘L back to open the bar.
     let cx = CX.with_borrow(Clone::clone);
+    // A shortcut the page gets first that it kept, pressed again at once, runs ilo's (Arc's).
+    let shortcut = cx.as_ref().and_then(|cx| {
+        cx.try_read_global(|keys: &shell::UserKeys, _| keys.command_for(&keystroke, false))
+    });
+    let repeat = unsafe { platform::host_key_repeated() };
+    let now = Instant::now();
+    let shortcut = shortcut.flatten().is_some();
+    if SECOND_PRESS.with_borrow_mut(|second| second.press(tab, &keystroke, shortcut, repeat, now)) {
+        // check.sh reads this line.
+        log!("browser: second press {keystroke}");
+        return run_page_shortcut(tab, key, false);
+    }
+    // The keys typed after ⌘L would reach the page before it hands ⌘L back to open the bar.
     let holds = cx.and_then(|cx| {
         cx.try_read_global(|keys: &shell::UserKeys, _| keys.holds_keys(&keystroke))
     });
@@ -3504,6 +3580,7 @@ unsafe extern "C" fn tab_key_unhandled(
     tab: bc::bc_id,
     key: *const bc::bc_key,
 ) -> bool {
+    SECOND_PRESS.with_borrow_mut(|second| second.declined(&keystroke(unsafe { &*key })));
     link_preview_key(tab, key, false).unwrap_or_else(|| run_page_shortcut(tab, key, false))
 }
 
@@ -3993,7 +4070,7 @@ fn open_window_as(
         });
         window.focus(&shell.focus_handle(cx), cx);
         CX.set(Some(cx.to_async()));
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
         emoji::keep(cx);
         // In front, as it's about to be key, or a saved one behind the others.
         WINDOWS.with_borrow_mut(|windows| {
@@ -4227,6 +4304,11 @@ fn finish_opening(
         platform::host_watch_resigning_active(launch_picture_on_resigning);
         platform::host_watch_active(became_active);
     }
+    follow_reduce_motion(cx);
+    #[cfg(not(target_os = "linux"))]
+    unsafe { platform::host_watch_reduce_motion(reduce_motion_changed) };
+    #[cfg(target_os = "linux")]
+    reduce_motion::watch(cx);
     if let Some(bar) = command_bar::open(Rc::new(Bar), cx)
         && let Ok(view) = bar.update(cx, |_, window, _| ns_view(window))
     {
@@ -4292,7 +4374,10 @@ fn finish_opening(
     {
         unsafe { platform::host_add_capture(view, capture_dismissed) };
     }
-    let host = Rc::new(LinkPreviewHost { holder: Cell::new(std::ptr::null_mut()) });
+    let host = Rc::new(LinkPreviewHost {
+        holder: Cell::new(std::ptr::null_mut()),
+        over: Cell::new(0),
+    });
     if let Some(preview) = link_preview::open(host.clone(), cx)
         && let Ok(view) = preview.update(cx, |_, window, _| ns_view(window))
     {
@@ -4316,7 +4401,7 @@ fn finish_opening(
     // Their windows reach this far past the plate, for its shadow.
     let margin = f64::from(browser::elevation::WINDOW_MARGIN);
     if let Some(tip) = tooltip::open(Rc::new(TooltipHost), cx)
-        && let Ok(view) = tip.update(cx, |_, window, _| ns_view(window))
+        && let Ok(view) = tip.update(cx, |_, window, _| fading_view(window))
     {
         unsafe { platform::host_add_tooltip(view, margin, tooltip_away) };
     }
@@ -4330,7 +4415,7 @@ fn finish_opening(
     }
     if let Some(target) =
         link_target::open(Rc::new(LinkTargetHost), move |cx| look(cx).unwrap_or_default(), cx)
-        && let Ok(view) = target.update(cx, |_, window, _| ns_view(window))
+        && let Ok(view) = target.update(cx, |_, window, _| fading_view(window))
     {
         unsafe { platform::host_add_link_target(view, margin, link_pointer) };
     }
@@ -4405,7 +4490,15 @@ unsafe extern "C" fn started(_: *mut c_void) {
             // GPUI's X11 scale is its own guess otherwise, from Xft.dpi, where Chromium also
             // follows GDK_SCALE.
             true => {
-                gpui_linux::embed_x11(unsafe { bc::bc_display_scale() } as f32);
+                // A click in the UI takes the keyboard there, to keep, as Wayland's does: moving
+                // X's input focus into GPUI's window tells the core nothing while it's there,
+                // as after ⌘W, where the UI holds the keys for the page shown next (#1209).
+                fn pressed(ui_view: *mut c_void) {
+                    if let Some(window) = window_in(ui_view) {
+                        unsafe { bc::bc_window_ui_takes_keyboard(window) };
+                    }
+                }
+                gpui_linux::embed_x11(unsafe { bc::bc_display_scale() } as f32, pressed);
                 // The clipboard's owner can be Chromium, which answers on this thread, so the UI's
                 // read has it answer while it waits (#999).
                 gpui_linux::answer_clipboard_reads_with(|| unsafe {
@@ -4594,6 +4687,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
     app.extend([
         item("Settings…", Command::Settings),
         item("Import from Other Browsers…", Command::Import),
+        item("Privacy Policy", Command::PrivacyPolicy),
         MenuItem::separator(),
         MenuItem::os_submenu("Services", SystemMenuType::Services),
         MenuItem::separator(),
@@ -4669,7 +4763,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 )),
                 MenuItem::separator(),
                 item(bar.sidebar_title(), Command::ToggleSidebar),
-                item(bar.pinned_item().0, bar.pinned_item().1),
+                item(bar.pinned_item().0, bar.pinned_item().1).disabled(!bar.pinned_offered),
                 MenuItem::separator(),
                 item("Stop Loading", Command::Stop),
                 item("Refresh the Page", Command::Reload),
@@ -5040,7 +5134,33 @@ extern "C" fn became_active() {
     update_app_later(|cx| {
         settings::check_default_browser(cx);
         import_host::became_active(cx);
+        // GTK's settings file, Linux's last word, says nothing as it changes.
+        #[cfg(target_os = "linux")]
+        follow_reduce_motion(cx);
     });
+}
+
+/// Reads the system's Reduce Motion as the first window opens, before its first frame, and again
+/// as the system says it changed.
+fn follow_reduce_motion(cx: &mut App) {
+    #[cfg(not(target_os = "linux"))]
+    set_reduce_motion(unsafe { platform::host_reduce_motion() }, cx);
+    #[cfg(target_os = "linux")]
+    reduce_motion::read(cx);
+}
+
+#[cfg(not(target_os = "linux"))]
+extern "C" fn reduce_motion_changed() {
+    update_app_later(follow_reduce_motion);
+}
+
+/// What GPUI's animations and the UI's own motion follow (`App::reduce_motion`).
+fn set_reduce_motion(reduce: bool, cx: &mut App) {
+    if reduce != cx.reduce_motion() {
+        // check.sh reads this line.
+        log!("browser: reduce motion {}", if reduce { "on" } else { "off" });
+        cx.set_reduce_motion(reduce);
+    }
 }
 
 unsafe extern "C" fn stopping(_: *mut c_void) {
@@ -5959,9 +6079,12 @@ unsafe extern "C" fn tab_offer_changed(
                 .collect(),
         };
         let never = string(offer.never);
+        let details = string(offer.details);
         offer::Offer {
             kind: match offer.kind as u32 {
                 bc::BC_OFFER_KIND_PASSWORD_UPDATE => offer::Kind::Update,
+                bc::BC_OFFER_KIND_ADDRESS => offer::Kind::Address,
+                bc::BC_OFFER_KIND_CARD => offer::Kind::Card,
                 _ => offer::Kind::Save,
             },
             title: string(offer.title),
@@ -5972,6 +6095,7 @@ unsafe extern "C" fn tab_offer_changed(
             accept: string(offer.accept),
             decline: string(offer.decline),
             never: (!never.is_empty()).then_some(never),
+            details: details.lines().map(|line| line.to_string().into()).collect(),
         }
     });
     update_app(|cx| offer::changed(tab, offer, cx));
@@ -6491,6 +6615,7 @@ unsafe extern "C" fn window_activated(_: *mut c_void, window: bc::bc_id) {
     if let Some(cx) = CX.with_borrow(Clone::clone) {
         let later = async move {
             if let Some(ui_view) = ui_view_of(window) {
+                link_preview_window::took_keyboard(ui_view);
                 key_window_changed(ui_view);
             }
         };

@@ -185,7 +185,7 @@ impl Tab {
 }
 
 /// The keys a row of the Shortcuts tab shows: a command's shortcut, or keys the app binds itself.
-/// Or the switch for whether those keys count the favorites.
+/// Or the switch for whether those keys count the favorites, or whether Last Tab is the ninth.
 enum Keys {
     Of(Command),
     /// Keys no command holds, which can't be changed: a binding's keystroke.
@@ -193,13 +193,14 @@ enum Keys {
     /// A run of them, from the first keystroke to the last.
     Span(&'static str, &'static str),
     FavoritesNumbered,
+    LastTabNinth,
 }
 
 impl Keys {
     /// A row's keys that can't be changed, as a menu shows them, Ctrl+1 – Ctrl+8 off the Mac.
     fn fixed(&self) -> Option<String> {
         match *self {
-            Keys::Of(_) | Keys::FavoritesNumbered => None,
+            Keys::Of(_) | Keys::FavoritesNumbered | Keys::LastTabNinth => None,
             Keys::Fixed(keys) => Some(shell::keystroke_label(keys)),
             Keys::Span(first, last) => {
                 Some(format!("{} – {}", shell::keystroke_label(first), shell::keystroke_label(last)))
@@ -207,6 +208,9 @@ impl Keys {
         }
     }
 }
+
+/// The choice that has a command's keys reach ilo before the page.
+const PREFER_ILO: &str = concat!("Prefer ", env!("APP_NAME"));
 
 /// The Shortcuts tab, every command the user can give keys, in the menus' order and names.
 const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
@@ -229,6 +233,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Tabs 1 to 8", Keys::Span("cmd-1", "cmd-8")),
             ("Include Favorites in ⌘1–⌘8", Keys::FavoritesNumbered),
             ("Last Tab", Keys::Of(Command::SelectLastTab)),
+            ("Last Tab Goes to the Ninth Tab", Keys::LastTabNinth),
             ("Pin/Unpin Tab", Keys::Of(Command::TogglePin)),
             ("Favorite Tab", Keys::Of(Command::FavoriteTab)),
             ("Back to Pinned URL", Keys::Of(Command::BackToPinnedUrl)),
@@ -341,6 +346,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Check for Updates", Keys::Of(Command::CheckForUpdates)),
             ("Settings", Keys::Of(Command::Settings)),
             ("Import from Other Browsers", Keys::Of(Command::Import)),
+            ("Privacy Policy", Keys::Of(Command::PrivacyPolicy)),
             ("Passwords", Keys::Of(Command::Passwords)),
             ("Site Search Settings", Keys::Of(Command::SiteSearchSettings)),
             // main.rs binds these.
@@ -379,7 +385,7 @@ enum Popup {
 pub struct Settings {
     tab: Tab,
     focus: FocusHandle,
-    /// It was asked to show, and logs the tab it draws next.
+    /// It was asked to show, or changed tab, and logs the tab it draws next.
     shown: bool,
     /// Which switch last changed, and when, for its knob's slide.
     switched: Option<(&'static str, Instant)>,
@@ -698,6 +704,10 @@ fn show_now(cx: &mut App) {
         .ok();
     check_default_browser(cx);
     unsafe { platform::host_show_settings() };
+    // check.sh waits for this line, which the Mac's and Linux's hosts log as they show the window.
+    if cfg!(target_os = "windows") {
+        log!("browser: settings shown {}", title());
+    }
 }
 
 /// Looks again for the agent clients on this computer, as the Agents tab shows.
@@ -740,8 +750,8 @@ thread_local! {
     static SHOWN_TAB: Cell<&'static str> = const { Cell::new("") };
 }
 
-/// The window's title, for a host that logs it as the Mac's reads it off the window.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+/// The window's title, logged as the Mac's host reads it off the window.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 pub fn title() -> &'static str {
     SHOWN_TAB.get()
 }
@@ -846,7 +856,13 @@ fn open(cx: &mut App) {
     });
     match window {
         Ok(window) => {
-            if let Ok(view) = window.update(cx, |_, window, _| ns_view(window)) {
+            if let Ok(view) = window.update(cx, |_, window, cx| {
+                let view = ns_view(window);
+                // The link preview over a browser window closes as Settings takes the keyboard.
+                #[cfg(target_os = "linux")]
+                crate::system::watch_settings_activation(window, view, cx);
+                view
+            }) {
                 unsafe { platform::host_add_settings(view) };
                 cx.set_global(SettingsWindow(window));
             }
@@ -910,6 +926,8 @@ impl Settings {
         // check.sh waits for this line.
         log!("browser: settings tab {}", tab.name());
         self.tab = tab;
+        // A tab takes no click until it has drawn, so check.sh waits for its "settings drew".
+        self.shown = true;
         if tab == Tab::Import {
             self.show_import(cx);
         }
@@ -956,6 +974,9 @@ impl Settings {
                 .when(shown, |plate| {
                     plate.bg(rgb(PLATE_FILL)).border(px(0.5)).border_color(rgb(PLATE_EDGE))
                 })
+                // check.sh clicks a tab where this says, as its labels' widths differ by platform.
+                .relative()
+                .child(self.drawn(format!("toolbar {}", tab.name())))
                 // A press here picks the tab, and doesn't move the window.
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(cx.listener(move |settings, _, window, cx| {
@@ -2182,7 +2203,8 @@ impl Settings {
 
     /// The search, then the commands it finds by section, each with its keys in a chip. A click on
     /// a command's chip records its next keys; escape leaves them and ⌫ takes them away. ↺ gives
-    /// a command its default back, and Restore Defaults every command, with the favorites numbered.
+    /// a command its default back, and Restore Defaults every command, with the favorites numbered
+    /// and ⌘9 the last tab.
     fn shortcuts(&self, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
         let typed = self.search.read(cx).text().to_string();
         let found = found(&typed, cx);
@@ -2196,6 +2218,10 @@ impl Settings {
                         (Keys::FavoritesNumbered, _) => {
                             let on = shell::user_keys(cx).favorites_numbered();
                             self.toggle("favorites numbered", on, set_favorites_numbered, accent, cx)
+                        }
+                        (Keys::LastTabNinth, _) => {
+                            let on = shell::user_keys(cx).last_tab_ninth();
+                            self.toggle("last tab ninth", on, set_last_tab_ninth, accent, cx)
                         }
                         (_, text) => chip(text.unwrap_or_default().into(), rgb(DETAIL))
                             .into_any_element(),
@@ -2271,7 +2297,11 @@ impl Settings {
         let refused = (self.refused.as_ref())
             .filter(|(refused, _)| *refused == command)
             .map(|(_, why)| div().text_color(rgb(DETAIL)).child(why.clone()));
-        let restore = user.is_set(command).then(|| {
+        // Who gets the keys first, once the user has chosen ilo, as the menu below says it.
+        let preferred = user.prefers_ilo(command).then(|| {
+            div().text_color(rgb(DETAIL)).child(MenuEntry::label(PREFER_ILO))
+        });
+        let restore = user.changed(command).then(|| {
             div()
                 .id(SharedString::from(format!("restore-{}", command.key_name())))
                 .size(px(CHIP_HEIGHT))
@@ -2291,15 +2321,57 @@ impl Settings {
             .active(|chip| chip.bg(Palette::on_dark(state_alpha(CHIP_ALPHA, STATE_PRESSED))))
             .on_click(cx.listener(move |settings, _, window, cx| {
                 settings.start_recording(command, window, cx)
-            }));
+            }))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |settings, event: &MouseDownEvent, window, cx| {
+                    settings.choose_preference(command, event.position, window, cx)
+                }),
+            )
+            .relative()
+            .child(self.drawn(format!("shortcut {}", command.key_name())));
         div()
             .flex()
             .items_center()
             .gap(px(CHIP_GAP))
             .children(refused)
+            .children(preferred)
             .children(restore)
             .child(chip)
             .into_any_element()
+    }
+
+    /// A right-click on `command`'s chip: who gets its keys first when a page uses them too,
+    /// Prefer Websites, the default, or Prefer ilo, as Arc's Shortcuts offers. A reserved command's
+    /// are always ilo's, which the menu shows. A page that keeps keys still gives them up to a
+    /// second press.
+    fn choose_preference(
+        &mut self,
+        command: Command,
+        at: gpui::Point<gpui::Pixels>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let user = shell::user_keys(cx);
+        let (ilo, can) = (user.before_page(command), UserKeys::can_prefer(command));
+        let items = vec![
+            MenuEntry { checked: !ilo, ..MenuEntry::new("Prefer Websites", can) },
+            MenuEntry { checked: ilo, ..MenuEntry::new(PREFER_ILO, can) },
+        ];
+        let settings = cx.weak_entity();
+        let picked = Box::new(move |picked: Option<usize>, cx: &mut App| {
+            let Some(picked) = picked else {
+                return;
+            };
+            let ilo = picked == 1;
+            shell::change_keys(cx, |keys| keys.set_prefers_ilo(command, ilo));
+            let who = if ilo { "ilo" } else { "websites" };
+            // check.sh waits for this line.
+            log!("browser: shortcut {} prefers {who}", command.key_name());
+            save_shortcuts(cx);
+            settings.update(cx, |_, cx| cx.notify()).ok();
+        });
+        show_menu(ns_view(window), items, at, false, Look::dark(), picked, cx);
     }
 
     /// Takes the next keys pressed for `command`, or stops if it's taking them already.
@@ -2447,6 +2519,13 @@ fn about() -> AnyElement {
     if let Some(engine) = build_info::ENGINE_VERSION.as_deref() {
         version = format!("{version}, on Chromium {engine}");
     }
+    // check.sh reads the engine's version here.
+    let line = format!("browser: settings about {version}");
+    ABOUT_LOGGED.with_borrow_mut(|logged| {
+        if logged.insert(line.clone()) {
+            log!("{line}");
+        }
+    });
     let open = |id: &'static str, url: Option<String>| {
         url.map(|url| {
             // check.sh clicks Open where this line says it is.
@@ -2675,7 +2754,7 @@ fn found(typed: &str, cx: &App) -> Vec<&'static str> {
     let found = rows.filter(|(name, keys)| {
         let label = match keys {
             Keys::Of(command) => user.label(*command),
-            Keys::FavoritesNumbered => None,
+            Keys::FavoritesNumbered | Keys::LastTabNinth => None,
             _ => keys.fixed(),
         };
         shell::shortcut_found(typed, &shown(name), label.as_deref())
@@ -2733,6 +2812,12 @@ fn set_favorites_numbered(numbered: bool, cx: &mut App) {
     save_shortcuts(cx);
 }
 
+/// Last Tab Goes to the Ninth Tab, kept with the user's keys.
+fn set_last_tab_ninth(ninth: bool, cx: &mut App) {
+    shell::change_keys(cx, |keys| keys.set_last_tab_ninth(ninth));
+    save_shortcuts(cx);
+}
+
 fn save_shortcuts(cx: &App) {
     if let Err(error) = std::fs::write(shortcuts_path(), shell::user_keys(cx).to_text()) {
         log!("couldn't save the shortcuts: {error}");
@@ -2751,7 +2836,8 @@ impl Render for Settings {
             window.request_animation_frame();
         }
         if std::mem::take(&mut self.shown) {
-            // check.sh waits for this line, the tab each show draws, whichever window was key.
+            // check.sh waits for this line, the tab each show or switch draws, whichever window
+            // was key.
             log!("browser: settings drew {}", self.tab.name());
         }
         let content = match self.tab {

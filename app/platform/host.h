@@ -130,6 +130,14 @@ void host_watch_resigning_active(void (*resigning)(void));
 // Settings.
 void host_watch_active(void (*became_active)(void));
 
+// Whether the system asks apps to reduce motion: the Mac's Reduce Motion, Windows' "Show
+// animations in Windows" turned off. Linux's desktop says so through its settings portal, which
+// platform/linux/reduce_motion.rs reads instead.
+bool host_reduce_motion(void);
+
+// Calls |changed| on the UI thread each time that setting changes.
+void host_watch_reduce_motion(void (*changed)(void));
+
 // Whether the system opens http and https links with this app: whether it's the default browser.
 bool host_is_default_browser(void);
 
@@ -573,6 +581,14 @@ void host_video_close(void* video);
 // Puts |text| on the clipboard. A driven run puts it on a pasteboard of its own instead, so checks
 // never touch the user's clipboard.
 void host_copy(const char* text);
+
+// Whether the key event being handled now is the key repeating as it's held, not a press. False
+// where the host can't tell.
+bool host_key_repeated(void);
+
+// Copies the text host_copy's clipboard or pasteboard holds into |text|, |capacity| bytes with its
+// NUL, and returns its whole length in bytes without the NUL, 0 if it holds none.
+size_t host_paste(char* text, size_t capacity);
 
 // Opens |url| in Safari, which plays the protected video the engine can't. A driven run only logs it,
 // so checks never launch Safari.

@@ -418,6 +418,8 @@ impl Browser for Fake {
         0
     }
 
+    fn open_behind(&self, _: &[String], _: bool, _: u64, _: usize, _: &mut App) {}
+
     fn create_folder(&self, _: u64, name: &str, folder: u64, index: usize, cx: &mut App) -> u64 {
         let id = self.next_id.get();
         self.next_id.set(id + 1);
@@ -1174,6 +1176,10 @@ impl Browser for Fake {
 
     // The preview leaves the clipboard alone, and shares nothing.
     fn copy(&self, _: &str, _: &mut App) {}
+
+    fn pasted(&self, _: &App) -> Option<String> {
+        None
+    }
 
     fn share_services(&self, _: &str) -> Vec<SharedString> {
         Vec::new()

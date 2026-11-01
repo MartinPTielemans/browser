@@ -1728,6 +1728,20 @@ void host_watch_active(void (*became_active)(void)) {
                                               }];
 }
 
+bool host_reduce_motion(void) {
+  return NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
+}
+
+void host_watch_reduce_motion(void (*changed)(void)) {
+  [NSWorkspace.sharedWorkspace.notificationCenter
+      addObserverForName:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification
+                  object:nil
+                   queue:NSOperationQueue.mainQueue
+              usingBlock:^(NSNotification*) {
+                changed();
+              }];
+}
+
 bool host_is_default_browser(void) {
   NSString* mine = NSBundle.mainBundle.bundleIdentifier;
   for (NSString* link in @[ @"http://", @"https://" ]) {
@@ -3808,6 +3822,20 @@ void host_copy(const char* text) {
   NSPasteboard* pasteboard = CopyPasteboard();
   [pasteboard clearContents];
   [pasteboard setString:@(text) forType:NSPasteboardTypeString];
+}
+
+bool host_key_repeated(void) {
+  // A page's key reaches the core while AppKit dispatches it.
+  NSEvent* event = NSApp.currentEvent;
+  return event.type == NSEventTypeKeyDown && event.ARepeat;
+}
+
+size_t host_paste(char* text, size_t capacity) {
+  const char* held = [CopyPasteboard() stringForType:NSPasteboardTypeString].UTF8String ?: "";
+  if (capacity) {
+    strlcpy(text, held, capacity);
+  }
+  return strlen(held);
 }
 
 void host_open_full_disk_access(void) {

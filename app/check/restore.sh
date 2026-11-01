@@ -7,8 +7,9 @@
 # place until Remove Icon, and a Japanese conversion in the picker's search isn't a pick. A Space's
 # icon, picked in its icon picker, comes back too. A tab closed before the quit stays closed,
 # in the archive, from which the Library reopens it at its page. A page's downloads go in the
-# check's folder, a new one's icon flies into the Library button, none of those a relaunch reads
-# does, and ⇧⌘J opens the Library on Downloads, which lists them. While one runs, the button keeps
+# check's folder, on the Mac with macOS's quarantine flag, a new one's icon flies
+# into the Library button, none of those a relaunch reads does, and ⇧⌘J opens the Library on
+# Downloads, which lists them. While one runs, the button keeps
 # its name and resting on it shows the running one with the finished one. With one running, ⌘Q
 # asks first: Continue Downloading shows the Library's Downloads, and Quit quits, cancelling it.
 # After the relaunch, Remove from List and Clear List take them off the list and keep their files.
@@ -63,6 +64,13 @@ fi
 send type d
 expect '^browser: download [0-9]* done notes.txt$' "the page's download didn't finish"
 [ -f "$out/downloads/notes.txt" ] || fail "the download isn't in the check's folder"
+# On the Mac it carries macOS's quarantine flag, naming the app that downloaded it, so Gatekeeper
+# checks it the first time it opens (#685). Chromium's quarantine service sets it.
+if [ "$(uname)" = Darwin ]; then
+  flag=$(xattr -p com.apple.quarantine "$out/downloads/notes.txt" 2>&1) ||
+    fail "the download has no quarantine flag: $flag"
+  [ -n "$(echo "$flag" | cut -d';' -f3)" ] || fail "the download's quarantine flag names no app: $flag"
+fi
 send type s
 expect '^browser: download [0-9]* running slow.bin$' "the page's slow download didn't start"
 # Its icon flies into the Library button.
@@ -667,9 +675,13 @@ send key n cmd
 expect '^browser: window opened [0-9]*$' "⌘N didn't open a second window"
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
+settings_drew
 send clickkey 519 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
-send clickkey 592 251
+settings_drew Advanced
+# Where Settings drew the switch, as the Mini Player's row above it moves it.
+at=$(drawn "switch restore windows") || fail "Restore windows from last session has no switch"
+send clickkey $at
 expect '^browser: restore windows off$' \
   "a click on Restore windows from last session didn't turn it off"
 send key w cmd
