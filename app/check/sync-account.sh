@@ -15,38 +15,9 @@ if [ -z "${ILO_SERVER:-}" ]; then
 fi
 log="$out/sync-account.log"
 netlog="$out/sync-account-net.json"
-db="$out/sync-account-server.db"
 step=0
-rm -f "$saved" "$launch_frame" "$profile_dir/Account" "$netlog" "$db"
-server_log="$out/sync-account-server.log"
-# One answer from the server's database: the query $1.
-stored() {
-  python3 -I -c '
-import sqlite3, sys
-print(sqlite3.connect(sys.argv[1]).execute(sys.argv[2]).fetchone()[0])' "$db" "$1"
-}
-server_port=$(python3 -I -c '
-import socket
-s = socket.socket()
-s.bind(("127.0.0.1", 0))
-print(s.getsockname()[1])')
-# localhost, as passkeys, which the server offers, take no address for their origin.
-server_url="http://localhost:$server_port"
-# helper, so cleanup stops it after a failure.
-DEV_MODE=1 HOST=127.0.0.1 PORT=$server_port PUBLIC_URL=$server_url NO_COLOR=1 \
-  DATABASE_URL="sqlite:$db?mode=rwc" "$ILO_SERVER" > "$server_log" 2>&1 3>&- &
-helper=$!
-for _ in $(seq 100); do
-  grep -q 'ilo-server is up' "$server_log" && break
-  kill -0 "$helper" 2>/dev/null || fail "ilo-server exited: $(tail -1 "$server_log")"
-  sleep 0.1
-done
-grep -q 'ilo-server is up' "$server_log" || fail "ilo-server didn't start"
-email="check-$(date +%s)@example.org"
-# What the core calls this device to the server and the account's other devices.
-label="ilo on Linux"
-[ "$(uname)" = Darwin ] && label="ilo on Mac"
-! windows || label="ilo on Windows"
+rm -f "$saved" "$launch_frame" "$profile_dir/Account" "$netlog"
+. check/ilo-server.sh
 
 BROWSER_DRIVE=1 BROWSER_URL='data:text/html,<title>account check</title>' "$browser" \
   --sync-url="$server_url" --log-net-log="$netlog" < "$out/drive" > "$log" 2>&1 &
@@ -65,57 +36,11 @@ send clickkey $at
 expect '^browser: account SigningIn None$' "Sign In didn't start signing in"
 await 'browser: sync sign-in loaded /authorize$' ||
   fail "the sign-in window didn't load the server's page"
-# Keys for the sign-in window, a window of Chromium's own, which the driver's keys don't reach on
-# Linux, as they go to the browser windows, overlays and Settings alone: there they're the X
-# server's, from xdotool, to the sign-in window, which it gives the keyboard first. The Mac's go
-# through the driver (unrun there).
-sign_in_window=
-sign_in_keys() {
-  if [ "$(uname)" != Linux ]; then
-    send "$@"
-    return
-  fi
-  if [ -z "$sign_in_window" ]; then
-    sign_in_window=$(timeout 10 xdotool search --sync --onlyvisible --name '^localhost$' | head -1)
-    [ -n "$sign_in_window" ] || fail "the X server has no sign-in window"
-  fi
-  xdotool windowactivate --sync "$sign_in_window" 2>/dev/null ||
-    xdotool windowfocus --sync "$sign_in_window" ||
-    fail "the sign-in window couldn't have the keyboard"
-  case $1 in
-  type) xdotool type --delay 20 "$2" ;;
-  key) xdotool key "$(echo "$2" | sed 's/return/Return/; s/tab/Tab/')" ;;
-  esac
-}
-# The page focuses its field once it's there.
-sign_in_keys type "$email"
-[ -z "$sign_in_window" ] || import -window "$sign_in_window" "$out/sync-sign-in-address.png" || true
-sign_in_keys key return
-await 'browser: sync sign-in loaded /authorize/email$' || fail "the server didn't take the address"
-code=
-for _ in $(seq 100); do
-  code=$(grep -o '[0-9]\{6\} is your ilo sign-in code' "$server_log" | tail -1 | cut -c1-6)
-  [ -n "$code" ] && break
-  sleep 0.1
-done
-[ -n "$code" ] || fail "ilo-server logged no sign-in code"
-sign_in_keys type "$code"
-sign_in_keys key return
-# A new account's first sign-in offers a passkey, with Add a Passkey focused: Not Now is next.
-await 'browser: sync sign-in loaded /authorize/code$' || fail "the server didn't take the code"
-sign_in_keys key tab
-sign_in_keys key return
+sign_in first "$out/sync-sign-in-address.png"
 await '^browser: account FirstDevice None$' ||
   fail "signing in didn't make this the account's first device"
 await '^browser: account On None$' || fail "the first device's recovery words didn't turn sync on"
-# The sign-in window has closed. On Linux, Settings has the keyboard again as the window manager
-# would give it, from xdotool, as Settings' window is titled by its tab; the Mac's AppKit gives it.
-if [ "$(uname)" = Linux ]; then
-  settings=$(timeout 10 xdotool search --onlyvisible --name '^Sync$' | head -1)
-  [ -n "$settings" ] || fail "the X server has no Settings window"
-  xdotool windowactivate --sync "$settings" 2>/dev/null || xdotool windowfocus --sync "$settings" ||
-    fail "Settings couldn't have the keyboard again"
-fi
+settings_keyboard
 at=$(drawn "sync done") || fail "Settings › Sync didn't show the recovery words with Done"
 ../tools/window-screenshot.sh "$pid" "$out/sync-words.png" || fail "no window to capture"
 send clickkey $at
