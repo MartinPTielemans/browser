@@ -48,21 +48,26 @@ pub enum Refused {
     Taken(Holder),
 }
 
-/// The commands the user gave keys of their own, or none, and whether ⌘1–⌘8 leave the favorites
-/// out.
+/// The commands the user gave keys of their own, or none, whether ⌘1–⌘8 leave the favorites out,
+/// and whether ⌘9 is the ninth tab.
 #[derive(Clone, Default, PartialEq, Debug)]
 pub struct UserKeys {
     set: Vec<(Command, Vec<String>)>,
     /// Off by default, so ⌘1 is the first favorite, as in Arc.
     favorites_unnumbered: bool,
+    /// Off by default, so ⌘9 is the last tab, as in Arc and Chrome.
+    last_tab_ninth: bool,
 }
 
 /// The Shortcuts file's line for favorites_unnumbered, which no command is named.
 const FAVORITES_UNNUMBERED: &str = "favorites-unnumbered";
+/// And its line for last_tab_ninth.
+const LAST_TAB_NINTH: &str = "last-tab-ninth";
 
 impl Global for UserKeys {}
 
-static DEFAULTS: UserKeys = UserKeys { set: Vec::new(), favorites_unnumbered: false };
+static DEFAULTS: UserKeys =
+    UserKeys { set: Vec::new(), favorites_unnumbered: false, last_tab_ninth: false };
 
 /// The user's keys, or the defaults before they're read.
 pub fn user_keys(cx: &App) -> &UserKeys {
@@ -426,7 +431,7 @@ impl UserKeys {
         self.set(command, defaults(command))
     }
 
-    /// Every command's default keys, and the favorites numbered again.
+    /// Every command's default keys, the favorites numbered again and ⌘9 the last tab.
     pub fn reset_all(&mut self) {
         *self = UserKeys::default();
     }
@@ -440,6 +445,16 @@ impl UserKeys {
         self.favorites_unnumbered = !numbered;
     }
 
+    /// Whether Last Tab (⌘9) goes to the ninth tab, counted as ⌘1–⌘8 count, rather than the last
+    /// (Settings › Shortcuts).
+    pub fn last_tab_ninth(&self) -> bool {
+        self.last_tab_ninth
+    }
+
+    pub fn set_last_tab_ninth(&mut self, ninth: bool) {
+        self.last_tab_ninth = ninth;
+    }
+
     /// Keeps `keys` for `command`, unless they're its defaults.
     fn put(&mut self, command: Command, keys: Vec<String>) {
         self.set.retain(|(each, _)| *each != command);
@@ -448,8 +463,8 @@ impl UserKeys {
         }
     }
 
-    /// As Settings saves them: a line a command, its name, then its keys, if any, and a line saying
-    /// the favorites are left out of ⌘1–⌘8 when they are.
+    /// As Settings saves them: a line a command, its name, then its keys, if any, a line saying
+    /// the favorites are left out of ⌘1–⌘8 when they are, and one saying ⌘9 is the ninth tab.
     pub fn to_text(&self) -> String {
         let lines = self.set.iter().map(|(command, keys)| {
             let name = command.key_name();
@@ -457,7 +472,8 @@ impl UserKeys {
             words.collect::<Vec<_>>().join(" ") + "\n"
         });
         let unnumbered = self.favorites_unnumbered.then(|| format!("{FAVORITES_UNNUMBERED}\n"));
-        lines.chain(unnumbered).collect()
+        let ninth = self.last_tab_ninth.then(|| format!("{LAST_TAB_NINTH}\n"));
+        lines.chain(unnumbered).chain(ninth).collect()
     }
 
     /// What to_text wrote. A line it can't read, or keys another command keeps, is left out.
@@ -466,6 +482,10 @@ impl UserKeys {
         for line in text.lines() {
             if line.trim() == FAVORITES_UNNUMBERED {
                 keys.favorites_unnumbered = true;
+                continue;
+            }
+            if line.trim() == LAST_TAB_NINTH {
+                keys.last_tab_ninth = true;
                 continue;
             }
             let mut words = line.split_whitespace();
@@ -1036,20 +1056,23 @@ mod tests {
         assert_eq!(UserKeys::parse(&user.to_text()), user);
         user.set_favorites_numbered(false);
         assert_eq!(UserKeys::parse(&user.to_text()), user);
+        user.set_last_tab_ninth(true);
+        assert_eq!(UserKeys::parse(&user.to_text()), user);
         assert_eq!(UserKeys::parse("quit cmd-k\nnothing cmd-j\n"), UserKeys::default());
     }
 
-    /// The favorites count in ⌘1–⌘8 until the user turns them off, and Restore Defaults turns them
-    /// on again.
+    /// The favorites count in ⌘1–⌘8 and ⌘9 is the last tab until the user changes them, and
+    /// Restore Defaults changes them back.
     #[test]
     fn favorites_are_numbered_by_default() {
         let mut user = UserKeys::default();
-        assert!(user.favorites_numbered());
+        assert!(user.favorites_numbered() && !user.last_tab_ninth());
         assert_eq!(user.to_text(), "");
         user.set_favorites_numbered(false);
-        assert!(!user.favorites_numbered());
+        user.set_last_tab_ninth(true);
+        assert!(!user.favorites_numbered() && user.last_tab_ninth());
         user.reset_all();
-        assert!(user.favorites_numbered());
+        assert!(user.favorites_numbered() && !user.last_tab_ninth());
     }
 
     /// A key needs ⌘ or ⌃, as one without would type, and ⇧ with a character a page names its
