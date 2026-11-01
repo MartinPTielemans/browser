@@ -158,8 +158,12 @@ expect "^browser: title $b cookie none\$" \
 # Held partway back, the first profile's Space comes in beside this one's whole: its URL field
 # with the tab it would show, its favorite and its rows at its offset, as this one's go out. X11
 # sends a touchpad's scrolling with no start or end, so two fingers never page there (#554).
+# Windows' touchpad comes through DirectManipulation, which the driver can't stand in for: its
+# wheel messages reach GPUI as a mouse wheel's lines, with no fingers to hold partway.
 if [ "$(uname)" = Linux ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
   echo "skip: two fingers held partway between two profiles' Spaces: X11 sends no touch phases (#554)."
+elif windows; then
+  echo "skip: two fingers held partway between two profiles' Spaces: the Windows driver can't send a touchpad's."
 else
   post swipe 110 500 10 0 10 1500
   await '^browser: swipe across$' || fail "two fingers across the sidebar didn't page"
@@ -203,7 +207,9 @@ quit
 # Launched again, each Space is in its profile, and each tab loads in its own.
 log="$out/profiles-restored.log"
 step=0
-work_downloads="$PWD/$out/work-downloads"
+# The folder as Windows names it, D:\a\..., which Chrome can move downloads into (#872), and
+# which the app logs as given.
+work_downloads="$(native_path "$PWD/$out/work-downloads")"
 mkdir -p "$work_downloads"
 rm -f "$work_downloads/profile.txt"
 BROWSER_DOWNLOAD_FOLDER="$work_downloads" BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
@@ -364,7 +370,7 @@ settings_drew Profiles
 at=$(drawn "download folder $work") || fail "Settings didn't draw the second profile's Change…"
 ../tools/window-screenshot.sh "$pid" "$out/settings-profile-boxes.png" || fail "no window to capture"
 send clickkey $at
-expect "^browser: download folder of profile $work $work_downloads set\$" \
+expect "^browser: download folder of profile $work $(printf '%s\n' "$work_downloads" | sed 's/[][\\.*^$]/\\&/g') set\$" \
   "Change… didn't set the second profile's download folder: $(grep '^browser: download folder' "$log" | tail -1)"
 # Each profile picks its search engine and archive time, the first keeping its own.
 post clickkey $(drawn "search engine $work")

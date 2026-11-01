@@ -87,6 +87,12 @@ windows() {
 app_path() {
   if windows; then cygpath -m "$1"; else printf '%s\n' "$1"; fi
 }
+# The absolute path $1 as Windows names it, with backslashes, for a download folder: Chrome moves
+# each download into it with the Shell's IFileOperation, which takes no D:/a/..., so every download
+# failed (#872).
+native_path() {
+  if windows; then cygpath -w "$1"; else printf '%s\n' "$1"; fi
+}
 # The app, what runs it, the pattern that finds its processes, Chromium's helpers too, and its dev
 # profile.
 if windows; then
@@ -152,7 +158,7 @@ defaults.pop("auto_picture_in_picture", None)
 prefs.get("browser_core", {}).pop("developer_mode", None)
 with open(sys.argv[1], "w") as f:
     json.dump(prefs, f)
-' "$prefs" "$PWD/$out/downloads"
+' "$prefs" "$(native_path "$PWD/$out/downloads")"
 python3 -I -c '
 import json, os, sys
 if not os.path.exists(sys.argv[1]):

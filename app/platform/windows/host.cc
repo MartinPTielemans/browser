@@ -387,6 +387,14 @@ void LogShown(const Floating& floating, const char* what) {
   }
 }
 
+// The view in each browser window the UI gave the keyboard to while an overlay over it had it
+// (host_focus), which has it once the overlay gives it back, as the Mac's first responder is the
+// window's own while another window is key.
+std::map<HWND, HWND>& FocusAfterOverlay() {
+  static std::map<HWND, HWND> views;
+  return views;
+}
+
 // Hides |floating|, giving its browser window the keyboard back if it had it.
 void Hide(Floating& floating) {
   if (!floating.hwnd || !IsWindowVisible(floating.hwnd)) {
@@ -394,12 +402,20 @@ void Hide(Floating& floating) {
   }
   const bool had_keyboard = GetForegroundWindow() == floating.hwnd;
   HWND owner = GetWindow(floating.hwnd, GW_OWNER);
+  HWND focus = nullptr;
+  if (auto held = FocusAfterOverlay().find(owner); held != FocusAfterOverlay().end()) {
+    focus = held->second;
+    FocusAfterOverlay().erase(held);
+  }
   floating.hiding = true;
   ShowWindow(floating.hwnd, SW_HIDE);
   floating.hiding = false;
   // Not to a browser window that's hiding to close.
   if (had_keyboard && owner && IsWindowVisible(owner)) {
     SetForegroundWindow(owner);
+    if (focus && IsWindow(focus)) {
+      SetFocus(focus);
+    }
   }
 }
 
@@ -2325,6 +2341,7 @@ double host_since_launch(void) {
 
 void host_forget_window(void* ui_view) {
   Disown(Root(ui_view));
+  FocusAfterOverlay().erase(Root(ui_view));
   g_find_bars.erase(ui_view);
   g_offers.erase(ui_view);
   g_reveals.erase(ui_view);
@@ -2944,7 +2961,15 @@ void host_hide_link_target(double fade) {
 void host_focus(void* view) {
   HWND hwnd = Hwnd(view);
   HWND root = GetAncestor(hwnd, GA_ROOT);
-  if (GetForegroundWindow() != root) {
+  // An overlay over the window, such as the command bar a Space shown under it follows, keeps the
+  // keyboard: SetFocus would make the window the active one.
+  HWND front = GetForegroundWindow();
+  if (front != root && FloatingByHwnd().contains(front) && GetWindow(front, GW_OWNER) == root) {
+    FocusAfterOverlay()[root] = hwnd;
+    return;
+  }
+  FocusAfterOverlay().erase(root);
+  if (front != root) {
     SetForegroundWindow(root);
   }
   SetFocus(hwnd);
