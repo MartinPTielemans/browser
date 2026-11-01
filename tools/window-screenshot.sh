@@ -34,10 +34,22 @@ public static class Capture {
   [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr hwnd, uint cmd);
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
   [DllImport("user32.dll")] static extern bool PrintWindow(IntPtr hwnd, IntPtr dc, uint flags);
+  [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hwnd, uint attribute,
+      out RECT rect, int size);
 
   static Rectangle Bounds(IntPtr hwnd) {
     RECT r;
     GetWindowRect(hwnd, out r);
+    return Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom);
+  }
+
+  // The window as it shows: its rect less the borders Windows 10 and 11 leave clear round it to
+  // resize by, which drew as black strips and put a fraction of the picture off its content.
+  static Rectangle Frame(IntPtr hwnd) {
+    const uint DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+    RECT r;
+    if (DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, out r, Marshal.SizeOf(r)) != 0)
+      return Bounds(hwnd);
     return Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom);
   }
 
@@ -60,8 +72,8 @@ public static class Capture {
     // The largest window, as a process also has windows nobody sees.
     mains.Sort((a, b) => (Bounds(b).Width * Bounds(b).Height).CompareTo(
         Bounds(a).Width * Bounds(a).Height));
-    var area = Bounds(mains[0]);
-    if (all) mains.ForEach(w => area = Rectangle.Union(area, Bounds(w)));
+    var area = Frame(mains[0]);
+    if (all) mains.ForEach(w => area = Rectangle.Union(area, Frame(w)));
     using (var image = new Bitmap(area.Width, area.Height, PixelFormat.Format32bppArgb))
     using (var graphics = Graphics.FromImage(image)) {
       for (int i = windows.Count - 1; i >= 0; i--) {
