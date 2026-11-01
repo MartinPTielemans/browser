@@ -4,7 +4,7 @@
 //! the page too, and each button's tooltip shows its key. It's a card at the sidebar's foot, which
 //! GPUI draws, as the window's question cards are.
 
-use gpui::{App, Context, FontWeight, MouseButton, SharedString, div, prelude::*, px, rgba};
+use gpui::{App, Context, FontWeight, MouseButton, SharedString, div, prelude::*, px};
 
 use super::{
     Command, Shell, TITLE,
@@ -193,7 +193,7 @@ impl Shell {
                         .font_weight(FontWeight::MEDIUM)
                         .child(title),
                 )
-                .child(div().truncate().text_color(rgba(DETAIL)).child(detail))
+                .child(div().truncate().text_color(self.palette.on_overlay(DETAIL)).child(detail))
                 .child(
                     div()
                         .mt(px(BUTTONS_TOP))
