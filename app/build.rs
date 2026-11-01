@@ -93,9 +93,9 @@ fn main() {
         println!("cargo:rustc-link-arg-bin=Browser={}", engine.join("chrome.dll.lib").display());
         // windowscodecs is WIC, for host_file_preview's thumbnails; uuid carries the COM GUIDs it
         // and host_drag_file name; windowsapp is WinRT, for the share sheet; advapi32 reads the
-        // registry, for WinSparkle's settings.
+        // registry, for WinSparkle's settings; imm32 is the input method's, which the driver reads.
         for lib in ["user32", "gdi32", "dwmapi", "shell32", "ole32", "comctl32", "comdlg32",
-                    "windowscodecs", "uuid", "windowsapp", "advapi32"] {
+                    "windowscodecs", "uuid", "windowsapp", "advapi32", "imm32"] {
             println!("cargo:rustc-link-lib={lib}");
         }
     } else if os == "macos" {

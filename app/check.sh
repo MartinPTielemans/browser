@@ -11,7 +11,9 @@
 # need the network and run only when named: ./check.sh store.
 # Updates runs only when named too, until it passes on the Mac. So does keychain, which uses the
 # real Keychain, on the prod build and only in a check VM. Shots takes the Store's pictures from
-# pages on the internet, so it runs only when named too.
+# pages on the internet, so it runs only when named too. Input types through Microsoft's Japanese
+# input method, which Check on Windows adds to the runner, so it's Windows' alone and runs only
+# when named as well.
 # Every run but load and crash needs Browser to be the active app, and window, find and updates
 # take it full screen for a moment. Passkeys is the Mac's alone so far. Updates makes
 # build/Updates.app on the Mac, a copy with Sparkle and a feed of its own (build.sh updates), and

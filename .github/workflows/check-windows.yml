@@ -120,20 +120,15 @@ jobs:
           Add-Type -AssemblyName System.Windows.Forms
           "Screen: " + [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 
-      # Probe: the Microsoft Japanese IME on the runner, as the input method runs need. Windows
-      # PowerShell's, whose International module pwsh doesn't load.
+      # Microsoft's Japanese input method, which the input run types through: the runner's Windows
+      # carries it, and Japanese in the user's languages turns it on. In Windows PowerShell, whose
+      # International module pwsh doesn't load.
       - shell: powershell
-        continue-on-error: true
         run: |
-          $ErrorActionPreference = 'Continue'
-          [Environment]::OSVersion.Version
-          try { $list = Get-WinUserLanguageList; $list.Add('ja-JP'); Set-WinUserLanguageList $list -Force } catch { "language list: $_" }
+          $list = Get-WinUserLanguageList
+          $list.Add('ja-JP')
+          Set-WinUserLanguageList $list -Force
           Get-WinUserLanguageList | Format-List LanguageTag, InputMethodTips
-          Get-ChildItem C:\Windows\System32\IME -ErrorAction SilentlyContinue | Select-Object Name
-          Get-ChildItem C:\Windows\System32\IME\IMEJP -ErrorAction SilentlyContinue | Select-Object -First 30 Name
-          Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\CTF\TIP' -ErrorAction SilentlyContinue | Select-Object -First 40 PSChildName
-          try { Get-WindowsCapability -Online -Name 'Language.*ja-JP*' | Format-Table Name, State } catch { "capabilities: $_" }
-          Get-Command Install-Language -ErrorAction SilentlyContinue | Format-List Name, Source
 
       # Each run alone, so one failing doesn't hide the rest, and each keeps its own build/check.
       - env:
