@@ -13,7 +13,6 @@
 # On Windows it runs on the folder check/git-bash.sh gives chrome.exe, as only the prod build's
 # lines up by itself.
 
-log="$out/crash.log"
 crashpad="$(dirname "$saved")/Crashpad"
 rm -rf "$crashpad"
 rm -f "$saved" "$launch_frame"
@@ -58,8 +57,10 @@ await_pending() {
   done
   return 1
 }
-# Crashes the browser with the crash test, with $1 as the collector, and waits for the report.
+# Crashes the browser with the crash test, with $1 as the collector, and waits for the report. It
+# logs to its own file, which keeps the first launches' logs.
 crash() {
+  log="$out/crash.log"
   "$browser" --crash-after-start "--crash-upload-url=$1" < /dev/null > "$log" 2>&1 &
   pid=$!
   await '^browser: crash test$' || fail "the app didn't start its crash test"
