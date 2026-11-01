@@ -277,30 +277,38 @@ painted(() => document.title = "fields");
   # A page's frames are part of it: the outline has what's in a frame of the page's site and in
   # one of another, which Chromium puts in a process of its own, and the agent acts in both. A
   # password field in a frame is as off limits as one in the page. The page names itself once the
-  # other site's frame has painted: until then Chromium hasn't the frame's drawing to find what's
-  # under a click in, and gives the click to the page around it. Before that it names what the
-  # frame saw 3 s after it loaded, and its own size and visibility, which say why a frame never
-  # painted: whether it was drawn at all, and in view.
+  # other site's frame is in view and has drawn 5 frames since it loaded: until then Chromium
+  # hasn't the frame's drawing to find what's under a click in, and gives the click to the page
+  # around it. Its first paint would say so too, but on Windows Chromium reports none for a frame
+  # in a page drawn while hidden, as an agent's tab in the background is (#872). If it never
+  # names itself, it names what the frame saw 3 s after it loaded instead.
   printf '%s' '<p>Inner text</p><button>Inner button</button><input aria-label="Inner field">' \
     > "$out/site/inner.html"
   printf '%s' '<p>Cross text</p>
 <button onclick="document.body.append(&quot;cross clicked&quot;)">Cross button</button>
 <input aria-label="Cross field" oninput="document.body.append(&quot;cross typed&quot;)">
-<input type=password aria-label="Cross password"><script src="painted.js"></script>
-<script>painted(() => parent.postMessage("painted", "*"));
-let ticks = 0, seen = "never";
-const tick = () => { ticks++; requestAnimationFrame(tick); };
-requestAnimationFrame(tick);
-new IntersectionObserver(([entry]) => seen = entry.isIntersecting ? "in view" : "out of view")
+<input type=password aria-label="Cross password">
+<script>let ticks = 0, seen = "never", told = false;
+const tell = () => {
+  if (!told && seen === "in view" && ticks >= 5) {
+    told = true;
+    parent.postMessage("drawn", "*");
+  }
+};
+const tick = () => { ticks++; tell(); requestAnimationFrame(tick); };
+new IntersectionObserver(([entry]) => { seen = entry.isIntersecting ? "in view" : "out of view"; tell(); })
   .observe(document.body);
-addEventListener("load", () => setTimeout(() => parent.postMessage(`cross after 3 s: ${innerWidth}x${innerHeight} ${document.visibilityState}, ${ticks} animation frames, ${seen}, ${performance.getEntriesByType("paint").length} paints`, "*"), 3000));</script>' > "$out/site/cross.html"
+addEventListener("load", () => {
+  requestAnimationFrame(tick);
+  setTimeout(() => parent.postMessage(`cross after 3 s: ${innerWidth}x${innerHeight} ${document.visibilityState}, ${ticks} animation frames, ${seen}`, "*"), 3000);
+});</script>' > "$out/site/cross.html"
   printf '%s' "<title>loading</title><p>Top text</p><iframe src=inner.html></iframe>
 <iframe src=http://127.0.0.1:$port/cross.html></iframe>
-<script>let painted = false;
+<script>let drawn = false;
 addEventListener('message', (event) => {
-  if (String(event.data).startsWith('cross after ') && !painted)
+  if (String(event.data).startsWith('cross after ') && !drawn)
     document.title = \`\${event.data}, page at \${innerWidth}x\${innerHeight} \${document.visibilityState}\`;
-  if (event.data === 'painted') { painted = true; document.title = 'frames'; }
+  if (event.data === 'drawn') { drawn = true; document.title = 'frames'; }
   if (event.data === 'extension frame') document.title = 'frames with extension';
 });</script>" > "$out/site/frames.html"
   outline=$(call open_tab "{\"url\":\"localhost:$port/frames.html\"}")
@@ -310,7 +318,7 @@ addEventListener('message', (event) => {
     *) fail "the page with frames was outlined as: $outline" ;;
   esac
   frames_tab=$(printf '%s\n' "$outline" | sed -n '1s/^Opened tab \([0-9]*\)\..*/\1/p')
-  await "^browser: title $frames_tab frames\$" || fail "the other site's frame didn't paint: $(
+  await "^browser: title $frames_tab frames\$" || fail "the other site's frame wasn't drawn in view: $(
     grep "^browser: title $frames_tab cross after " "$log" | tail -1 | cut -d' ' -f4- | grep . ||
       echo "it never said what it saw")"
   inner=$(ref_of button "Inner button")
