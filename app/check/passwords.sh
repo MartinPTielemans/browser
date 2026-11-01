@@ -25,17 +25,7 @@ cdp_log="$out/passwords-cdp.log"
 step=0
 passwords_profile="$PWD/$out/passwords-profile"
 scratch=$(mktemp -d)
-mkfifo "$scratch/to-browser" "$scratch/from-browser" "$scratch/cdp"
-# Each end of a pipe waits for the other to open, in this order: the driver's, the browser's
-# DevTools pipe, then cdp.py's input.
-BROWSER_DRIVE=1 BROWSER_URL="${site}login.html" BROWSER_PROFILE_DIR="$passwords_profile" \
-  "$browser" --remote-debugging-pipe < "$out/drive" 3< "$scratch/to-browser" \
-  4> "$scratch/from-browser" > "$log" 2>&1 &
-pid=$!
-python3 -I -u check/cdp.py "$scratch/to-browser" "$scratch/from-browser" /login.html \
-  < "$scratch/cdp" > "$cdp_log" 2>&1 &
-exec 3> "$out/drive"
-exec 5> "$scratch/cdp"
+start_with_cdp "${site}login.html" "$passwords_profile" /login.html
 await_load
 await '^browser: title [0-9]* login$' || fail "the login page didn't draw"
 tab=$(today)
