@@ -209,7 +209,7 @@ impl Shell {
                 Swapped::CopyUrl,
                 if self.url_copied.is_some() { CHECK } else { LINK },
                 URL_BUTTON_GLYPH,
-                self.palette.glyph(NAV).into(),
+                self.palette.glyph(NAV),
             ));
         let main = button("little-main")
             .on_click(cx.listener(|shell, _, _, cx| {

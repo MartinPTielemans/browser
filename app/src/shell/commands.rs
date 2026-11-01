@@ -100,6 +100,8 @@ pub enum Command {
     Find,
     /// Opens the Site Controls for the selected tab's site, or closes them.
     SiteControls,
+    /// Opens the selected tab's Cast dialog, or closes it.
+    Cast,
     /// Starts capture mode over the selected tab's page, or leaves it.
     CapturePortion,
     /// Captures all of the selected tab's page, beyond its view, and copies it.
@@ -233,6 +235,8 @@ pub enum Command {
     HelpCenter,
     /// Opens the site's release notes in a tab.
     WhatsNew,
+    /// Opens the site's privacy policy in a tab.
+    PrivacyPolicy,
     Quit,
 }
 
@@ -312,6 +316,9 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
     // keeps it. Off the Mac it would be Alt+D, Chrome's, so it has none there.
     ("ctrl-d", Command::ToggleDeveloperMode, false),
     ("cmd-s", Command::ToggleSidebar, false),
+    // Chrome's key for moving the keyboard out of the page, unreserved as Chrome's is, as Arc's ⌘.
+    // is Stop Loading here.
+    ("f6", Command::FocusSidebar, false),
     ("shift-cmd-l", Command::ViewLibrary, false),
     ("shift-cmd-j", Command::ViewDownloads, false),
     ("cmd-y", Command::ViewHistory, false),
@@ -388,6 +395,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Restore Last Closed Tab", Command::ReopenClosedTab, &["reopen", "undo close"]),
     ("Find…", Command::Find, &[]),
     ("Site Controls", Command::SiteControls, &["permissions"]),
+    ("Cast…", Command::Cast, &["chromecast", "tv", "mirror"]),
     ("Go Back", Command::Back, &[]),
     ("Go Forward", Command::Forward, &[]),
     ("Refresh the Page", Command::Reload, &["reload"]),
@@ -451,6 +459,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     // The app menu's, which Linux shows no bar for.
     ("Check for Updates…", Command::CheckForUpdates, &["update", "upgrade"]),
     ("Import from Other Browsers…", Command::Import, &["bookmarks"]),
+    ("Privacy Policy", Command::PrivacyPolicy, &["data", "tracking"]),
     ("Passwords", Command::Passwords, &["logins", "keychain"]),
     (concat!("Welcome to ", env!("APP_NAME")), Command::Welcome, &["onboarding", "intro"]),
     ("Help Center", Command::HelpCenter, &["help", "support"]),
@@ -775,6 +784,7 @@ impl Command {
             Command::Share => "share",
             Command::Find => "find",
             Command::SiteControls => "site-controls",
+            Command::Cast => "cast",
             Command::CapturePortion => "capture",
             Command::CaptureFullPage => "capture-full-page",
             Command::FindNext => "find-next",
@@ -848,6 +858,7 @@ impl Command {
             Command::CopyBuildInfo => "copy-build-info",
             Command::HelpCenter => "help-center",
             Command::WhatsNew => "whats-new",
+            Command::PrivacyPolicy => "privacy-policy",
             Command::Quit => "quit",
         }
     }
@@ -1086,6 +1097,9 @@ impl Shell {
             Command::ClearCookiesAndRefresh => {
                 return self.browser.clear_site(self.selected, true, cx);
             }
+            // Escape closes the Library, after a picker over it, which has the keyboard, has
+            // closed (the owner, #1074; Arc's doesn't).
+            Command::Stop if self.library_open => return self.set_library(false, cx),
             // Escape leaves full screen when there's no load to stop, as the note there says.
             Command::Stop if self.full_screen && !self.page_fullscreen => {
                 if !self.page(self.selected).loading {
@@ -1132,6 +1146,9 @@ impl Shell {
             }
             Command::HelpCenter => return self.browser.open_page(build_info::HELP_CENTER, cx),
             Command::WhatsNew => return self.browser.open_page(build_info::WHATS_NEW, cx),
+            Command::PrivacyPolicy => {
+                return self.browser.open_page(build_info::PRIVACY_POLICY, cx);
+            }
             Command::ViewHistory => {
                 // Chrome's ⌘Y shows the history page it has open rather than a second one.
                 if !self.url(self.selected).starts_with("chrome://history") {
@@ -1217,6 +1234,7 @@ impl Shell {
             }
             Command::Find => return self.browser.find(self.selected, cx),
             Command::SiteControls => return self.site_controls(cx),
+            Command::Cast => return self.cast(cx),
             Command::CapturePortion => return self.capture(false, cx),
             Command::CaptureFullPage => return self.capture(true, cx),
             Command::FindNext => return self.browser.find_next(self.selected, true, cx),
@@ -1226,19 +1244,24 @@ impl Shell {
             Command::RecentTabBack => return self.walk(rows, false, cx),
             Command::NextTab => position.map(|index| (index + 1) % count),
             Command::PreviousTab => position.map(|index| (index + count - 1) % count),
-            Command::SelectTab(index) => {
-                // Past the favorites, which sidebar_rows puts first, if the user left them out.
-                let index = match user_keys(cx).favorites_numbered() {
-                    true => index,
-                    false => index + self.favorites.len(),
-                };
-                (index < count).then_some(index)
-            }
+            Command::SelectTab(index) => self.numbered(index, count, cx),
+            // The ninth, as ⌘1–⌘8 count, if the user chose it: nothing if there are fewer.
+            Command::SelectLastTab if user_keys(cx).last_tab_ninth() => self.numbered(8, count, cx),
             Command::SelectLastTab => count.checked_sub(1),
         };
         if let Some(index) = target {
             self.select(self.row_tab(rows[index]), cx);
         }
+    }
+
+    /// The row ⌘ and `index` + 1 goes to, of `count`: past the favorites, which sidebar_rows puts
+    /// first, if the user left them out.
+    fn numbered(&self, index: usize, count: usize, cx: &App) -> Option<usize> {
+        let index = match user_keys(cx).favorites_numbered() {
+            true => index,
+            false => index + self.favorites.len(),
+        };
+        (index < count).then_some(index)
     }
 
     /// ⌃Tab, as in Arc: shows the Space's tab shown before this one at once, with no switcher.
@@ -1337,7 +1360,8 @@ impl Shell {
 
     /// The clipboard's web link, read now, as one URL to open, or None for anything else.
     pub(super) fn pasted_urls(&self, cx: &App) -> Option<Vec<String>> {
-        let text = cx.read_from_clipboard().and_then(|item| item.text()).unwrap_or_default();
+        // From the host, where Copy Link put it: a driven Mac run's pasteboard is its own.
+        let text = self.browser.pasted(cx).unwrap_or_default();
         // Text that isn't a web link opens nothing here, not a search, as Arc's ⌥⌘V does.
         let urls = dropped_urls([(text.trim(), false)], |_| None);
         if urls.is_empty() {
@@ -1517,12 +1541,14 @@ impl Shell {
             Command::CollapseFolders => self.shown_space().is_some_and(|space| {
                 space.folders.folders.keys().any(|&folder| space.is_open(folder))
             }),
+            // Only when they'd hide or show a row now (docs/ux-principles.md: a control with nothing
+            // to act on is noise).
             Command::CollapsePinned => self.shown_space().is_some_and(|space| {
-                !space.pinned.is_empty() && !space.folders.pinned_shut
+                !space.folders.pinned_shut && space.collapsing_hides()
             }),
-            Command::ExpandPinned => {
-                self.shown_space().is_some_and(|space| space.folders.pinned_shut)
-            }
+            Command::ExpandPinned => self.shown_space().is_some_and(|space| {
+                space.folders.pinned_shut && space.collapsing_hides()
+            }),
             // The Library and a page's full screen keep the sidebar away.
             Command::FocusSidebar => {
                 self.library.is_none() && !self.page_fullscreen && !self.sidebar_rows().is_empty()
@@ -1583,6 +1609,7 @@ impl Shell {
             | Command::CopyBuildInfo
             | Command::HelpCenter
             | Command::WhatsNew
+            | Command::PrivacyPolicy
             | Command::Settings => true,
             _ => self.selected != 0,
         }
@@ -1995,13 +2022,15 @@ mod tests {
     }
 
     /// ⌥⌘V opens the clipboard's web link as a tab at the top of Today, and text that isn't one
-    /// opens nothing, as a drop of it doesn't.
+    /// opens nothing, as a drop of it doesn't. The clipboard is the host's, where Copy Link puts
+    /// it, as a driven Mac run's pasteboard of its own isn't GPUI's.
     #[gpui::test]
     fn paste_url_as_new_tab_opens_only_a_web_link(cx: &mut gpui::TestAppContext) {
         let shell_with = crate::shell::drag::detents::shell_with;
         let (shell, host) = shell_with(cx, &[], &[2], Default::default());
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string("https://example.org/gpui".into()));
         let paste = |text: &str, cx: &mut gpui::TestAppContext| {
-            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.into()));
+            host.copied.borrow_mut().push(text.into());
             host.take();
             shell.update(cx, |shell, cx| shell.run(Command::PasteUrlAsTab, "page", cx));
             host.take().into_iter().filter(|call| call.starts_with("open ")).collect::<Vec<_>>()

@@ -10,10 +10,10 @@ use std::{
 };
 
 use gpui::{
-    AnyElement, ClickEvent, Context, DispatchPhase, Div, Entity, Focusable, FontWeight, Hsla,
-    Image, ListAlignment, ListState, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    ObjectFit, Pixels, Point, RenderImage, SharedString, Stateful, StyledText, Subscription,
-    WeakEntity, Window,
+    AnyElement, ClickEvent, Context, DispatchPhase, Div, Entity, Focusable, FontWeight,
+    HitboxBehavior, Hsla, Image, ListAlignment, ListState, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, ObjectFit, Pixels, Point, RenderImage, SharedString, Stateful,
+    StyledText, Subscription, WeakEntity, Window,
     canvas, div, img, linear_color_stop, linear_gradient, list,
     prelude::*, px, relative, svg,
 };
@@ -22,16 +22,19 @@ use super::{
     access::Accessible,
     Command, DRAG_START, FAVICON_X, FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, MenuEntry, NAV,
     NAV_RADIUS, NAV_SIZE, PLATE_INSET, SECONDARY, SEGMENT_FAVICON_X, Shell, Space, UNSELECTED_TITLE,
-    clean_link, divider_box, favicon, folder_icon, host, SPACE_SWATCH_SHOWN, dashed_square,
+    clean_link, divider_box, favicon, file_url, folder_icon, host, SPACE_SWATCH_SHOWN,
+    dashed_square,
     plate, row_box, space_icon_drawn, spring_to, split_plate, still_clear, title, Naming,
     PLATE_HEIGHT, PLATE_RADIUS, selected_plate,
     header::TipSide, keystroke_label,
     display_face::{cap_top, display_text},
 };
 use crate::{
+    icon_picker::{self, Subject},
     menu::Look,
     palette::Palette,
     text_input::TextInput,
+    theme_picker,
     tooltip::{Anchor, Tip},
 };
 use crate::tokens::shell::EMOJI_SIZE;
@@ -1250,13 +1253,15 @@ impl Shell {
             .child(div().children(rows))
     }
 
-    /// The field across the top of a Space's card (Arc): its icon in a dashed slot, which opens the
-    /// icon picker, its name, which a click puts in a field there to type over, and the brush, which
-    /// opens the theme picker. `behind` is the card's colour at its top, for the swatch of a Space
-    /// with no icon. At rest it's the icon and the name alone; its plate, the slot's dashes and the
-    /// brush show under the pointer, at once as other hover plates do, and while the name is being
-    /// typed over (#811). They keep their places at rest, so nothing moves as they come. The
-    /// pickers close the Library, so none is open over a card.
+    /// The field across the top of a Space's card (Arc): its icon in a dashed slot, which the icon
+    /// picker hangs from, its name, which a click puts in a field there to type over, and the
+    /// brush, which the theme picker opens beside. `behind` is the card's colour at its top, for
+    /// the swatch of a Space with no icon. At rest it's the icon and the name alone; its plate, the
+    /// slot's dashes and the brush show with the pointer anywhere on the field, the slot and the
+    /// brush too, at once as other hover plates do, and while the name is being typed over (#811)
+    /// or a picker shows for the Space. They keep their places at rest, so nothing moves as they
+    /// come. The pickers open over the Library, which stays open, so several Spaces can be
+    /// changed in a row, as in Arc (#1074).
     fn card_field(
         &self,
         space: &Space,
@@ -1268,7 +1273,7 @@ impl Shell {
         let renaming = self.renaming.as_ref().filter(|renaming| {
             renaming.naming == Naming::Space(id) && renaming.in_library
         });
-        let held = renaming.is_some();
+        let held = renaming.is_some() || self.card_picking(id);
         // A Space without an icon shows its swatch in the icon's place.
         let icon = space_icon_drawn(palette, &space.icon).unwrap_or_else(|| {
             palette.swatch.draw(SPACE_SWATCH_SHOWN, &[behind.to_rgb()]).into_any_element()
@@ -1283,7 +1288,6 @@ impl Shell {
             .items_center()
             .justify_center()
             .text_size(px(EMOJI_SIZE))
-            .block_mouse_except_scroll()
             .on_hover(cx.listener(move |shell, hovered: &bool, _, cx| {
                 let frame = shell.slot_frames.borrow().get(&id).copied();
                 let tip = frame.filter(|_| *hovered).map(|frame| {
@@ -1293,11 +1297,18 @@ impl Shell {
             }))
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(|shell, _, _, cx| shell.browser.tooltip(None, cx)),
+                cx.listener(move |shell, _, _, cx| {
+                    shell.browser.tooltip(None, cx);
+                    shell.card_press_closes =
+                        icon_picker::open_for(cx) == Some(Subject::Space(id));
+                }),
             )
+            // The card's click is the Space's, so the slot's stops there, as the brush's does.
             .on_click(cx.listener(move |shell, _, _, cx| {
                 cx.stop_propagation();
-                shell.change_space_icon(id, cx);
+                if !std::mem::take(&mut shell.card_press_closes) {
+                    shell.change_space_icon_in_card(id, cx);
+                }
             }))
             .child(
                 canvas(
@@ -1341,6 +1352,7 @@ impl Shell {
                 }))
                 .child(div().truncate().child(space.name.clone())),
         };
+        let brushes = self.brush_frames.clone();
         let brush = div()
             .id(("space-brush", id))
             .flex_none()
@@ -1348,15 +1360,33 @@ impl Shell {
             .flex()
             .items_center()
             .justify_center()
+            .relative()
             .rounded(px(NAV_RADIUS))
-            .block_mouse_except_scroll()
             .when(!held, |brush| brush.opacity(0.).group_hover(FIELD, |style| style.opacity(1.)))
             .hover(|style| style.bg(palette.plate(STATE_HOVERED)))
             .active(|style| style.bg(palette.plate(STATE_PRESSED)))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |shell, _, _, cx| {
+                    shell.card_press_closes = theme_picker::open_for(cx) == Some(id);
+                }),
+            )
             .on_click(cx.listener(move |shell, _, _, cx| {
                 cx.stop_propagation();
-                shell.edit_space_theme(id, cx);
+                if !std::mem::take(&mut shell.card_press_closes) {
+                    shell.edit_space_theme_in_card(id, cx);
+                }
             }))
+            .child(
+                canvas(
+                    move |bounds, _, _| {
+                        brushes.borrow_mut().insert(id, bounds);
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .size_full(),
+            )
             .child(
                 svg()
                     .path("icons/paintbrush.svg")
@@ -1366,10 +1396,11 @@ impl Shell {
         let plate = palette.plate(CARD_FIELD_PLATE);
         let drawn = self.fields_drawn.clone();
         // check.sh waits for these lines, logged as the field is drawn with its plate or without.
+        // Hovered as the field's group is: not under a control that blocks the pointer (#1074).
         let log_drawn = canvas(
-            |_, _, _| {},
-            move |bounds, _, window, _| {
-                let shown = held || bounds.contains(&window.mouse_position());
+            |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
+            move |_, hitbox, window, _| {
+                let shown = held || hitbox.is_hovered(window);
                 if drawn.borrow_mut().insert(id, shown) != Some(shown) {
                     let state = if shown { "shown" } else { "at rest" };
                     log!("browser: library field {id} {state} drawn");
@@ -2152,20 +2183,6 @@ impl Shell {
                 )
             })
     }
-}
-
-/// A `file:` URL for `path`, escaping what a URL can't hold as it is.
-fn file_url(path: &str) -> String {
-    let mut url = String::from("file://");
-    for byte in path.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'_' | b'.' | b'~' => {
-                url.push(byte as char)
-            }
-            _ => url.push_str(&format!("%{byte:02X}")),
-        }
-    }
-    url
 }
 
 /// How far the running downloads have got in all, 0 to 1, or none while none runs. A held one,

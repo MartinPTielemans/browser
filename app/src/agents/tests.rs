@@ -36,6 +36,8 @@ struct Made {
     held: RefCell<HashSet<u64>>,
     /// Each action the agents asked the core whether they may take (bc_agent_may_act).
     checked: RefCell<Vec<String>>,
+    /// The app, which the core asks about the key press_key presses from inside bc_agent_page.
+    app: RefCell<Option<gpui::AsyncApp>>,
 }
 
 impl Made {
@@ -142,6 +144,12 @@ impl Browser for Made {
 
     fn page(&self, _: &str, tab: u64, request: u64, action: PageAction, element: i64, text: &str) {
         (self.pages.borrow_mut()).push((tab, request, action, element, text.into()));
+        // The page's key hooks ask the app about the key before the page has it, synchronously,
+        // and the app's tab_key_before_page answers in an update of its own unless it's an agent's.
+        let app = self.app.borrow();
+        if let Some(app) = app.as_ref().filter(|_| action == PageAction::Key && !pressing_key()) {
+            app.update(|_| ());
+        }
     }
 
     /// A name with a dot is a site's, as the address bar takes it; other words are a search.
@@ -228,13 +236,24 @@ fn agents(
     path: Option<PathBuf>,
     cx: &mut TestAppContext,
 ) -> Entity<Agents> {
+    agents_running(vec!["/app/mcp-bridge".into()], browser, configs, path, cx)
+}
+
+/// The Agents, whose clients reach the server by running `bridge` with the socket.
+fn agents_running(
+    bridge: Vec<String>,
+    browser: &Rc<Made>,
+    configs: &Arc<Configs>,
+    path: Option<PathBuf>,
+    cx: &mut TestAppContext,
+) -> Entity<Agents> {
     let (browser, configs) = (browser.clone(), configs.clone());
     // A socket of the test's own, so the tests run beside a browser and each other.
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let number = NEXT.fetch_add(1, Ordering::SeqCst);
     let folder = std::env::temp_dir().join(format!("agents-ui-{}-{number}", std::process::id()));
     std::fs::create_dir_all(&folder).unwrap();
-    let (socket, bridge) = (address(&folder), PathBuf::from("/app/mcp-bridge"));
+    let socket = address(&folder);
     cx.new(|_| Agents::new(browser, configs, path, socket, bridge))
 }
 
@@ -323,9 +342,9 @@ fn connect_gives_the_client_a_token_the_server_takes(cx: &mut TestAppContext) {
     let (client, entry) = configs.connected.lock().unwrap()[0].clone();
     assert_eq!(client, Client::ClaudeCode);
     assert_eq!(entry.name, server_name());
-    assert_eq!(entry.bridge, "/app/mcp-bridge");
+    assert_eq!(entry.command, "/app/mcp-bridge");
     let socket = agents.read_with(cx, |agents, _| agents.socket.clone());
-    assert_eq!(entry.socket, socket.to_str().unwrap());
+    assert_eq!(entry.args, [socket.to_str().unwrap()]);
     assert_eq!(entry.token.len(), 64);
     let tokens = |cx: &mut TestAppContext| {
         agents.read_with(cx, |agents, _| agents.tokens.lock().unwrap().clone())
@@ -410,6 +429,30 @@ fn another_client_gets_its_setup_to_paste(cx: &mut TestAppContext) {
     assert_eq!(server["args"], json!([socket.to_str().unwrap()]));
     let token = configs.connected.lock().unwrap()[0].1.token.clone();
     assert_eq!(server["env"][bridge::TOKEN], token);
+}
+
+/// In a Flatpak, the bridge is a path in the sandbox, so the setup runs it there with flatpak,
+/// which a client on the host can.
+#[gpui::test]
+fn a_flatpaks_setup_runs_the_bridge_in_its_sandbox(cx: &mut TestAppContext) {
+    let (browser, configs) = (Made::with_agent_space(), Arc::new(Configs::default()));
+    let bridge = bridge::launch(std::path::Path::new("/app/ilo/mcp-bridge"), Some("app.ilo.browser"));
+    let agents = agents_running(bridge, &browser, &configs, None, cx);
+    agents.update(cx, |agents, cx| agents.connect(Client::Other, cx));
+    cx.run_until_parked();
+    let setup = agents
+        .read_with(cx, |agents, _| agents.setup(Client::Other))
+        .unwrap();
+    let setup: Value = serde_json::from_str(&setup).unwrap();
+    let server = &setup["mcpServers"][server_name()];
+    let socket = agents.read_with(cx, |agents, _| agents.socket.clone());
+    assert_eq!(server["command"], "flatpak");
+    assert_eq!(
+        server["args"],
+        json!(["run", "--command=/app/ilo/mcp-bridge", "app.ilo.browser", socket.to_str().unwrap()])
+    );
+    let command = agents.read_with(cx, |agents, _| agents.command());
+    assert!(command.starts_with(r#""flatpak" "run" "--command=/app/ilo/mcp-bridge" "app.ilo.browser" ""#), "{command}");
 }
 
 /// list_tabs makes the agent's Space the first time, named as the agent, and lists only its tabs,
@@ -704,6 +747,21 @@ fn page_done(
     answer.recv().unwrap()
 }
 
+/// The key press_key presses reaches the app's key hooks from inside the Agents' update, where
+/// another update of the app's would abort ilo (#1288), so it goes to the page alone.
+#[gpui::test]
+fn an_agents_key_goes_to_the_page_without_an_update_of_the_app(cx: &mut TestAppContext) {
+    let (agents, browser, _) = connected(cx);
+    *browser.app.borrow_mut() = Some(cx.to_async());
+    for key in ["Tab", "Enter"] {
+        let answer = call(&agents, "claude-code", "press_key", json!({ "tab": 20, "key": key }), cx);
+        assert_eq!(browser.pages.borrow().last().unwrap().4, key);
+        assert!(!page_done(&agents, &browser, answer, shop_tree(), cx).error);
+    }
+    // The user's keys, after it, are the app's again.
+    assert!(!pressing_key());
+}
+
 /// An agent opens a page in its Space, gets its outline with refs, and acts by ref: each action
 /// goes to the core with the element's node, and answers with what it did and the page after.
 #[gpui::test]
@@ -800,6 +858,12 @@ fn what_an_agent_may_not_do_is_refused_and_logged(cx: &mut TestAppContext) {
     assert!(answer.recv().unwrap().error);
     assert!(browser.navigated.borrow().is_empty());
     assert_eq!(log(&agents, "claude-code", cx)[0].0, "navigate");
+
+    // The account is the user's alone: its secret reads their passwords.
+    for tool in ["sign_in", "recovery_words", "sync"] {
+        let answer = call(&agents, "claude-code", tool, json!({}), cx);
+        assert_eq!(answer.recv().unwrap(), ToolResult::error(format!("There's no tool {tool}.")));
+    }
 }
 
 /// Chrome's password manager page shows and copies the user's passwords once the device's check

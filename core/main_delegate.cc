@@ -23,6 +23,7 @@
 #include "browser_core/ad_block.h"
 #include "browser_core/agent_autofill.h"
 #include "browser_core/auto_archive.h"
+#include "browser_core/cast_dialog.h"
 #include "browser_core/crash_reports.h"
 #include "browser_core/downloads.h"
 #include "browser_core/developer_mode.h"
@@ -32,6 +33,7 @@
 #include "browser_core/install_question.h"
 #include "browser_core/leave_dialog.h"
 #include "browser_core/link_preview.h"
+#include "browser_core/mini_player.h"
 #include "browser_core/notes.h"
 #include "browser_core/open_app_dialog.h"
 #include "browser_core/page_menu.h"
@@ -43,6 +45,8 @@
 #include "browser_core/search.h"
 #include "browser_core/session.h"
 #include "browser_core/sign_in_dialog.h"
+#include "browser_core/sync.h"
+#include "browser_core/sync_spaces.h"
 #include "browser_core/system_engine.h"
 #include "browser_core/tab.h"
 #include "browser_core/widevine.h"
@@ -80,6 +84,7 @@
 #include "base/strings/utf_string_conversions.h"
 #endif
 #if BUILDFLAG(IS_LINUX)
+#include "browser_core/platform/linux/wayland.h"
 #include "ui/ozone/public/ozone_switches.h"
 #endif
 #if !BUILDFLAG(IS_WIN) && !BUILDFLAG(IS_LINUX)
@@ -184,9 +189,13 @@ class ExtraParts : public ChromeBrowserMainExtraParts,
   }
 
   void PostBrowserStart() override {
+#if BUILDFLAG(IS_LINUX)
+    platform::FloatPictureInPictureBubbles();
+#endif
     if (Profile* profile = StartProfile()) {
       UseProfile(profile);
     }
+    sync::Start();
     // Once the Spaces the last launch saved are read, and so once the run loop is running.
     LoadSession(base::BindOnce([] {
       if (g_host.started) {
@@ -201,6 +210,7 @@ class ExtraParts : public ChromeBrowserMainExtraParts,
     widevine::Stop();
     FlushSession();
     Window::CloseAll();
+    Tab::StopHearingCaptures();
     ReleaseProfiles();
     if (g_host.stopping) {
       g_host.stopping(g_host.context);
@@ -345,8 +355,11 @@ void Install(const bc_host& host) {
   g_host = host;
   g_browser_core_supplies_windows = true;
   g_browser_core_adjust_navigate = &Window::AdjustNavigate;
+  // A tab's Cast dialog is the app's card, in place of the Views dialog.
+  g_browser_core_cast_dialog = &CastDialog::For;
   g_browser_core_can_dock_devtools = &Window::CanDockDevTools;
   g_browser_core_update_devtools = &Window::UpdateDevTools;
+  g_browser_core_show_devtools = &Window::ShowDevTools;
   g_browser_core_trim_page_menu = &Window::TrimPageMenu;
   g_browser_core_show_page_menu = &PageMenu::Show;
   g_browser_core_update_target_url = &Tab::LinkTargetChanged;
@@ -363,10 +376,14 @@ void Install(const bc_host& host) {
   g_browser_core_page_hung = &Tab::PageHung;
   g_browser_core_offline_game = &Tab::GameRunning;
   g_browser_core_split_together = &Window::SplitTogether;
+  g_browser_core_activate_contents = &Window::ActivateContents;
   g_browser_core_find_native_host = &FindNativeHost;
   g_browser_core_login_handler = &SignInDialog::Create;
   g_browser_core_external_protocol_dialog = &OpenAppDialog::Ask;
+  sync::Install();
+  sync_spaces::Install();
   SetUpAdBlock();
+  SetUpMiniPlayer();
   g_browser_core_component_allowed = &widevine::MayUpdate;
   g_browser_core_no_passwords = &IsAgentTab;
   g_browser_core_no_autofill = &IsAgentTab;

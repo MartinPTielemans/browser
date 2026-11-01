@@ -44,6 +44,18 @@ pub fn server_name() -> String {
     }
 }
 
+thread_local! {
+    /// An agent's action in a page is under way in the core (`Browser::page`).
+    static IN_PAGE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether a key the core asks the app about is one an agent pressed (press_key), which the core
+/// asks about from inside the Agents' call, while their update holds the app. The key goes to the
+/// page alone, as an agent never runs ilo's shortcuts, and the app answers without an update.
+pub fn pressing_key() -> bool {
+    IN_PAGE.get()
+}
+
 /// A tab as an agent sees it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TabInfo {
@@ -310,9 +322,10 @@ pub struct Agents {
     clients: Arc<dyn Clients>,
     /// Where the settings are saved: None in the tests.
     path: Option<PathBuf>,
-    /// The server's socket, and the bridge a client runs to reach it.
+    /// The server's socket, and what a client runs to reach it, before the socket: the bridge, or
+    /// in a Flatpak the command that runs it there (bridge::launch).
     socket: PathBuf,
-    bridge: PathBuf,
+    bridge: Vec<String>,
     on: bool,
     agents: Vec<Agent>,
     /// The agents' tokens, which the server's threads read.
@@ -415,7 +428,7 @@ impl Agents {
         clients: Arc<dyn Clients>,
         path: Option<PathBuf>,
         socket: PathBuf,
-        bridge: PathBuf,
+        bridge: Vec<String>,
     ) -> Self {
         Agents {
             browser,
@@ -502,21 +515,25 @@ impl Agents {
 
     /// The server as a client's config names it, with the agent's token.
     fn entry(&self, token: &str) -> Entry {
+        let mut args = self.bridge.clone();
+        args.push(self.socket.to_string_lossy().into_owned());
+        let command = args.remove(0);
         Entry {
             name: server_name(),
-            bridge: self.bridge.to_string_lossy().into_owned(),
-            socket: self.socket.to_string_lossy().into_owned(),
+            command,
+            args,
             token: token.into(),
         }
     }
 
     /// What a client runs to reach the server: the bridge, with the socket.
     pub fn command(&self) -> String {
-        format!(
-            "\"{}\" \"{}\"",
-            self.bridge.display(),
-            self.socket.display()
-        )
+        let entry = self.entry("");
+        std::iter::once(&entry.command)
+            .chain(&entry.args)
+            .map(|word| format!("\"{word}\""))
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     /// Why the server isn't running, though on.
@@ -1079,7 +1096,23 @@ impl Agents {
         let note = String::new();
         let acting = Acting { agent: agent.into(), tab, element: 0, note, reply };
         self.acting.insert(request, acting);
-        self.browser.page(agent, tab, request, PageAction::Snapshot, 0, "");
+        self.act_in_page(agent, tab, request, PageAction::Snapshot, 0, "");
+    }
+
+    /// Asks the core to act in the page, which can ask the app about a key from inside the call
+    /// (`pressing_key`).
+    fn act_in_page(
+        &self,
+        agent: &str,
+        tab: u64,
+        request: u64,
+        action: PageAction,
+        element: i64,
+        text: &str,
+    ) {
+        IN_PAGE.set(true);
+        self.browser.page(agent, tab, request, action, element, text);
+        IN_PAGE.set(false);
     }
 
     /// Takes each run's step that has answered: the next step, or the run's answer.
@@ -1623,7 +1656,7 @@ impl Agents {
         self.next_request += 1;
         let acting = Acting { agent: agent.clone(), tab, element, note, reply };
         self.acting.insert(request, acting);
-        self.browser.page(&agent, tab, request, page, element, &text);
+        self.act_in_page(&agent, tab, request, page, element, &text);
     }
 
     /// The ref of the element the action `request` acts on, such as "e12", as the agent named it.
