@@ -676,10 +676,17 @@ await_today() {
   fail "$2: Today is \"$(today)\""
 }
 await_today $((backed_up + 1)) "the tab opened after the backup isn't in Today"
-# By the newest's label, as the menu names it.
+# By the newest's label, as the menu names it. Off the Mac there's no menu bar, so the way in is
+# the command bar's Restore Earlier Sidebar…, which lists the backups in ilo's menu, newest first.
 restore_newest() {
   label=$(grep '^browser: newest sidebar backup ' "$log" | tail -1 | cut -d' ' -f6-)
-  send menu "Restore Earlier Sidebar › $label"
+  if [ "$(uname)" = Darwin ]; then
+    send menu "Restore Earlier Sidebar › $label"
+  else
+    bar_command restore-earlier-sidebar "Restore Earlier Sidebar…" "restore earlier"
+    expect "^browser: menu shown $label" "$1's list didn't start with the newest backup, $label"
+    send choose "$label"
+  fi
   expect "^browser: dialog shown Restore the sidebar from " "$1 didn't ask first"
   expect '^browser: dialog settled$' "$1's dialog didn't settle"
   send key return
