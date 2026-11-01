@@ -242,11 +242,15 @@ for line in sys.stdin:
     state = line.strip()
     call("Network.emulateNetworkConditions", offline=state == "offline", latency=0,
          downloadThroughput=-1, uploadThroughput=-1)
-    print(state, flush=True)
+    # As bytes: text stdout on Windows ends a line with \r, which grep -x wouldn't match (#872).
+    sys.stdout.buffer.write(f"{state}\n".encode())
+    sys.stdout.buffer.flush()
 PY
 rm -f "$out/network"
 mkfifo "$out/network"
-python3 -I "$out/network.py" "$ports" "http://127.0.0.1:$free/" < "$out/network" > "$out/network.log" 2>&1 &
+# Through cat, as Windows' Python can't read Git Bash's fifo and found no stdin (#872).
+python3 -I "$out/network.py" "$ports" "http://127.0.0.1:$free/" < <(cat "$out/network") \
+  > "$out/network.log" 2>&1 &
 network=$!
 exec 4> "$out/network"
 # Takes the tab $1, offline or online.
