@@ -82,7 +82,7 @@ The most common defect is a change that works on the path you tested and is miss
 
 ## Where code lives
 
-`README.md`'s layout table lists the folders. Read `engine/README.md` before touching the engine's pins or patches. `prototypes/arcish/agent.js` is frozen, kept as the reference for agents' tools and rules; new work goes into the real stack. `spikes/` holds one experiment per open question: when one works, rewrite what it proved into the real tree, and nothing outside `spikes/` depends on it.
+`README.md`'s layout table lists the folders. Read `engine/README.md` before touching the engine's pins or patches. `spikes/` holds one experiment per open question: when one works, rewrite what it proved into the real tree, and nothing outside `spikes/` depends on it.
 
 ## Taste
 
