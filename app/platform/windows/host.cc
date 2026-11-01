@@ -1344,6 +1344,9 @@ namespace {
 // starts: the window's frame, the sidebar's picture and the sidebar's colour past it.
 struct LaunchWindow {
   HWND hwnd = nullptr;
+  // Never shown: owned by it, the launch window has no taskbar button of its own, which wouldn't
+  // carry the app ID the core gives the browser window, whose button comes as it shows.
+  HWND owner = nullptr;
   HBITMAP picture = nullptr;
   SIZE picture_size{};
   HBRUSH background = nullptr;
@@ -1674,6 +1677,8 @@ void host_show_launch_window(const char* profile_dir, double x, double y, double
     return window_class.lpszClassName;
   }();
   const double scale = GetDpiForSystem() / 96.0;
+  g_launch.owner = CreateWindowExW(0, launch_class, L"", WS_POPUP, 0, 0, 0, 0, nullptr, nullptr,
+                                   GetModuleHandleW(nullptr), nullptr);
   // The browser window's frame, as Windows draws it. Clicks go through it, as they do through the
   // Mac's, and Chromium's occlusion tracker passes over a window they go through, so it can stay
   // over the browser window, whose pages still paint, until the UI has drawn under it.
@@ -1681,8 +1686,9 @@ void host_show_launch_window(const char* profile_dir, double x, double y, double
       WS_EX_LAYERED | WS_EX_TRANSPARENT, launch_class, L"", WS_OVERLAPPEDWINDOW,
       static_cast<int>(std::lround(x * scale)), static_cast<int>(std::lround(y * scale)),
       static_cast<int>(std::lround(width * scale)), static_cast<int>(std::lround(height * scale)),
-      nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+      g_launch.owner, nullptr, GetModuleHandleW(nullptr), nullptr);
   if (!window) {
+    host_close_launch_window();
     return;
   }
   SetLayeredWindowAttributes(window, 0, 255, LWA_ALPHA);
@@ -1701,8 +1707,6 @@ void host_show_launch_window(const char* profile_dir, double x, double y, double
     // check.sh reads this line.
     fprintf(stderr, "browser: launch picture shown\n");
   }
-  // shortcut: it has a taskbar button of its own for that moment, without the app ID the core
-  // gives the browser window.
   ShowWindow(window, SW_SHOW);
   // On screen now, as Chromium's startup holds the main thread for a while before its loop.
   UpdateWindow(window);
@@ -1711,6 +1715,9 @@ void host_show_launch_window(const char* profile_dir, double x, double y, double
 void host_close_launch_window(void) {
   if (g_launch.hwnd) {
     DestroyWindow(g_launch.hwnd);
+  }
+  if (g_launch.owner) {
+    DestroyWindow(g_launch.owner);
   }
   if (g_launch.picture) {
     DeleteObject(g_launch.picture);
