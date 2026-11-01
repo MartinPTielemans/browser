@@ -253,6 +253,30 @@ LRESULT CALLBACK FloatingProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpa
       }
       break;
     case WM_ACTIVATE:
+      // Diagnostic for #872, reverted once read: who takes the keyboard from an overlay.
+      if (LOWORD(wparam) == WA_INACTIVE && IsWindowVisible(hwnd)) {
+        wchar_t name[64] = L"none";
+        if (lparam) {
+          GetClassNameW(reinterpret_cast<HWND>(lparam), name, 64);
+        }
+        fprintf(stderr, "browser: diag overlay %p inactive to %p %ls:", (void*)hwnd,
+                (void*)lparam, name);
+        void* frames[40];
+        const USHORT count = CaptureStackBackTrace(0, 40, frames, nullptr);
+        for (USHORT i = 0; i < count; ++i) {
+          HMODULE module = nullptr;
+          wchar_t path[MAX_PATH] = L"?";
+          if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                     GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                 static_cast<LPCWSTR>(frames[i]), &module)) {
+            GetModuleFileNameW(module, path, MAX_PATH);
+          }
+          const wchar_t* base = wcsrchr(path, L'\\');
+          fprintf(stderr, " %ls+%llx", base ? base + 1 : path,
+                  (unsigned long long)((char*)frames[i] - (char*)module));
+        }
+        fprintf(stderr, "\n");
+      }
       if (LOWORD(wparam) == WA_INACTIVE && floating->dismissed && !floating->hiding &&
           IsWindowVisible(hwnd)) {
         // ilo's menu, opened over this overlay, isn't the user leaving it.
