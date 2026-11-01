@@ -2419,6 +2419,10 @@ void host_add_capture(void* view, void (*dismissed)(void)) {
 
 void host_show_capture(void* ui_view, double left, double top, double width, double height) {
   Show(g_capture, ui_view, left, top, width, height, true);
+  if (g_capture.hwnd && IsWindowVisible(g_capture.hwnd)) {
+    // check.sh reads this line, as the Mac's and Linux's hosts log it.
+    fprintf(stderr, "browser: capture shown at %g %g %g %g\n", left, top, width, height);
+  }
 }
 
 void host_capture_camera(bool camera) {
@@ -2426,7 +2430,12 @@ void host_capture_camera(bool camera) {
 }
 
 void host_hide_capture(void) {
+  if (!g_capture.hwnd || !IsWindowVisible(g_capture.hwnd)) {
+    return;
+  }
   Hide(g_capture);
+  // check.sh reads this line.
+  fprintf(stderr, "browser: capture hidden\n");
 }
 
 void host_copy_png(const uint8_t* png, size_t size) {
