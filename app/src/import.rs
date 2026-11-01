@@ -3,10 +3,11 @@
 //! brings in what the user picks from one: Arc's Spaces with their names, icons, themes and
 //! profiles, their pinned tabs and folders, its link rules and its favorites; the other browsers'
 //! bookmarks, from Chromium's family, Firefox's and Safari, as a Space named after the browser,
-//! with Safari's Reading List; and every one's history. Saved passwords and cookies never come from another
-//! browser's files: passwords come from a file the user exports, behind that browser's own
-//! sign-in, which Chrome's password importer reads (bc_profile_import_passwords), and the user
-//! signs in again to the rest.
+//! with Safari's Reading List and the tabs Chromium's family had open as its Today tabs; every
+//! one's history; and the addresses Chromium's family saved, never its cards. Saved passwords and
+//! cookies never come from another browser's files: passwords come from a file the user exports,
+//! behind that browser's own sign-in, which Chrome's password importer reads
+//! (bc_profile_import_passwords), and the user signs in again to the rest.
 //!
 //! It reads the user's data, so it's the user's alone: agents get no path to it, and nothing of a
 //! passwords file, its rows or its counts. It only reads
@@ -22,12 +23,14 @@ pub mod html;
 pub mod plan;
 pub mod read;
 pub mod safari;
+pub mod session;
 pub mod sources;
 pub mod suggested;
 #[cfg(test)]
 mod tests;
 
 use std::path::{Path, PathBuf};
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Instant, SystemTime};
 
@@ -35,13 +38,13 @@ use gpui::{App, Context, EventEmitter, SharedString, div, prelude::*, px, rgb, s
 
 use crate::palette::NO_THEME_ACCENT;
 pub use crate::settings_rows::Look;
-use crate::settings_rows::{SLIDE, button, checked_row, group, row, switch};
+use crate::settings_rows::{SLIDE, button, checked_row, drawn, group, row, switch};
 use crate::theme::Theme;
 use crate::tokens::settings::{
     BOX_GAP, BUTTONS_TOP, CHECK_TICK, DISCLOSURE_GAP, DISCLOSURE_GLYPH, PADDING,
 };
 use crate::tokens::text;
-use found::{Found, FromProfile, Page, Tab};
+use found::{Address, Found, FromProfile, Page, Tab};
 use plan::{Add, Counts, Existing, Plan, ProfileRef, SpaceRef, Target};
 use read::{Kind, ReadError};
 use sources::{Family, Os, Roots, Source};
@@ -50,7 +53,7 @@ use sources::{Family, Os, Roots, Source};
 pub trait Host {
     /// Where the other browsers' folders are: the user's, or a made-up home a check run gives.
     fn roots(&self) -> Roots;
-    fn existing(&self) -> Existing;
+    fn existing(&self, cx: &App) -> Existing;
     /// Makes a profile, which loads afterwards, and returns it.
     fn create_profile(&self, name: &str) -> u64;
     /// Makes a Space after the others, in the profile the browser started with, and gives it
@@ -66,6 +69,9 @@ pub trait Host {
     fn add_pinned(&self, space: u64, folder: u64, tab: &Tab);
     /// Makes a tab at `tab`'s URL the last of the favorites `space` shows, in its profile.
     fn add_favorite(&self, space: u64, tab: &Tab);
+    /// Opens a tab at `tab`'s URL at the top of `space`'s Today tabs, in its profile. Its page
+    /// loads once it's first shown.
+    fn add_today(&self, space: u64, tab: &Tab);
     /// Puts `rules` after the user's link rules.
     fn add_link_rules(&self, rules: &[crate::link_rules::Rule]);
     /// Whether `profile` has loaded, so its history can take pages.
@@ -76,6 +82,14 @@ pub trait Host {
         &self,
         profile: u64,
         pages: &[Page],
+        then: Box<dyn FnOnce(usize, &mut App)>,
+    ) -> bool;
+    /// Adds `addresses` to `profile`'s but for those it has, and returns whether it will. If it
+    /// will, `then` gets how many it added, later.
+    fn add_addresses(
+        &self,
+        profile: u64,
+        addresses: &[Address],
         then: Box<dyn FnOnce(usize, &mut App)>,
     ) -> bool;
     /// Calls `then` once, the next time the Spaces change, such as when a Space's profile has
@@ -137,7 +151,7 @@ impl Host for Detached {
     fn roots(&self) -> Roots {
         self.0.clone()
     }
-    fn existing(&self) -> Existing {
+    fn existing(&self, _: &App) -> Existing {
         Existing::default()
     }
     fn create_profile(&self, _: &str) -> u64 {
@@ -155,11 +169,15 @@ impl Host for Detached {
     }
     fn add_pinned(&self, _: u64, _: u64, _: &Tab) {}
     fn add_favorite(&self, _: u64, _: &Tab) {}
+    fn add_today(&self, _: u64, _: &Tab) {}
     fn add_link_rules(&self, _: &[crate::link_rules::Rule]) {}
     fn profile_loaded(&self, _: u64) -> bool {
         true
     }
     fn add_history(&self, _: u64, _: &[Page], _: Box<dyn FnOnce(usize, &mut App)>) -> bool {
+        false
+    }
+    fn add_addresses(&self, _: u64, _: &[Address], _: Box<dyn FnOnce(usize, &mut App)>) -> bool {
         false
     }
     fn when_spaces_change(&self, _: Box<dyn FnOnce(&mut App)>) {}
@@ -230,18 +248,19 @@ impl Job {
     }
 
     /// Whether every Space is in its profile, so its tabs can go in, and every profile history
-    /// goes to has loaded.
+    /// and addresses go to has loaded.
     pub fn ready(&self, host: &dyn Host) -> bool {
         let spaces =
             (self.spaces.iter()).all(|&(space, profile)| host.space_profile(space) == profile);
-        let history = (self.plan.history.iter())
-            .all(|(profile, _)| host.profile_loaded(self.profile(*profile)));
-        spaces && history
+        let loaded = |profile: &ProfileRef| host.profile_loaded(self.profile(*profile));
+        let history = self.plan.history.iter().all(|(profile, _)| loaded(profile));
+        let addresses = self.plan.addresses.iter().all(|(profile, _)| loaded(profile));
+        spaces && history && addresses
     }
 
-    /// Adds the pinned tabs, folders and favorites, and returns the history for each profile, which
-    /// the core adds away from the UI.
-    pub fn finish(mut self, host: &dyn Host) -> Vec<(u64, Vec<Page>)> {
+    /// Adds the pinned tabs, folders, Today tabs and favorites, and returns the history and
+    /// addresses for each profile, which the core adds away from the UI.
+    pub fn finish(mut self, host: &dyn Host, cx: &App) -> Later {
         fn add(host: &dyn Host, space: u64, folder: u64, adds: &[Add]) {
             for each in adds {
                 match each {
@@ -260,6 +279,10 @@ impl Job {
         }
         for (space, &(id, _)) in self.plan.spaces.iter().zip(&self.spaces) {
             add(host, id, 0, &space.pinned);
+            // Each opens at the top, so the last goes first to keep the browser's order.
+            for tab in space.today.iter().rev() {
+                host.add_today(id, tab);
+            }
         }
         let rules: Vec<crate::link_rules::Rule> = (self.plan.link_rules.iter())
             .map(|rule| crate::link_rules::Rule {
@@ -274,7 +297,7 @@ impl Job {
         if !rules.is_empty() {
             host.add_link_rules(&rules);
         }
-        let existing = host.existing();
+        let existing = host.existing(cx);
         for (profile, tab) in &self.plan.favorites {
             let profile = self.profile(*profile);
             // A favorite goes in through a Space of its profile; one with no Space there stays out.
@@ -293,10 +316,22 @@ impl Job {
             }
         }
         let history = std::mem::take(&mut self.plan.history);
-        (history.into_iter())
-            .map(|(profile, pages)| (self.profile(profile), pages))
-            .collect()
+        let addresses = std::mem::take(&mut self.plan.addresses);
+        Later {
+            history: (history.into_iter())
+                .map(|(profile, pages)| (self.profile(profile), pages))
+                .collect(),
+            addresses: (addresses.into_iter())
+                .map(|(profile, addresses)| (self.profile(profile), addresses))
+                .collect(),
+        }
     }
+}
+
+/// What the core adds away from the UI, by profile.
+pub struct Later {
+    pub history: Vec<(u64, Vec<Page>)>,
+    pub addresses: Vec<(u64, Vec<Address>)>,
 }
 
 /// What the view tells whoever shows it.
@@ -354,8 +389,9 @@ struct Run {
     job: Option<Job>,
     /// The profiles whose history the core is still adding.
     waiting: usize,
-    /// Pages the core added, which leaves out those that were here.
+    /// Pages and addresses the core added, which leaves out those that were here.
     pages: usize,
+    addresses: usize,
     /// The extensions it listed to add, but for ad blockers.
     listed: usize,
 }
@@ -376,6 +412,9 @@ pub struct ImportView {
     /// The step last drawn. A click before a step draws lands on the one before it, so check.sh
     /// waits for the line each one logs.
     drawn: Option<&'static str>,
+    /// Where Import and Done were logged as drawn, emptied with each step so each logs them anew:
+    /// check.sh clicks them there, as a summary that wraps, or a taller row, moves them.
+    drawn_at: Rc<RefCell<Vec<String>>>,
     /// The system it runs on, for where the browsers it names export their passwords.
     os: Os,
     /// The bookmark folders of the browser picked, to choose from.
@@ -413,6 +452,7 @@ impl ImportView {
             switched: None,
             passwords_file: None,
             drawn: None,
+            drawn_at: Rc::default(),
             os: roots.os,
             folders: Folders::default(),
             suggested: None,
@@ -646,7 +686,7 @@ impl ImportView {
             return;
         };
         let name = name.clone();
-        let existing = self.host.existing();
+        let existing = self.host.existing(cx);
         let plan = plan::plan(&found, names, &existing);
         let counts = plan.counts();
         // The favorites to offer, from the history of the profile this browser started with, but
@@ -678,11 +718,14 @@ impl ImportView {
         }
         // check.sh waits for this line.
         log!(
-            "browser: import from {name}: {} Spaces, {} pinned tabs, {} favorites, {} pages",
+            "browser: import from {name}: {} Spaces, {} pinned tabs, {} open tabs, {} favorites, {} \
+             pages, {} addresses",
             counts.spaces,
             counts.pinned,
+            counts.today,
             counts.favorites,
-            counts.pages
+            counts.pages,
+            counts.addresses
         );
         // check.sh reads this line.
         log!("browser: import from {name}: {} link rules", counts.link_rules);
@@ -710,13 +753,23 @@ impl ImportView {
             }));
             return;
         };
-        for (profile, pages) in job.finish(&*self.host) {
+        let later = job.finish(&*self.host, cx);
+        // What the core says it added, into the run's count of it.
+        let then = |count: fn(&mut Run) -> &mut usize, cx: &mut Context<Self>| {
             let view = cx.entity().downgrade();
-            let then = Box::new(move |added, cx: &mut App| {
-                view.update(cx, |view, cx| view.history_added(added, cx))
-                    .ok();
-            });
+            Box::new(move |added, cx: &mut App| {
+                view.update(cx, |view, cx| view.added(count, added, cx)).ok();
+            })
+        };
+        for (profile, pages) in later.history {
+            let then = then(|run| &mut run.pages, cx);
             if self.host.add_history(profile, &pages, then) {
+                run.waiting += 1;
+            }
+        }
+        for (profile, addresses) in later.addresses {
+            let then = then(|run| &mut run.addresses, cx);
+            if self.host.add_addresses(profile, &addresses, then) {
                 run.waiting += 1;
             }
         }
@@ -725,11 +778,11 @@ impl ImportView {
         }
     }
 
-    fn history_added(&mut self, added: usize, cx: &mut Context<Self>) {
+    fn added(&mut self, count: fn(&mut Run) -> &mut usize, added: usize, cx: &mut Context<Self>) {
         let Step::Running { run, .. } = &mut self.step else {
             return;
         };
-        run.pages += added;
+        *count(run) += added;
         run.waiting = run.waiting.saturating_sub(1);
         if run.waiting == 0 {
             self.complete(cx);
@@ -742,6 +795,7 @@ impl ImportView {
         };
         let counts = Counts {
             pages: run.pages,
+            addresses: run.addresses,
             ..run.counts
         };
         self.finish(summary(name, counts, run.listed), cx);
@@ -815,6 +869,7 @@ impl ImportView {
                         icon: String::new(),
                         theme: None,
                         pinned,
+                        today: vec![],
                     };
                     let found = Found {
                         spaces: vec![space],
@@ -1153,7 +1208,10 @@ impl ImportView {
                     .justify_end()
                     .gap(px(PADDING))
                     .child(back)
-                    .child(import),
+                    .child(div().relative().child(import).child(drawn(
+                        "import-go".into(),
+                        self.drawn_at.clone(),
+                    ))),
             )
             .into_any_element()
     }
@@ -1297,9 +1355,11 @@ fn summary(name: &str, counts: Counts, listed: usize) -> SharedString {
     let parts: Vec<String> = [
         count(counts.spaces, "Space", "Spaces"),
         count(counts.pinned, "pinned tab", "pinned tabs"),
+        count(counts.today, "open tab", "open tabs"),
         count(counts.favorites, "favorite", "favorites"),
         count(counts.link_rules, "link rule", "link rules"),
         count(counts.pages, "page of history", "pages of history"),
+        count(counts.addresses, "address", "addresses"),
     ]
     .into_iter()
     .flatten()
@@ -1339,6 +1399,7 @@ impl Render for ImportView {
         };
         if self.drawn != Some(step) {
             self.drawn = Some(step);
+            self.drawn_at.borrow_mut().clear();
             log!("browser: import drawn {step}");
         }
         let look = self.look;
@@ -1377,7 +1438,10 @@ impl Render for ImportView {
                             .justify_end()
                             .gap(px(PADDING))
                             .children(delete)
-                            .child(done),
+                            .child(div().relative().child(done).child(drawn(
+                                "import-done".into(),
+                                self.drawn_at.clone(),
+                            ))),
                     )
                     .into_any_element()
             }

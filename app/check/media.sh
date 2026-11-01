@@ -71,7 +71,8 @@ onkeydown = async e => {
 # The same pages over https, for the floating call: Chrome floats a call on https or a file alone,
 # and its page info, the Site Controls, lists no permissions for a file. The certificate is made
 # for this run, and the browser takes it by its key alone, so no other site's errors are let by.
-openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=127.0.0.1 \
+# Git Bash would pass the subject to Windows' openssl as a path under its own folder (#872).
+MSYS2_ARG_CONV_EXCL=/CN= openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=127.0.0.1 \
   -addext subjectAltName=IP:127.0.0.1 -keyout "$out/tls.key" -out "$out/tls.pem" 2> /dev/null ||
   fail "openssl didn't make the floating call's certificate"
 spki=$(openssl x509 -in "$out/tls.pem" -pubkey -noout | openssl pkey -pubin -outform der |
@@ -85,7 +86,8 @@ server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
 tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 tls.load_cert_chain(sys.argv[2], sys.argv[3])
 server.socket = tls.wrap_socket(server.socket, server_side=True)
-print(server.server_address[1])
+# As bytes: text stdout on Windows ends a line with \r, which the driver typed as return (#1196).
+sys.stdout.buffer.write(b"%d\n" % server.server_address[1])
 sys.stdout.close()
 server.serve_forever()
 ' "$out/site" "$out/tls.pem" "$out/tls.key" > "$out/tls.port" 2> "$out/tls.log" 3>&- 4>&- 5>&- &
@@ -275,7 +277,7 @@ mini_player() {
   expect '^browser: settings drew ' "Settings didn't draw"
   # Settings opens at the tab it last showed.
   if ! grep '^browser: settings shown ' "$log" | tail -1 | grep -q ' Advanced$'; then
-    send clickkey 519 60
+    send clickkey $(drawn "toolbar Advanced")
     expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
     settings_drew Advanced
   fi
