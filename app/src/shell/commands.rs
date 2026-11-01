@@ -1502,12 +1502,14 @@ impl Shell {
             Command::CollapseFolders => self.shown_space().is_some_and(|space| {
                 space.folders.folders.keys().any(|&folder| space.is_open(folder))
             }),
+            // Only when they'd hide or show a row now (docs/ux-principles.md: a control with nothing
+            // to act on is noise).
             Command::CollapsePinned => self.shown_space().is_some_and(|space| {
-                !space.pinned.is_empty() && !space.folders.pinned_shut
+                !space.folders.pinned_shut && space.collapsing_hides()
             }),
-            Command::ExpandPinned => {
-                self.shown_space().is_some_and(|space| space.folders.pinned_shut)
-            }
+            Command::ExpandPinned => self.shown_space().is_some_and(|space| {
+                space.folders.pinned_shut && space.collapsing_hides()
+            }),
             // The Library and a page's full screen keep the sidebar away.
             Command::FocusSidebar => {
                 self.library.is_none() && !self.page_fullscreen && !self.sidebar_rows().is_empty()
