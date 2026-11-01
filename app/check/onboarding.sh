@@ -4,8 +4,9 @@
 # Linux), never the Mac's own browsers; Esc or Skip goes on from a step, the colour step's Return
 # gives the first Space the swatch picked, and the last step leaves the flow for the first Space's
 # welcome with the command bar up and a line under it. The default browser's step shows only while
-# ilo isn't the default, and the opt-ins' only once the build offers one; both are only ever
-# skipped, so the run changes neither the Mac's default browser nor a switch. Help › Welcome to ilo
+# ilo isn't the default, and the opt-ins' always, with the agents' switch, as every build has
+# their server; both are only ever skipped, so the run changes neither the Mac's default browser
+# nor a switch. Help › Welcome to ilo
 # plays it again, in the window while it shows no page and in a new window while it shows one. A
 # launch that brings Spaces back never starts it. Every other run sets BROWSER_ONBOARDING=skip
 # (check.sh); this one sets the appearance instead.
@@ -51,8 +52,8 @@ launch_new() {
   await '^browser: onboarding step intro settled$' || fail "$1: the intro didn't draw"
   steps=$(grep -m1 '^browser: onboarding steps ' "$log" | cut -d' ' -f4-)
   case "$steps" in
-    "intro import "*color | "intro import "*"color opt-ins") ;;
-    *) fail "$1: the steps were '$steps', not the intro, the import, then the rest" ;;
+    "intro import "*"color opt-ins") ;;
+    *) fail "$1: the steps were '$steps', not the intro, the import, the rest, the opt-ins" ;;
   esac
 }
 
@@ -175,14 +176,10 @@ capture_step dark-color
 send key return
 expect '^browser: onboarding picked color f0eae5$' "dark: → and Return didn't pick the first swatch"
 expect '^browser: onboarding left color via return$' "dark: Return didn't leave the colour step"
-case " $steps " in
-  *" opt-ins "*)
-    expect '^browser: onboarding step opt-ins settled$' "dark: the opt-ins step didn't come"
-    capture_step dark-opt-ins
-    send key escape
-    expect '^browser: onboarding left opt-ins via escape$' "dark: Esc didn't leave the opt-ins step"
-    ;;
-esac
+expect '^browser: onboarding step opt-ins settled$' "dark: the opt-ins step didn't come"
+capture_step dark-opt-ins
+send key escape
+expect '^browser: onboarding left opt-ins via escape$' "dark: Esc didn't leave the opt-ins step"
 expect '^browser: onboarding done$' "dark: the flow didn't end after its last step"
 expect '^browser: command bar shown$' "dark: the command bar didn't come up after the flow"
 capture_step dark-in
@@ -232,4 +229,4 @@ expect '^browser: command bar shown$' "the replay in its own window didn't end w
 exec 3>&-
 quit
 
-echo "ok: a new profile's first launch plays the intro, which goes on by itself or at a key, then the import of the fixture's $found, the default browser's step while ilo isn't the default, the colour and the opt-ins the build offers, each left by Esc or Skip and the colour kept by Return, for the welcome with the command bar up, in light and dark; Help › Welcome to $app_name plays it again, in a new window over a page; a launch that brings Spaces back doesn't. Captures: $out/onboarding-*.png, and the replayed intro's motion in $out/onboarding-intro.mp4"
+echo "ok: a new profile's first launch plays the intro, which goes on by itself or at a key, then the import of the fixture's $found, the default browser's step while ilo isn't the default, the colour and the opt-ins, each left by Esc or Skip and the colour kept by Return, for the welcome with the command bar up, in light and dark; Help › Welcome to $app_name plays it again, in a new window over a page; a launch that brings Spaces back doesn't. Captures: $out/onboarding-*.png, and the replayed intro's motion in $out/onboarding-intro.mp4"
