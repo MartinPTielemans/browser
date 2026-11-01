@@ -9,6 +9,8 @@
 # The store run installs from Google's Web Store, adblock-live blocks Google's ad servers with
 # uBlock Origin's own lists and widevine, Linux's alone, downloads Google's Widevine module, so they
 # need the network and run only when named: ./check.sh store.
+# First-run, Windows' alone, installs the installer BROWSER_INSTALLER names, plays a new user's first
+# run on it and uninstalls it, so it runs only when named, where ilo isn't installed.
 # Updates runs only when named too, until it passes on the Mac. So does keychain, which uses the
 # real Keychain, on the prod build and only in a check VM.
 # Every run but load and crash needs Browser to be the active app, and window, find and updates
@@ -68,7 +70,7 @@ runs="load keys tabs window popup history spaces agents profiles restore relaunc
 runs="$runs split favorites cards extensions adblock adblock-lists windows private capture media"
 runs="$runs passwords links preview access trouble dialogs crash import quit onboarding passkeys mcp"
 runs="$runs appearance about"
-named="store adblock-live widevine updates keychain"
+named="store adblock-live widevine updates keychain first-run"
 for run in "$@"; do
   case " $runs $named " in
     *" $run "*) ;;

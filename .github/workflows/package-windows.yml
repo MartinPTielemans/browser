@@ -1,6 +1,7 @@
 # The Windows packages for a release (#454), as the run's `windows-packages` artifact: the MSIX for
 # the Microsoft Store and the per-user installer for winget, both unsigned for 0.1.0
-# (app/platform/windows/package/package.sh), with winget's manifests for that installer. Built from
+# (app/platform/windows/package/package.sh), with winget's manifests for that installer, and a new
+# user's first run on that installer, as the artifact first-run. Built from
 # Browser.dll and the newest Windows engine release in the commit's history, which
 # engine-windows-cross.yml publishes. Without one there is Browser.dll alone, linked against the
 # core's API, to try the packaging: what it packs doesn't run, and the run's summary says so.
@@ -22,6 +23,7 @@ on:
       - tools/winget.sh
       - tools/licences.sh
       - tools/third-party.py
+      - app/check/first-run.sh
       - .github/workflows/package-windows.yml
 
 permissions:
@@ -111,3 +113,37 @@ jobs:
           name: windows-packages
           path: ${{ runner.temp }}/windows-packages
           if-no-files-found: error
+
+      # A new user's first run on the installer just built, as release.yml's try builds it: it
+      # installs, plays the onboarding, opens a page, quits, comes back with its tab and uninstalls
+      # (check/first-run.sh), on a 1920 by 1080 screen as Check on Windows has. Last, so a failing
+      # first run keeps the packages, and not for Browser.dll alone, which doesn't run.
+      - name: First run
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          installer=$RUNNER_TEMP/windows-packages/$(cat branding/name)-$version-x64-setup.exe
+          if [ ! -f "$installer" ]; then
+            echo "No first run: the installer packs Browser.dll alone." >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          powershell.exe -NoProfile -NonInteractive -Command 'Set-DisplayResolution -Width 1920 -Height 1080 -Force'
+          mkdir -p "$RUNNER_TEMP/bin"
+          printf '#!/bin/sh\nexec python "$@"\n' > "$RUNNER_TEMP/bin/python3"
+          chmod +x "$RUNNER_TEMP/bin/python3"
+          status=0
+          PATH=$RUNNER_TEMP/bin:$PATH BROWSER_INSTALLER=$installer timeout 20m ./check.sh first-run || status=$?
+          mkdir -p "$RUNNER_TEMP/first-run"
+          cp -r build/check/. "$RUNNER_TEMP/first-run/" || true
+          if [ "$status" = 0 ]; then
+            echo "First run: passed." >>"$GITHUB_STEP_SUMMARY"
+          else
+            echo "First run: failed ($status). Its logs and captures are in the artifact first-run." >>"$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$status"
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: first-run
+          path: ${{ runner.temp }}/first-run
+          if-no-files-found: ignore
