@@ -536,6 +536,14 @@ std::map<HWND, DropTarget*>& DropTargets() {
   return targets;
 }
 
+// The frame of each browser window that has closed, from its UI's holder, until the app forgets it:
+// the core closes the window before it tells the app, which then saves the last regular one's for
+// the next launch (host_window_frame).
+std::map<HWND, RECT>& ClosedFrames() {
+  static std::map<HWND, RECT> frames;
+  return frames;
+}
+
 // The holder keeps GPUI's window, its only child, filling it.
 int FrameHit(HWND root, POINT at);  // Below, with the frame it answers for.
 
@@ -564,6 +572,11 @@ LRESULT CALLBACK HolderProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
     case WM_ERASEBKGND:
       return 1;
     case WM_DESTROY:
+      // Its window is still there: Windows destroys a window's children before the window.
+      if (HWND root = GetAncestor(hwnd, GA_ROOT);
+          root && root != hwnd && !IsIconic(root) && !IsZoomed(root)) {
+        GetWindowRect(root, &ClosedFrames()[hwnd]);
+      }
       if (auto found = DropTargets().find(hwnd); found != DropTargets().end()) {
         RevokeDragDrop(hwnd);
         found->second->Release();
@@ -1786,11 +1799,14 @@ size_t host_screens(double* frames, size_t count) {
 // brings those back to the size they had on its own.
 bool host_window_frame(void* ui_view, double* x, double* y, double* width, double* height) {
   HWND root = Root(ui_view);
-  if (!root || IsIconic(root) || IsZoomed(root)) {
-    return false;
-  }
   RECT rect{};
-  GetWindowRect(root, &rect);
+  if (auto closed = ClosedFrames().find(Hwnd(ui_view)); !root && closed != ClosedFrames().end()) {
+    rect = closed->second;
+  } else if (!root || IsIconic(root) || IsZoomed(root)) {
+    return false;
+  } else {
+    GetWindowRect(root, &rect);
+  }
   const double scale = GetDpiForSystem() / 96.0;
   *x = rect.left / scale;
   *y = rect.top / scale;
@@ -2010,6 +2026,7 @@ void host_forget_window(void* ui_view) {
   g_reveals.erase(ui_view);
   g_pane_corners.erase(ui_view);
   std::erase(UiViews(), Hwnd(ui_view));
+  ClosedFrames().erase(Hwnd(ui_view));
 }
 
 void host_add_overlay(int overlay, void* overlay_view, double, void (*dismissed)(void)) {
