@@ -515,7 +515,8 @@ start_with_cdp() {
     # native program can't read Git Bash's fifo, so cat passes cdp.py its commands, and the page is
     # named without its slash, which Git Bash would make a path of Git's own.
     BROWSER_DRIVE=1 BROWSER_URL="$1" BROWSER_PROFILE_DIR="$2" \
-      "$browser" --remote-debugging-port=0 < "$out/drive" > "$log" 2>&1 &
+      "$browser" --remote-debugging-port=0 --enable-logging=stderr --vmodule=window_views=1 \
+      < "$out/drive" > "$log" 2>&1 &
     pid=$!
     exec 3> "$out/drive"
     await '^DevTools listening on ws://' || fail "DevTools didn't say where it listens"
