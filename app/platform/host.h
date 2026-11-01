@@ -135,6 +135,9 @@ void host_watch_active(void (*became_active)(void));
 // platform/linux/reduce_motion.rs reads instead.
 bool host_reduce_motion(void);
 
+// Calls |changed| on the UI thread each time that setting changes.
+void host_watch_reduce_motion(void (*changed)(void));
+
 // Whether the system opens http and https links with this app: whether it's the default browser.
 bool host_is_default_browser(void);
 

@@ -1732,6 +1732,16 @@ bool host_reduce_motion(void) {
   return NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
 }
 
+void host_watch_reduce_motion(void (*changed)(void)) {
+  [NSWorkspace.sharedWorkspace.notificationCenter
+      addObserverForName:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification
+                  object:nil
+                   queue:NSOperationQueue.mainQueue
+              usingBlock:^(NSNotification*) {
+                changed();
+              }];
+}
+
 bool host_is_default_browser(void) {
   NSString* mine = NSBundle.mainBundle.bundleIdentifier;
   for (NSString* link in @[ @"http://", @"https://" ]) {
