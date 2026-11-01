@@ -591,7 +591,7 @@ with open(crx, "wb") as f:
 print("".join(chr(ord("a") + int(c, 16)) for c in crx_id.hex()))
 ' "$crx/source" "$out/site/check.crx") || fail "couldn't make the check's .crx"
 printf '{"download": {"default_directory": "%s", "prompt_for_download": false}}' \
-  "$PWD/$out/downloads" > "$crx/profile/Default/Preferences"
+  "$(app_path "$PWD/$out/downloads")" > "$crx/profile/Default/Preferences"
 log="$out/install.log"
 step=0
 BROWSER_DRIVE=1 BROWSER_URL="$site" BROWSER_PROFILE_DIR="$crx/profile" \
