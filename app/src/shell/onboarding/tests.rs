@@ -388,6 +388,43 @@ fn the_opt_ins_show_only_those_offered(cx: &mut TestAppContext) {
     assert_eq!(offered(&shell, cx), both, "both off to begin with");
 }
 
+/// With both opt-ins offered, in a window the size of the owner's at 1280 × 800, each switch lies
+/// inside its row, and a click at its drawn centre turns it on; its sentence once pushed it out of
+/// the row, where the click missed (#1286).
+#[gpui::test]
+fn a_click_on_each_opt_in_switch_turns_it_on(cx: &mut TestAppContext) {
+    let (shell, cx, host) = first_window(cx);
+    cx.simulate_resize(gpui::size(px(1280.), px(800.)));
+    host.crash_reports.set(Some(false));
+    host.agents.set(Some(false));
+    started(&shell, cx);
+    skip_to(&shell, cx, Step::OptIns);
+    later(&shell, cx, STEP_MOTION);
+    let frame = |shell: &Entity<Shell>, cx: &VisualTestContext, opt_in, part| {
+        shell.read_with(cx, |shell, _| {
+            let onboarding = shell.onboarding.as_ref().expect("the flow shows");
+            onboarding.frames.borrow().get(&(opt_in, part)).copied()
+        })
+    };
+    for (opt_in, set) in [(OptIn::CrashReports, "crash reports true"), (OptIn::Agents, "agents true")] {
+        let row = frame(&shell, cx, opt_in, "row").expect("its row is drawn");
+        let switch = frame(&shell, cx, opt_in, "switch").expect("its switch is drawn");
+        let inside = switch.left() >= row.left()
+            && switch.right() <= row.right()
+            && switch.top() >= row.top()
+            && switch.bottom() <= row.bottom();
+        assert!(inside, "{opt_in:?}'s switch at {switch:?} is outside its row at {row:?}");
+        host.take();
+        cx.simulate_click(switch.center(), Modifiers::none());
+        assert_eq!(host.take(), vec![set.to_string()], "a click on {opt_in:?}'s switch");
+    }
+    let both = vec![(OptIn::CrashReports, true), (OptIn::Agents, true)];
+    assert_eq!(shell.update(cx, |shell, cx| shell.opt_ins(cx)), both);
+    // The switches line up, in one column at the box's right edge.
+    let right = |opt_in| frame(&shell, cx, opt_in, "switch").map(|switch| switch.right());
+    assert_eq!(right(OptIn::CrashReports), right(OptIn::Agents));
+}
+
 /// Help › Welcome to ilo plays it again: here when the window shows no page, else in a new window,
 /// since GPUI can't draw over a page.
 #[gpui::test]
