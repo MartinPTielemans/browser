@@ -94,6 +94,9 @@ mod popovers;
 #[path = "../platform/linux/previews.rs"]
 mod previews;
 #[cfg(target_os = "linux")]
+#[path = "../platform/linux/reduce_motion.rs"]
+mod reduce_motion;
+#[cfg(target_os = "linux")]
 #[path = "../platform/linux/reveal_window.rs"]
 mod reveal_window;
 #[cfg(target_os = "linux")]
@@ -193,6 +196,10 @@ mod platform {
         pub fn host_after_menus(apply: extern "C" fn()) -> bool;
         pub fn host_watch_resigning_active(resigning: extern "C" fn());
         pub fn host_watch_active(became_active: extern "C" fn());
+        #[cfg(not(target_os = "linux"))]
+        pub fn host_reduce_motion() -> bool;
+        #[cfg(not(target_os = "linux"))]
+        pub fn host_watch_reduce_motion(changed: extern "C" fn());
         pub fn host_is_default_browser() -> bool;
         pub fn host_make_default_browser(answered: extern "C" fn());
         pub fn host_since_launch() -> f64;
@@ -1129,9 +1136,10 @@ impl link_preview::Host for LinkPreviewHost {
     fn release(&self) {
         unsafe { platform::host_release_link_preview() };
         // The window's page has the keyboard back from the preview's, which goes, or no page has
-        // it. Linux's host gives it as it releases; Windows' can't name the window.
+        // it, unless the user left for another window. Linux's host gives it as it releases;
+        // Windows' can't name the window.
         let window = self.over.replace(0);
-        if cfg!(target_os = "windows") && window != 0 {
+        if cfg!(target_os = "windows") && window != 0 && !LINK_PREVIEW_LEFT.get() {
             unsafe { bc::bc_window_focus_page(window) };
         }
     }
@@ -1161,12 +1169,16 @@ impl link_preview::Host for LinkPreviewHost {
 }
 
 extern "C" fn link_preview_dismissed() {
+    LINK_PREVIEW_LEFT.set(true);
     update_app(link_preview::dismissed);
+    LINK_PREVIEW_LEFT.set(false);
 }
 
 thread_local! {
     /// Whether the host has a view for a link preview's page.
     static LINK_PREVIEWS: Cell<bool> = const { Cell::new(false) };
+    /// The user left the preview for another window, which keeps the keyboard.
+    static LINK_PREVIEW_LEFT: Cell<bool> = const { Cell::new(false) };
 }
 
 /// A link is dragged over `tab`'s page: the window showing it shows the split view's targets, and
@@ -3271,6 +3283,19 @@ impl Browser for Engine {
         settings::set_send_crash_reports(on, cx);
     }
 
+    // Every build has the agents' server. The first launch picks its steps before the first
+    // frame, when agents_core makes the Agents, and a new profile's are off until then.
+    fn agents(&self, cx: &App) -> Option<bool> {
+        Some(browser::agents::global(cx).is_some_and(|agents| agents.read(cx).is_on()))
+    }
+
+    fn set_agents(&self, on: bool, cx: &mut App) {
+        agents_core::start(cx);
+        if let Some(agents) = browser::agents::global(cx) {
+            agents.update(cx, |agents, cx| agents.set_on(on, cx));
+        }
+    }
+
     fn agent_activity(&self, cx: &mut App) {
         settings::show_agents(cx);
     }
@@ -4292,6 +4317,11 @@ fn finish_opening(
         platform::host_watch_resigning_active(launch_picture_on_resigning);
         platform::host_watch_active(became_active);
     }
+    follow_reduce_motion(cx);
+    #[cfg(not(target_os = "linux"))]
+    unsafe { platform::host_watch_reduce_motion(reduce_motion_changed) };
+    #[cfg(target_os = "linux")]
+    reduce_motion::watch(cx);
     if let Some(bar) = command_bar::open(Rc::new(Bar), cx)
         && let Ok(view) = bar.update(cx, |_, window, _| ns_view(window))
     {
@@ -5117,7 +5147,33 @@ extern "C" fn became_active() {
     update_app_later(|cx| {
         settings::check_default_browser(cx);
         import_host::became_active(cx);
+        // GTK's settings file, Linux's last word, says nothing as it changes.
+        #[cfg(target_os = "linux")]
+        follow_reduce_motion(cx);
     });
+}
+
+/// Reads the system's Reduce Motion as the first window opens, before its first frame, and again
+/// as the system says it changed.
+fn follow_reduce_motion(cx: &mut App) {
+    #[cfg(not(target_os = "linux"))]
+    set_reduce_motion(unsafe { platform::host_reduce_motion() }, cx);
+    #[cfg(target_os = "linux")]
+    reduce_motion::read(cx);
+}
+
+#[cfg(not(target_os = "linux"))]
+extern "C" fn reduce_motion_changed() {
+    update_app_later(follow_reduce_motion);
+}
+
+/// What GPUI's animations and the UI's own motion follow (`App::reduce_motion`).
+fn set_reduce_motion(reduce: bool, cx: &mut App) {
+    if reduce != cx.reduce_motion() {
+        // check.sh reads this line.
+        log!("browser: reduce motion {}", if reduce { "on" } else { "off" });
+        cx.set_reduce_motion(reduce);
+    }
 }
 
 unsafe extern "C" fn stopping(_: *mut c_void) {
@@ -6036,9 +6092,12 @@ unsafe extern "C" fn tab_offer_changed(
                 .collect(),
         };
         let never = string(offer.never);
+        let details = string(offer.details);
         offer::Offer {
             kind: match offer.kind as u32 {
                 bc::BC_OFFER_KIND_PASSWORD_UPDATE => offer::Kind::Update,
+                bc::BC_OFFER_KIND_ADDRESS => offer::Kind::Address,
+                bc::BC_OFFER_KIND_CARD => offer::Kind::Card,
                 _ => offer::Kind::Save,
             },
             title: string(offer.title),
@@ -6049,6 +6108,7 @@ unsafe extern "C" fn tab_offer_changed(
             accept: string(offer.accept),
             decline: string(offer.decline),
             never: (!never.is_empty()).then_some(never),
+            details: details.lines().map(|line| line.to_string().into()).collect(),
         }
     });
     update_app(|cx| offer::changed(tab, offer, cx));
@@ -6568,6 +6628,7 @@ unsafe extern "C" fn window_activated(_: *mut c_void, window: bc::bc_id) {
     if let Some(cx) = CX.with_borrow(Clone::clone) {
         let later = async move {
             if let Some(ui_view) = ui_view_of(window) {
+                link_preview_window::took_keyboard(ui_view);
                 key_window_changed(ui_view);
             }
         };
