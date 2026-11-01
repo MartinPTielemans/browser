@@ -519,13 +519,16 @@ expect "^browser: settled space $second\$" "the second Space's page didn't settl
 # A right-click on a row as soon as ⌃2 has shown the second Space, while its rows still slide in
 # from the right, shows the row's tab's menu, as it does once they've settled: a press acts on
 # the row that's there to be pressed, the Space having switched. The pointer is 12 in, where the
-# page takes longest to reach it. The menu's Rename…, then escape, leave the tab as it was.
+# page takes longest to reach it. The menu's Rename…, then escape, leave the tab as it was. Both are
+# sent at once, as the driver presses once ⌃2 is done: waiting here to see the Space shown takes
+# longer than the slide under Git Bash, where each look at the log starts its programs anew.
 show_space "key 1 ctrl" select-space ui "$first" "$a"
 expect "^browser: settled space $first\$" "the first Space's page didn't settle"
+press=$(row 0 | cut -d' ' -f2)
 post key 2 ctrl
 slide=$step
-expect_soon "^browser: space $second in " "⌃2 didn't show the second Space"
-post rightclick 12 $(row 0 | cut -d' ' -f2)
+post rightclick 12 "$press"
+expect "^browser: space $second in " "⌃2 didn't show the second Space" "$slide"
 expect "^browser: menu shown $(cased 'Copy Link, ')" "a right-click while the second Space's rows slid in showed no menu"
 # Settled before the menu showed, and the press came too late to be a test of the slide. The
 # slide's 0.3 s is the clock's, and a GPU-less Linux runner may draw frames slower than that, which
