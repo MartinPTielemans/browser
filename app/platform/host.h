@@ -223,6 +223,11 @@ void host_hide_overlay(int overlay);
 // Hides the overlay as the user leaving it, as escape does.
 void host_dismiss_overlay(int overlay);
 
+// Gives the overlay the keyboard back if it shows, the user hasn't left it, and the browser window
+// it shows over or no window has it: for the UI, once it finds the overlay's window isn't key.
+// The Mac's alone: Linux's and Windows' hosts close an overlay whose keyboard goes elsewhere.
+void host_take_overlay_keyboard(int overlay);
+
 // Holds the keys typed from now until the command bar or the find bar takes the keyboard, and then
 // gives them to it: for a shortcut that opens one but reaches the page first, which may keep it.
 // Showing either bar with the keyboard holds them by itself. The core says when the page has

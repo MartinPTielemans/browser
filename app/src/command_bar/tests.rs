@@ -123,6 +123,10 @@ impl Host for Recorder {
         self.record("dismiss".into());
     }
 
+    fn take_keyboard(&self) {
+        self.record("take keyboard".into());
+    }
+
     /// Every command, as if each did something now, with its default key.
     fn commands(&self, text: &str, _: &App) -> Vec<shell::BarCommand> {
         if !self.commands {
@@ -243,6 +247,20 @@ impl Bar {
         self.window
             .read_with(&self.cx.cx, |bar, _| {
                 bar.rows.iter().map(|row| (row.url.clone(), row.tab)).collect()
+            })
+            .unwrap()
+    }
+
+    /// The bar's window becoming the key one, as the host makes it when it shows the bar.
+    fn activate(&mut self) {
+        (self.window.update(&mut self.cx.cx, |_, window, _| window.activate_window())).unwrap();
+        self.cx.run_until_parked();
+    }
+
+    fn field_focused(&mut self) -> bool {
+        (self.window)
+            .update(&mut self.cx.cx, |bar, window, cx| {
+                bar.input.read(cx).focus_handle(cx).is_focused(window)
             })
             .unwrap()
     }
@@ -1856,4 +1874,56 @@ fn cmd_and_option_backspace_ask_again_and_leave_a_site_search(cx: &mut TestAppCo
         bar.keys(key);
         assert_eq!(bar.input(), ("duck.test".into(), 9..9), "{key}");
     }
+}
+
+/// Chromium makes the browser window key by itself, such as when a page commits behind the bar,
+/// and the bar shows on, deaf, unless it gets the keyboard back (#1314). It asks for it as its
+/// window stops being key, the host saying no if the user left it, and the keys typed once it's
+/// back go to its field.
+#[gpui::test]
+fn the_bar_takes_the_keyboard_back_while_it_shows(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.activate();
+    assert_eq!(bar.calls(), Vec::<String>::new());
+    bar.cx.deactivate_window();
+    assert_eq!(bar.calls(), ["take keyboard"]);
+    bar.activate();
+    assert!(bar.field_focused());
+    bar.type_text("cats");
+    assert_eq!(bar.input(), ("cats".into(), 4..4));
+    assert_eq!(bar.calls(), Vec::<String>::new());
+
+    // Once the user has left it, the keyboard stays where they took it.
+    bar.keys("escape");
+    assert_eq!(bar.calls(), ["dismiss"]);
+    bar.cx.cx.update(dismissed);
+    bar.cx.deactivate_window();
+    assert_eq!(bar.calls(), Vec::<String>::new());
+}
+
+/// The field has the focus whenever the bar shows: GPUI gives the input method's text only to the
+/// focused field, so a bar without it shows deaf. Something taking the focus while the bar shows,
+/// as an assistive app can, gives it back, and a bar that lost it while closed has it again as it
+/// opens.
+#[gpui::test]
+fn the_bar_keeps_the_focus_in_its_field(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.activate();
+    let blur = |bar: &mut Bar| {
+        (bar.window.update(&mut bar.cx.cx, |_, window, cx| window.blur(cx))).unwrap();
+        bar.cx.run_until_parked();
+    };
+    blur(&mut bar);
+    assert!(bar.field_focused());
+    bar.type_text("cats");
+    assert_eq!(bar.input(), ("cats".into(), 4..4));
+
+    bar.keys("escape");
+    bar.cx.cx.update(dismissed);
+    blur(&mut bar);
+    assert!(!bar.field_focused(), "a closed bar leaves the focus be");
+    bar.edit("https://cats.test/", None);
+    assert!(bar.field_focused());
+    bar.type_text("dogs");
+    assert_eq!(bar.input(), ("dogs".into(), 4..4));
 }

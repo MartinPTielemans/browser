@@ -296,6 +296,9 @@ pub trait Host {
     fn hide(&self);
     /// Hides the bar's window as the user leaves it without choosing anything.
     fn dismiss(&self);
+    /// Gives the bar's window the keyboard back, which it found it hasn't while it shows, unless
+    /// the user left it, which the host knows first.
+    fn take_keyboard(&self);
     /// The browser's commands that match `text` and do something now, best first.
     fn commands(&self, text: &str, cx: &App) -> Vec<shell::BarCommand>;
 }
@@ -447,6 +450,14 @@ pub fn open_at(
                 bar.edited(window, cx)
             })
             .detach();
+            cx.observe_window_activation(window, |bar: &mut CommandBar, window, cx| {
+                bar.activation_changed(window, cx)
+            })
+            .detach();
+            text_input::on_leave(&input.focus_handle(cx), window, cx, |bar, window, cx| {
+                bar.keep_focus(window, cx)
+            })
+            .detach();
             CommandBar {
                 host,
                 input,
@@ -587,6 +598,7 @@ fn reset(
             let rows = if text.is_empty() { bar.tab_rows() } else { Vec::new() };
             bar.set_rows(String::new(), rows, window, cx);
             bar.input.update(cx, |input, cx| input.reset(text, window, cx));
+            bar.keep_focus(window, cx);
             // The last query's suggestions are of no use now.
             bar.host.suggest(None, "", false);
             bar.host.clone()
@@ -1587,6 +1599,32 @@ impl CommandBar {
     fn close(&self) {
         self.open.set(false);
         self.host.hide();
+    }
+
+    /// While it shows, the keys are the bar's until the user leaves it (#1314). Chromium makes its
+    /// window key by itself, such as when a page commits, which the host undoes as it's told; if
+    /// the bar finds its window isn't key anyway, it asks for the keyboard back.
+    fn activation_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.open.get() {
+            return;
+        }
+        if window.is_window_active() {
+            self.keep_focus(window, cx);
+        } else {
+            self.host.take_keyboard();
+        }
+    }
+
+    /// Gives the field the focus back while the bar shows: without it, GPUI hands the field no
+    /// input method's text, and the bar shows deaf. Nothing else in its window takes the focus,
+    /// but an assistive app can.
+    fn keep_focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let field = self.input.focus_handle(cx);
+        if self.open.get() && !field.is_focused(window) {
+            let from = if window.focused(cx).is_some() { "another view" } else { "nothing" };
+            log!("browser: command bar's field takes the focus back from {from}");
+            window.focus(&field, cx);
+        }
     }
 
     /// ⌘T or ⌘L, which open the bar, close it again, as Arc's do, whichever opened it. The browser's
