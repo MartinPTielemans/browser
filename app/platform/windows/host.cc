@@ -38,6 +38,14 @@
 // UrlCreateFromPathW, for the files dragged onto the UI.
 #pragma comment(lib, "shlwapi.lib")
 
+// The app's (platform/windows/fade.rs): fades GPUI's window |hwnd| from |from|, or from where it
+// shows now if that's below 0, to |to| over |seconds|.
+extern "C" void browser_fade(void* hwnd, double from, double to, double seconds);
+// The preview has no fade.rs, so there the linker takes this instead, as Linux's weak symbols do:
+// the window shows unfaded, and the host still hides it once its fade would have ended.
+extern "C" void browser_fade_none(void*, double, double, double) {}
+#pragma comment(linker, "/alternatename:browser_fade=browser_fade_none")
+
 namespace {
 
 std::wstring Wide(const char* utf8) {
@@ -120,6 +128,29 @@ void Later(std::function<void()> task) {
   PostMessageW(tasks, kRunTask, 0, reinterpret_cast<LPARAM>(new std::function<void()>(task)));
 }
 
+// The tasks After runs, by their timers.
+std::map<UINT_PTR, std::function<void()>>& Timed() {
+  static std::map<UINT_PTR, std::function<void()>> all;
+  return all;
+}
+
+void CALLBACK TimedOut(HWND, UINT, UINT_PTR id, DWORD) {
+  KillTimer(nullptr, id);
+  auto timed = Timed().extract(id);
+  if (!timed.empty()) {
+    timed.mapped()();
+  }
+}
+
+// Runs |task| once |seconds| have gone by, as a fade ends.
+void After(double seconds, std::function<void()> task) {
+  const UINT ms = static_cast<UINT>(std::lround(seconds * 1000));
+  const UINT_PTR id = SetTimer(nullptr, 0, ms, TimedOut);
+  if (id) {
+    Timed()[id] = std::move(task);
+  }
+}
+
 // A GPUI window floating over a browser window: owned by it, so it stays in front of it and goes
 // with it when it's minimized, and placed in points from its content's top-left.
 struct Floating {
@@ -130,6 +161,8 @@ struct Floating {
   void (*dismissed)(void) = nullptr;
   // Set while the host hides it, so that isn't the user leaving it.
   bool hiding = false;
+  // Counts its fades, so one that ends after it showed or hid again leaves it be.
+  int fades = 0;
 };
 
 std::map<HWND, Floating*>& FloatingByHwnd() {
@@ -331,6 +364,46 @@ void Hide(Floating& floating) {
   if (had_keyboard && owner && IsWindowVisible(owner)) {
     SetForegroundWindow(owner);
   }
+}
+
+// Shows |floating| over |ui_view|'s window at |left|, |top|, fading in over |fade| seconds: from
+// where it is if it shows there already, as one fading out does. Logs |what| as the fade ends.
+void FadeIn(Floating& floating, void* ui_view, double left, double top, double fade,
+            const char* what) {
+  const bool there = floating.hwnd && IsWindowVisible(floating.hwnd) &&
+                     GetWindow(floating.hwnd, GW_OWNER) == Root(ui_view);
+  browser_fade(floating.hwnd, there ? -1 : 0, 1, fade);
+  Show(floating, ui_view, left, top, -1, -1, false);
+  const int fades = ++floating.fades;
+  if (fade <= 0) {
+    LogShown(floating, what);
+    return;
+  }
+  Floating* faded = &floating;
+  After(fade, [faded, fades, what] {
+    if (faded->fades == fades) {
+      LogShown(*faded, what);
+    }
+  });
+}
+
+// Hides |floating|, fading out over |fade| seconds, then calls |hidden|; with none, at once, which
+// also ends a fade out.
+void FadeOut(Floating& floating, double fade, std::function<void()> hidden) {
+  const int fades = ++floating.fades;
+  if (fade <= 0 || !floating.hwnd || !IsWindowVisible(floating.hwnd)) {
+    Hide(floating);
+    hidden();
+    return;
+  }
+  browser_fade(floating.hwnd, -1, 0, fade);
+  Floating* faded = &floating;
+  After(fade, [faded, fades, hidden] {
+    if (faded->fades == fades) {
+      Hide(*faded);
+      hidden();
+    }
+  });
 }
 
 void Resize(Floating& floating, double height) {
@@ -2159,11 +2232,7 @@ void host_set_overlay_height(int overlay, double height) {
   fprintf(stderr, "browser: %s height %g\n", kOverlayNames[overlay], height);
 }
 
-// shortcut: Segoe UI Emoji is taken to draw every emoji; check with DirectWrite's glyphs when an
-// older Windows shows blanks in the icon picker.
-bool host_can_draw_emoji(const char*) {
-  return true;
-}
+// host_can_draw_emoji is the app's, from GPUI's text system (platform/linux/emoji.rs).
 
 void host_hide_overlay(int overlay) {
   HideOverlay(overlay);
@@ -2426,6 +2495,10 @@ void host_add_capture(void* view, void (*dismissed)(void)) {
 
 void host_show_capture(void* ui_view, double left, double top, double width, double height) {
   Show(g_capture, ui_view, left, top, width, height, true);
+  if (g_capture.hwnd && IsWindowVisible(g_capture.hwnd)) {
+    // check.sh reads this line, as the Mac's and Linux's hosts log it.
+    fprintf(stderr, "browser: capture shown at %g %g %g %g\n", left, top, width, height);
+  }
 }
 
 void host_capture_camera(bool camera) {
@@ -2433,7 +2506,12 @@ void host_capture_camera(bool camera) {
 }
 
 void host_hide_capture(void) {
+  if (!g_capture.hwnd || !IsWindowVisible(g_capture.hwnd)) {
+    return;
+  }
   Hide(g_capture);
+  // check.sh reads this line.
+  fprintf(stderr, "browser: capture hidden\n");
 }
 
 void host_copy_png(const uint8_t* png, size_t size) {
@@ -2445,7 +2523,10 @@ void host_copy_png(const uint8_t* png, size_t size) {
   if (HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, size)) {
     memcpy(GlobalLock(memory), png, size);
     GlobalUnlock(memory);
-    if (!SetClipboardData(png_format, memory)) {
+    if (SetClipboardData(png_format, memory)) {
+      // check.sh reads this line, as Linux's host logs it.
+      fprintf(stderr, "browser: clipboard png %zu bytes\n", size);
+    } else {
       GlobalFree(memory);
     }
   }
@@ -2556,14 +2637,12 @@ void host_add_tooltip(void* tooltip_view, double margin, void (*)(void)) {
   g_tooltip_margin = margin;
 }
 
-// shortcut: tooltips and the link target show and hide at once, without their fade.
-void host_show_tooltip(void* ui_view, double left, double top, double) {
-  Show(g_tooltip, ui_view, left - g_tooltip_margin, top - g_tooltip_margin, -1, -1, false);
-  LogShown(g_tooltip, "tooltip");
+void host_show_tooltip(void* ui_view, double left, double top, double fade) {
+  FadeIn(g_tooltip, ui_view, left - g_tooltip_margin, top - g_tooltip_margin, fade, "tooltip");
 }
 
-void host_hide_tooltip(double) {
-  Hide(g_tooltip);
+void host_hide_tooltip(double fade) {
+  FadeOut(g_tooltip, fade, [] {});
 }
 
 // shortcut: the card takes clicks over its whole window, the margin round the plate included, and
@@ -2605,16 +2684,14 @@ void host_add_link_target(void* link_view, double margin, void (*pointer)(double
   g_link_pointer = pointer;
 }
 
-void host_show_link_target(void* ui_view, double left, double top, double) {
+void host_show_link_target(void* ui_view, double left, double top, double fade) {
   g_link_shown_over = ui_view;
-  Show(g_link_target, ui_view, left - g_link_margin, top - g_link_margin, -1, -1, false);
-  LogShown(g_link_target, "link target");
+  FadeIn(g_link_target, ui_view, left - g_link_margin, top - g_link_margin, fade, "link target");
   WatchPointer();
 }
 
-void host_hide_link_target(double) {
-  Hide(g_link_target);
-  MaybeStopWatchingPointer();
+void host_hide_link_target(double fade) {
+  FadeOut(g_link_target, fade, MaybeStopWatchingPointer);
 }
 
 void host_focus(void* view) {
@@ -2677,17 +2754,21 @@ void host_show_menu_window(void* ui_view,
                    origin.y + static_cast<LONG>(height * scale)};
   g_menu.frame = frame;
   const unsigned showing = ++g_menu.showing;
-  // It goes on screen after the event, so the press that opened it is over. shortcut: the host
-  // can't force GPUI to draw this menu first as the Mac does, so its first frame may be the last
-  // menu's until GPUI's loop draws; refine when the engine runs the checks on Windows.
+  // It goes on screen after the event, so the press that opened it is over.
   Later([=] {
     if (showing != g_menu.showing) {
       return;
     }
     SetWindowLongPtrW(g_menu.hwnd, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(base));
     WatchOwner(root);
-    PlaceAndShow(g_menu.hwnd, frame.left, frame.top, frame.right - frame.left,
-                 frame.bottom - frame.top, true);
+    const int wide = frame.right - frame.left, high = frame.bottom - frame.top;
+    // Placed and drawn before it's on screen, as the Mac's host draws it, so its first frame is
+    // this menu and not the last: Windows sends a hidden window no WM_PAINT, but GPUI's window
+    // draws on any it's sent, shown or not.
+    SetWindowPos(g_menu.hwnd, nullptr, frame.left, frame.top, wide, high,
+                 SWP_NOACTIVATE | SWP_NOZORDER);
+    SendMessageW(g_menu.hwnd, WM_PAINT, 0, 0);
+    PlaceAndShow(g_menu.hwnd, frame.left, frame.top, wide, high, true);
     SetForegroundWindow(g_menu.hwnd);
     SetFocus(g_menu.hwnd);
     InstallMenuHooks();
