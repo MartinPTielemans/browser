@@ -110,8 +110,8 @@ def store(records):
 def main():
     volume, name, app = sys.argv[1:4]
     window = {
-        # Where it opens on screen, and the size of what's inside its title bar.
-        "WindowBounds": "{{200, 120}, {%d, %d}}" % WINDOW,
+        # Where it opens on screen, and its size with the 28 pt title bar, which Finder counts.
+        "WindowBounds": "{{200, 120}, {%d, %d}}" % (WINDOW[0], WINDOW[1] + 28),
         "ShowToolbar": False,
         "ShowSidebar": False,
         "ShowPathbar": False,
