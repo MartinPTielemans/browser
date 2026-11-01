@@ -1787,15 +1787,22 @@ int FrameHit(HWND root, POINT at) {
            : at.x >= client.right - 2 * edge ? HTTOPRIGHT
                                              : HTTOP;
   }
-  // The third of shell.rs's WINDOW_BUTTONS, 66 from the left and window-button-y (24) down, 14
-  // across (design/tokens.toml): kept in step with them.
+  // Maximize, the second of shell.rs's WINDOW_BUTTONS in Windows' order (windows_buttons), 43
+  // from the left and window-button-y (24) down, its plate windows-button-plate (22) across
+  // (design/tokens.toml): kept in step with them.
   const double scale = Scale(root);
   auto shown = WindowButtonsShown().find(root);
   if (shown != WindowButtonsShown().end() && shown->second &&
-      std::abs(at.x / scale - 66) <= 7 && std::abs(at.y / scale - 24) <= 7) {
+      std::abs(at.x / scale - 43) <= 11 && std::abs(at.y / scale - 24) <= 11) {
     return HTMAXBUTTON;
   }
   return 0;
+}
+
+// GPUI's window in each browser window, which hears the pointer the frame answers for.
+std::map<HWND, HWND>& FrameUi() {
+  static std::map<HWND, HWND> ui;
+  return ui;
 }
 
 // GPUI's window over the browser window steps aside where the frame answers.
@@ -1828,6 +1835,21 @@ LRESULT CALLBACK FrameProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
         return hit;
       }
       break;
+    // GPUI hears the pointer over the frame too, so the UI's maximize button shows its plate under
+    // it, which the frame answers for, and the plate goes as the pointer leaves the window.
+    case WM_NCMOUSEMOVE:
+      if (auto ui = FrameUi().find(hwnd); ui != FrameUi().end()) {
+        TRACKMOUSEEVENT leave{sizeof leave, TME_LEAVE | TME_NONCLIENT, hwnd, 0};
+        TrackMouseEvent(&leave);
+        SendMessageW(ui->second, WM_NCMOUSEMOVE, wparam, lparam);
+      }
+      break;
+    case WM_NCMOUSELEAVE:
+      if (auto ui = FrameUi().find(hwnd); ui != FrameUi().end()) {
+        // Far off the window, where nothing of the UI's is under it.
+        SendMessageW(ui->second, WM_NCMOUSEMOVE, HTNOWHERE, MAKELPARAM(-32000, -32000));
+      }
+      break;
     // Windows would draw its own maximize button at the press, so the press is the UI's to take:
     // the release maximizes or restores, as the UI's button does.
     case WM_NCLBUTTONDOWN:
@@ -1847,6 +1869,7 @@ LRESULT CALLBACK FrameProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
       break;
     case WM_NCDESTROY:
       WindowButtonsShown().erase(hwnd);
+      FrameUi().erase(hwnd);
       break;
     // Windows tells every top-level window that "Show animations in Windows" changed.
     case WM_SETTINGCHANGE:
@@ -1868,6 +1891,7 @@ void TakeTitleBar(void* ui_view) {
   SetWindowSubclass(root, FrameProc, kFrame, 0);
   if (HWND ui = GetWindow(Hwnd(ui_view), GW_CHILD)) {
     SetWindowSubclass(ui, FrameChildProc, kFrame, 0);
+    FrameUi()[root] = ui;
   }
   // After the UI's update that showed the window: the content grows, and GPUI, still busy, would
   // miss the resize and keep its frame at the old height.
