@@ -1864,7 +1864,10 @@ void host_set_overlay_elevation(int index,
   Overlay* overlay = index == HOST_SITE_CONTROLS ? &g_site_controls_overlay
                      : index >= 0 && index < int(std::size(g_overlays)) ? &g_overlays[index]
                                                                           : nullptr;
-  if (!overlay) {
+  if (!overlay || (overlay->outline_opacity == outline_opacity &&
+                   overlay->outline_radius == outline_radius &&
+                   overlay->shadow_opacity == shadow_opacity &&
+                   overlay->shadow_radius == shadow_radius && overlay->shadow_drop == shadow_drop)) {
     return;
   }
   overlay->outline_opacity = outline_opacity;
@@ -1872,6 +1875,20 @@ void host_set_overlay_elevation(int index,
   overlay->shadow_opacity = shadow_opacity;
   overlay->shadow_radius = shadow_radius;
   overlay->shadow_drop = shadow_drop;
+  if (!overlay->shadow_layer) {
+    return;
+  }
+  // Already added, as the command bar is, whose level changes with where it shows.
+  [CATransaction begin];
+  [CATransaction setDisableActions:YES];
+  overlay->shadow_layer.shadowOpacity = shadow_opacity;
+  overlay->shadow_layer.shadowRadius = shadow_radius;
+  overlay->shadow_layer.shadowOffset = CGSizeMake(0, -shadow_drop);
+  overlay->outline_layer.shadowOpacity = outline_opacity;
+  overlay->outline_layer.shadowRadius = outline_radius;
+  [CATransaction commit];
+  // Drawn again at its next show, as its reach changed.
+  [overlay->shadow setFrame:NSZeroRect display:NO];
 }
 
 void host_add_overlay(int index, void* overlay_view, double radius, void (*dismissed)(void)) {

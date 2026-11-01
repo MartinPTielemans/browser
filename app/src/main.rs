@@ -1705,8 +1705,9 @@ impl command_bar::Host for Bar {
         shell::copy_from_bar(text, cx);
     }
 
-    fn show(&self, centered: bool, left: f32, top: f32, width: f32, radius: f32) {
+    fn show(&self, centered: bool, left: f32, top: f32, width: f32, radius: f32, level: Level) {
         let (left, top, width) = (f64::from(left), f64::from(top), f64::from(width));
+        elevate(COMMAND_BAR, level);
         unsafe {
             platform::host_set_overlay_radius(COMMAND_BAR, radius.into());
             platform::host_show_overlay(COMMAND_BAR, front().1, centered, left, top, width)
