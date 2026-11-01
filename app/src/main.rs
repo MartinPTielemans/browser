@@ -4473,7 +4473,15 @@ unsafe extern "C" fn started(_: *mut c_void) {
             // GPUI's X11 scale is its own guess otherwise, from Xft.dpi, where Chromium also
             // follows GDK_SCALE.
             true => {
-                gpui_linux::embed_x11(unsafe { bc::bc_display_scale() } as f32);
+                // A click in the UI takes the keyboard there, to keep, as Wayland's does: moving
+                // X's input focus into GPUI's window tells the core nothing while it's there,
+                // as after ⌘W, where the UI holds the keys for the page shown next (#1209).
+                fn pressed(ui_view: *mut c_void) {
+                    if let Some(window) = window_in(ui_view) {
+                        unsafe { bc::bc_window_ui_takes_keyboard(window) };
+                    }
+                }
+                gpui_linux::embed_x11(unsafe { bc::bc_display_scale() } as f32, pressed);
                 // The clipboard's owner can be Chromium, which answers on this thread, so the UI's
                 // read has it answer while it waits (#999).
                 gpui_linux::answer_clipboard_reads_with(|| unsafe {
