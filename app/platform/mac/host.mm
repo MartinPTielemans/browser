@@ -3810,6 +3810,26 @@ void host_copy(const char* text) {
   [pasteboard setString:@(text) forType:NSPasteboardTypeString];
 }
 
+bool host_copy_secret(const char* text, uint32_t seconds) {
+  NSPasteboard* pasteboard = CopyPasteboard();
+  // Kept from Universal Clipboard, which would send it to the user's other devices.
+  const NSInteger count =
+      [pasteboard prepareForNewContentsWithOptions:NSPasteboardContentsCurrentHostOnly];
+  [pasteboard setString:@(text) forType:NSPasteboardTypeString];
+  // nspasteboard.org's markers, which clipboard managers honour by not recording what they mark,
+  // as 1Password marks a password it copies.
+  [pasteboard setData:[NSData data] forType:@"org.nspasteboard.ConcealedType"];
+  [pasteboard setData:[NSData data] forType:@"org.nspasteboard.TransientType"];
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)seconds * NSEC_PER_SEC),
+                 dispatch_get_main_queue(), ^{
+                   // Only if it's still the words: anything copied since changed the count.
+                   if (pasteboard.changeCount == count) {
+                     [pasteboard clearContents];
+                   }
+                 });
+  return true;
+}
+
 size_t host_paste(char* text, size_t capacity) {
   const char* held = [CopyPasteboard() stringForType:NSPasteboardTypeString].UTF8String ?: "";
   if (capacity) {
@@ -4136,12 +4156,16 @@ bool host_close_other_window(void) {
   return true;
 }
 
-int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count) {
+int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count,
+             bool returns) {
   NSAlert* alert = [[NSAlert alloc] init];
   alert.messageText = @(message);
   alert.informativeText = @(detail);
   for (size_t i = 0; i < count; ++i) {
     [alert addButtonWithTitle:@(buttons[i])];
+  }
+  if (!returns && count > 0) {
+    alert.buttons.firstObject.keyEquivalent = @"";
   }
   g_alert = alert;
   fprintf(stderr, "browser: alert shown %s\n", message);

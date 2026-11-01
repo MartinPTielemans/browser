@@ -2672,7 +2672,8 @@ HRESULT CALLBACK AlertEvent(HWND hwnd, UINT event, WPARAM, LPARAM, LONG_PTR text
 
 extern "C" {
 
-int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count) {
+int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count,
+             bool returns) {
   std::wstring title = Wide(message), text = Wide(detail);
   std::vector<std::wstring> labels;
   std::vector<TASKDIALOG_BUTTON> task_buttons;
@@ -2697,7 +2698,11 @@ int host_ask(const char* message, const char* detail, const char* const* buttons
   config.pszContent = text.c_str();
   config.cButtons = static_cast<UINT>(task_buttons.size());
   config.pButtons = task_buttons.data();
+  // A task dialog always has a default, so return chooses Cancel where it can't choose the first.
   config.nDefaultButton = task_buttons.empty() ? 0 : task_buttons[0].nButtonID;
+  if (!returns && cancel >= 0) {
+    config.nDefaultButton = IDCANCEL;
+  }
   std::string texts = std::string(message ? message : "") + ", " + (detail ? detail : "");
   g_alert_buttons.clear();
   for (const TASKDIALOG_BUTTON& button : task_buttons) {
@@ -2943,6 +2948,58 @@ void host_copy(const char* text) {
     }
   }
   CloseClipboard();
+}
+
+namespace {
+
+// The clipboard's sequence number once the secret was put on it, which anything copied since
+// changes.
+DWORD g_secret_sequence = 0;
+
+void CALLBACK ClearSecret(HWND, UINT, UINT_PTR timer, DWORD) {
+  KillTimer(nullptr, timer);
+  if (GetClipboardSequenceNumber() == g_secret_sequence && OpenClipboard(nullptr)) {
+    EmptyClipboard();
+    CloseClipboard();
+  }
+}
+
+// A clipboard format holding |value|, as the formats Windows' clipboard history reads hold.
+void SetClipboardDword(const wchar_t* format, DWORD value) {
+  if (HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, sizeof value)) {
+    memcpy(GlobalLock(memory), &value, sizeof value);
+    GlobalUnlock(memory);
+    if (!SetClipboardData(RegisterClipboardFormatW(format), memory)) {
+      GlobalFree(memory);
+    }
+  }
+}
+
+}  // namespace
+
+bool host_copy_secret(const char* text, uint32_t seconds) {
+  std::wstring wide = Wide(text);
+  if (!OpenClipboard(nullptr)) {
+    return false;
+  }
+  EmptyClipboard();
+  const size_t bytes = (wide.size() + 1) * sizeof(wchar_t);
+  if (HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, bytes)) {
+    memcpy(GlobalLock(memory), wide.c_str(), bytes);
+    GlobalUnlock(memory);
+    if (!SetClipboardData(CF_UNICODETEXT, memory)) {
+      GlobalFree(memory);
+    }
+  }
+  // Kept out of clipboard history and the cloud clipboard, and from clipboard monitors that honour
+  // it, as password managers mark what they copy.
+  SetClipboardDword(L"ExcludeClipboardContentFromMonitorProcessing", 0);
+  SetClipboardDword(L"CanIncludeInClipboardHistory", 0);
+  SetClipboardDword(L"CanUploadToCloudClipboard", 0);
+  CloseClipboard();
+  g_secret_sequence = GetClipboardSequenceNumber();
+  SetTimer(nullptr, 0, seconds * 1000, ClearSecret);
+  return true;
 }
 
 size_t host_paste(char* text, size_t capacity) {
