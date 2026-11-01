@@ -388,9 +388,7 @@ expect '^browser: shortcut recording new-tab$' "a click on New Tab's keys didn't
 send key t cmd ctrl
 # Off the Mac ⌃ presses Alt, as ⌥ does (docs/ux-spec.md › Keyboard).
 new_tab_key=ctrl-cmd-t
-if [ "$(uname)" = Linux ]; then
-  new_tab_key=alt-cmd-t
-fi
+[ "$(uname)" = Darwin ] || new_tab_key=alt-cmd-t
 expect "^browser: shortcut new-tab $new_tab_key\$" "⌃⌘T didn't become New Tab's key"
 ../tools/window-screenshot.sh "$pid" "$out/shortcuts.png" || fail "no window to capture"
 send key w cmd
@@ -479,9 +477,7 @@ expect '^browser: shortcut recording focus-sidebar$' \
   "a click on Focus Sidebar's keys didn't record them"
 send key k cmd ctrl
 sidebar_key=ctrl-cmd-k
-if [ "$(uname)" = Linux ]; then
-  sidebar_key=alt-cmd-k
-fi
+[ "$(uname)" = Darwin ] || sidebar_key=alt-cmd-k
 expect "^browser: shortcut focus-sidebar $sidebar_key\$" "⌃⌘K didn't become Focus Sidebar's key"
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
@@ -700,9 +696,7 @@ send key 1 cmd ctrl
 # keymap gives back is named as the Mac's on each.
 space_key=ctrl-cmd-1
 first_key=ctrl-1
-if [ "$(uname)" = Linux ]; then
-  space_key=alt-cmd-1
-fi
+[ "$(uname)" = Darwin ] || space_key=alt-cmd-1
 expect "^browser: shortcut select-space-1 $space_key\$" "⌃⌘1 didn't become Go to Space 1's key"
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
