@@ -641,6 +641,15 @@ expect '^browser: settings shown General$' "⌘, didn't show Settings on its Gen
 expect '^browser: settings drew General$' "Settings didn't draw General"
 send clickkey 519 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
+# Copy All Links' toast is mostly still up, and the click lands all the same (#1134): a toast lets
+# clicks through, but on its plate while it has buttons, which this one hasn't. A slow run says
+# when the toast had gone first, so the click didn't have one to go past.
+shown=$(grep -n '^browser: toast shown Copied Links as Markdown$' "$log" | tail -1 | cut -d: -f1)
+advanced=$(grep -n '^browser: settings tab Advanced$' "$log" | tail -1 | cut -d: -f1)
+hidden=$(sed -n "${shown:-1},\$p" "$log" | grep -n '^browser: toast hidden$' | head -1 | cut -d: -f1)
+if [ -n "$hidden" ] && [ $((${shown:-1} + hidden - 1)) -lt "$advanced" ]; then
+  echo "skip: the click on Advanced with a toast up, as Copy All Links' toast had gone first (#1134)."
+fi
 # On the Mac and Linux, where the host hears ⌥ alone, its switch row is 42 under the other four.
 case $(uname) in Darwin | Linux) option_row=42 ;; *) option_row=0 ;; esac
 send clickkey 575 $((302 + option_row))
