@@ -1169,9 +1169,10 @@ bool Run(const std::string& line) {
     if (count < 1 || !TargetAt(x, y, &target)) {
       return false;
     }
-    // A mouse's tick is a notch; a trackpad's points, content moving up for scrolling down.
-    const int across = action == "wheel" ? static_cast<int>(dx * WHEEL_DELTA)
-                                         : static_cast<int>(std::lround(dx * 1.2));
+    // A mouse's tick is a notch; a trackpad's points, content moving up for scrolling down. Across,
+    // GPUI reads the Mac's positive x, lines or points right, from a negative WM_MOUSEHWHEEL.
+    const int across = action == "wheel" ? static_cast<int>(-dx * WHEEL_DELTA)
+                                         : static_cast<int>(std::lround(-dx * 1.2));
     const int along = static_cast<int>(std::lround(-dy * 1.2));
     g_steps.push_back({[=] { Move(target, 0, 0); }});
     for (int event = 0; event < count; event++) {
