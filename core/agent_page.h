@@ -91,7 +91,8 @@ class AgentPage : public content::WebContentsObserver,
   void Settle();
 
   void Click();
-  void Mouse(const char* type, std::pair<double, double> at, base::OnceClosure then);
+  // Sends the mouse event at |at| to the session at |slot|, in its frame's own coordinates.
+  void Mouse(const char* type, std::pair<double, double> at, int slot, base::OnceClosure then);
   void Type(bool submit);
   void Focus(int64_t element, bool submit);
   void PressKey(const std::string& key, base::OnceClosure then);
@@ -163,6 +164,8 @@ class AgentPage : public content::WebContentsObserver,
   std::vector<Target> targets_;
   // The frames the snapshot running reads.
   std::vector<Frame> frames_;
+  // The box Center last found, in its frame's own coordinates rather than the page's.
+  gfx::RectF in_frame_;
   // Keeps the page drawing while it's hidden, for the agent's input and screenshots.
   base::ScopedClosureRunner drawing_;
   base::WeakPtrFactory<AgentPage> weak_factory_{this};

@@ -334,31 +334,40 @@ void AgentPage::Click() {
           return;
         }
         page->Point(*box);
-        const std::pair<double, double> at(box->CenterPoint().x(), box->CenterPoint().y());
+        // To the element's frame's own session, at the element in that frame: sent to the page's,
+        // Chromium finds the frame under the point from what it has drawn, and gives the click to
+        // the page around a frame in another process it has no drawing of yet (#1175).
+        const int slot = SlotOfElement(page->job_->element);
+        const gfx::PointF center = page->in_frame_.CenterPoint();
+        const std::pair<double, double> at(center.x(), center.y());
         base::WeakPtr<AgentPage> weak = page;
-        page->Mouse("mouseMoved", at,
-                    base::BindOnce(
-                        [](base::WeakPtr<AgentPage> page, std::pair<double, double> at) {
-                          if (!page) {
-                            return;
-                          }
-                          page->Mouse(
-                              "mousePressed", at,
+        page->Mouse(
+            "mouseMoved", at, slot,
+            base::BindOnce(
+                [](base::WeakPtr<AgentPage> page, std::pair<double, double> at, int slot) {
+                  if (!page) {
+                    return;
+                  }
+                  page->Mouse("mousePressed", at, slot,
                               base::BindOnce(
-                                  [](base::WeakPtr<AgentPage> page, std::pair<double, double> at) {
+                                  [](base::WeakPtr<AgentPage> page,
+                                     std::pair<double, double> at, int slot) {
                                     if (page) {
-                                      page->Mouse("mouseReleased", at,
+                                      page->Mouse("mouseReleased", at, slot,
                                                   base::BindOnce(&AgentPage::Settle, page));
                                     }
                                   },
-                                  page, at));
-                        },
-                        weak, at));
+                                  page, at, slot));
+                },
+                weak, at, slot));
       },
       weak_factory_.GetWeakPtr()));
 }
 
-void AgentPage::Mouse(const char* type, std::pair<double, double> at, base::OnceClosure then) {
+void AgentPage::Mouse(const char* type,
+                      std::pair<double, double> at,
+                      int slot,
+                      base::OnceClosure then) {
   base::DictValue params =
       base::DictValue().Set("type", type).Set("x", at.first).Set("y", at.second);
   if (std::string_view(type) != "mouseMoved") {
@@ -377,7 +386,8 @@ void AgentPage::Mouse(const char* type, std::pair<double, double> at, base::Once
              }
              std::move(then).Run();
            },
-           weak_factory_.GetWeakPtr(), std::move(then)));
+           weak_factory_.GetWeakPtr(), std::move(then)),
+       slot);
 }
 
 void AgentPage::Type(bool submit) {
@@ -800,6 +810,7 @@ void AgentPage::Center(Then then) {
                                      static_cast<float>(left), static_cast<float>(top),
                                      static_cast<float>(right - left),
                                      static_cast<float>(bottom - top));
+                                 page->in_frame_ = box;
                                  page->Offset(slot, box, std::move(then));
                                },
                                page, slot, std::move(then)),
