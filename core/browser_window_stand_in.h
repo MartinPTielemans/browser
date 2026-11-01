@@ -205,6 +205,10 @@ class BrowserWindowStandIn : public BrowserWindow,
   // The Browser is made after its window, so the window hears of it here.
   void SetBrowser(BrowserWindowInterface* browser);
 
+  // Off the Mac, as the window starts to leave full screen: Chrome's controller lets go of a page
+  // full screen now, before the window resizes, as it does on the Mac.
+  void LetGoOfPage();
+
   // ui::BaseWindow:
   bool IsActive() const override;
   bool IsMaximized() const override;
@@ -364,6 +368,8 @@ class BrowserWindowStandIn : public BrowserWindow,
 
   base::WeakPtr<Window> window_;
   raw_ptr<BrowserWindowInterface> browser_ = nullptr;
+  // The window counts itself out of full screen to Chrome's controller (LetGoOfPage).
+  bool letting_go_ = false;
   std::unique_ptr<NoLocationBar> location_bar_;
   // Made with the Browser, in place of the one Chrome's window makes.
   std::unique_ptr<SidePanel> side_panel_;

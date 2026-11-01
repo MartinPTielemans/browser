@@ -31,7 +31,10 @@ impl Host for Recorder {
         self.push(format!("show {window}"));
     }
     // A frame of the motion, which tells nothing of what the user did.
-    fn drew(&self, _: Bounds<Pixels>, _: f32) {}
+    fn drew(&self, _: Bounds<Pixels>, _: f32, _: f32) {}
+    fn page_under(&self) -> bool {
+        false
+    }
     fn release(&self) {
         self.push("release".into());
     }
@@ -44,10 +47,19 @@ impl Host for Recorder {
     fn keep(&self, window: u64, tab: u64) {
         self.push(format!("keep {window} {tab}"));
     }
+    fn closed(&self, window: u64, closed: Closed, undone: bool, _: &mut App) {
+        let (x, y) = (f32::from(closed.link.x), f32::from(closed.link.y));
+        let undone = if undone { " undone" } else { "" };
+        self.push(format!("closed {window} over {} {} {x} {y}{undone}", closed.over, closed.url));
+    }
 }
 
 const WINDOW: u64 = 1;
 const TAB: u64 = 7;
+/// The pinned tab whose link it opened from.
+const OVER: u64 = 3;
+/// What closing it tells the window, for ⌘Z and ⇧⌘T to open it again.
+const CLOSED: &str = "closed 1 over 3 https://www.example.org/a 400 200";
 
 fn bounds(x: f32, y: f32, width: f32, height: f32) -> Bounds<Pixels> {
     Bounds::new(point(px(x), px(y)), size(px(width), px(height)))
@@ -87,7 +99,7 @@ impl Shown {
     fn show(&mut self, tab: u64) {
         let link = point(px(400.), px(200.));
         let url = "https://www.example.org/a".into();
-        self.cx.cx.update(|cx| show(WINDOW, tab, url, (page(), 6.), link, cx));
+        self.cx.cx.update(|cx| show(WINDOW, tab, OVER, url, (page(), 6.), link, cx));
         self.cx.run_until_parked();
     }
 
@@ -150,6 +162,7 @@ fn its_keys() {
     // Esc is reserved, before the page, as Chromium's stop would otherwise take it.
     assert_eq!(key_action("escape", true), Some(KeyAction::Close));
     assert_eq!(key_action("cmd-enter", false), Some(KeyAction::Keep));
+    assert_eq!(key_action("shift-cmd-c", false), Some(KeyAction::CopyUrl));
     assert_eq!(key_action("cmd-w", true), Some(KeyAction::Close));
     assert_eq!(key_action("escape", false), None);
     assert_eq!(key_action("cmd-l", false), None);
@@ -168,7 +181,7 @@ fn the_header_shows_the_site() {
 fn escape_closes_it(cx: &mut TestAppContext) {
     let mut shown = Shown::new(cx);
     shown.keys("escape");
-    assert_eq!(shown.calls(), ["release", "hide", "close 7"]);
+    assert_eq!(shown.calls(), ["release", "hide", "close 7", CLOSED]);
 }
 
 /// ⌘↩ grows it into the tab's place, then keeps its page as a Today tab, as it is.
@@ -187,7 +200,7 @@ fn its_buttons_keep_and_close_it(cx: &mut TestAppContext) {
     shown.show(TAB);
     shown.calls();
     shown.click(CLOSE_BUTTON);
-    assert_eq!(shown.calls(), ["release", "hide", "close 7"]);
+    assert_eq!(shown.calls(), ["release", "hide", "close 7", CLOSED]);
 }
 
 /// A click on the dim closes it; one on the card doesn't.
@@ -197,7 +210,7 @@ fn a_click_outside_closes_it(cx: &mut TestAppContext) {
     shown.click((400., 50.));
     assert_eq!(shown.calls(), Vec::<String>::new());
     shown.click(DIM_SPOT);
-    assert_eq!(shown.calls(), ["release", "hide", "close 7"]);
+    assert_eq!(shown.calls(), ["release", "hide", "close 7", CLOSED]);
 }
 
 /// Keys from its page come here and nowhere else: its own act on it, and the window's don't act
@@ -217,12 +230,51 @@ fn its_pages_keys_stay_in_it(cx: &mut TestAppContext) {
     // Once it's leaving, the window's page has its keys back, and its own page's do nothing.
     assert_eq!(route(WINDOW, 3, "escape", true), None);
     assert_eq!(route(0, TAB, "cmd-enter", false), Some(false));
-    assert_eq!(shown.calls(), ["release", "hide", "close 7"]);
+    assert_eq!(shown.calls(), ["release", "hide", "close 7", CLOSED]);
     assert_eq!(shown.cx.cx.update(|cx| tab(cx)), None);
     shown.show(TAB);
     shown.calls();
     assert_eq!(shown.cx.cx.update(|cx| key(0, TAB, "escape", true, cx)), Some(true));
-    assert_eq!(shown.calls(), ["release", "hide", "close 7"]);
+    assert_eq!(shown.calls(), ["release", "hide", "close 7", CLOSED]);
+}
+
+/// Redo closes the preview over its tab, which the window's history has already, and no other.
+#[gpui::test]
+fn redo_closes_it_over_its_tab(cx: &mut TestAppContext) {
+    let mut shown = Shown::new(cx);
+    assert!(!shown.cx.cx.update(|cx| close_over(WINDOW, OVER + 1, cx)));
+    assert!(!shown.cx.cx.update(|cx| close_over(WINDOW + 1, OVER, cx)));
+    assert!(shown.cx.cx.update(|cx| close_over(WINDOW, OVER, cx)));
+    assert_eq!(shown.calls(), ["release", "hide", "close 7", &format!("{CLOSED} undone")]);
+}
+
+/// A call's link opens as a tab, and the same sites' other pages preview.
+#[test]
+fn meeting_links_are_known_by_site_and_path() {
+    for url in [
+        "https://meet.google.com/abc-defg-hij",
+        "http://meet.google.com:8080/abc-defg-hij?authuser=1",
+        "https://us02web.zoom.us/j/123456789?pwd=x",
+        "https://zoom.us/my/someone",
+        "https://teams.microsoft.com/l/meetup-join/19%3ameeting/0",
+        "https://teams.live.com/meet/9876",
+        "https://acme.webex.com/meet/someone",
+        "https://whereby.com/room",
+        "https://meet.jit.si/SomeRoom",
+    ] {
+        assert!(is_meeting(url), "{url}");
+    }
+    for url in [
+        "https://meet.google.com/",
+        "https://zoom.us/pricing",
+        "https://teams.microsoft.com/",
+        "https://www.webex.com/pricing",
+        "https://example.com/meet.google.com/abc",
+        "https://notzoom.us/j/1",
+        "https://www.google.com/search?q=meet.google.com",
+    ] {
+        assert!(!is_meeting(url), "{url}");
+    }
 }
 
 /// A second link's preview takes the place of the first, whose page closes at once.

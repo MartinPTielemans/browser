@@ -82,6 +82,8 @@ impl Entry {
 pub trait Clients: Send + Sync {
     fn connect(&self, client: Client, entry: &Entry) -> Result<(), String>;
     fn disconnect(&self, client: Client, name: &str) -> Result<(), String>;
+    /// Whether the client is on this computer, for Settings › Agents to list it. Other is always.
+    fn found(&self, client: Client) -> bool;
 }
 
 /// The configs in the user's home.
@@ -122,6 +124,23 @@ impl Clients for System {
             Client::Other => Ok(()),
         }
     }
+
+    /// By the folder or file each makes in the user's home as it first runs, which a stat finds at
+    /// once: its command may be on a PATH only the user's login shell has.
+    fn found(&self, client: Client) -> bool {
+        match client {
+            Client::ClaudeCode => {
+                home().join(".claude.json").exists() || home().join(".claude").is_dir()
+            }
+            Client::Codex => codex_config().parent().is_some_and(Path::is_dir),
+            Client::Other => true,
+        }
+    }
+}
+
+fn home() -> PathBuf {
+    let home = std::env::var(if cfg!(windows) { "USERPROFILE" } else { "HOME" });
+    PathBuf::from(home.unwrap_or_default())
 }
 
 /// `claude`'s arguments that add the server for every project, as the user's.
@@ -161,10 +180,7 @@ fn claude(arguments: &[&str]) -> Result<(), String> {
 fn codex_config() -> PathBuf {
     let home = std::env::var("CODEX_HOME")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            let home = std::env::var(if cfg!(windows) { "USERPROFILE" } else { "HOME" });
-            Path::new(&home.unwrap_or_default()).join(".codex")
-        });
+        .unwrap_or_else(|_| home().join(".codex"));
     home.join("config.toml")
 }
 

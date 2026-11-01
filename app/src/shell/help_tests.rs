@@ -1,0 +1,68 @@
+//! The Help menu's pages and its report of a problem, on a host that records what the shell asks
+//! of it: each opens in a tab with no page needed, and the report and the build's details carry
+//! the version and system.
+
+use std::rc::Rc;
+
+use gpui::{AppContext, Entity, TestAppContext};
+
+use crate::build_info::{self, BuildInfo};
+use crate::shell::{Command, Folders, Shell, recorder::Recorder};
+
+/// A window with one Space and no tab shown, as a new window is.
+fn window(cx: &mut TestAppContext) -> (Entity<Shell>, Rc<Recorder>) {
+    let host = Rc::new(Recorder::default());
+    let shell = cx.new(|cx| Shell::new(host.clone(), cx));
+    shell.update(cx, |shell, cx| {
+        let space = (1, "Work".into(), None, 0, "".into(), "".into(), "".into());
+        shell.set_spaces(vec![space], cx);
+        shell.set_space(1, cx);
+        shell.set_tabs(1, Vec::new(), Vec::new(), Vec::new(), Folders::default(), cx);
+    });
+    (shell, host)
+}
+
+/// Help Center and What's New open the site's pages, from a window with no page too.
+#[gpui::test]
+fn help_center_and_whats_new_open_the_sites_pages(cx: &mut TestAppContext) {
+    let (shell, host) = window(cx);
+    shell.update(cx, |shell, cx| {
+        shell.run(Command::HelpCenter, "menu", cx);
+        shell.run(Command::WhatsNew, "command bar", cx);
+    });
+    let pages = host.opened_pages.take();
+    assert_eq!(pages, [build_info::HELP_CENTER, build_info::WHATS_NEW]);
+    assert!(pages.iter().all(|page| page.starts_with("https://")));
+}
+
+/// Report a Problem… opens a new issue on the bug report form with the build's details filled
+/// in, and sends nothing itself. Copy Build Info copies the same details and says so.
+#[gpui::test]
+fn report_a_problem_fills_the_issue_with_the_builds_details(cx: &mut TestAppContext) {
+    let (shell, host) = window(cx);
+    shell.update(cx, |shell, cx| shell.run(Command::ReportProblem, "menu", cx));
+    let here = BuildInfo::here();
+    assert_eq!(host.opened_pages.take(), [here.issue_url(build_info::NEW_ISSUE)]);
+
+    shell.update(cx, |shell, cx| shell.run(Command::CopyBuildInfo, "menu", cx));
+    assert_eq!(host.copied.take(), [here.text()]);
+    assert_eq!(host.toasts.take(), ["Copied Build Info"]);
+}
+
+/// Check for Updates… is in the command bar, where Linux has no menu bar to show it, only in a
+/// build that updates itself, and asks the browser's updater.
+#[gpui::test]
+fn check_for_updates_is_in_the_bar_of_a_build_that_updates(cx: &mut TestAppContext) {
+    let (shell, host) = window(cx);
+    let offered = |cx: &mut TestAppContext| {
+        shell.read_with(cx, |shell, _| shell.offers(Command::CheckForUpdates))
+    };
+    assert!(!offered(cx), "a dev build has nothing to check");
+    host.updates.set(true);
+    assert!(offered(cx));
+    let found = crate::shell::find_commands("updat", &Default::default(), |name, _| Some(name));
+    let row = found.iter().find(|row| row.command == Command::CheckForUpdates);
+    assert_eq!(row.map(|row| row.name.as_ref()), Some("Check for Updates…"));
+    shell.update(cx, |shell, cx| shell.run(Command::CheckForUpdates, "command bar", cx));
+    assert_eq!(host.checked_for_updates.get(), 1);
+}

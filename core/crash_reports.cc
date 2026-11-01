@@ -1,14 +1,18 @@
 #include "browser_core/crash_reports.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <ctime>
 #include <iterator>
 #include <memory>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
+#include "base/base_paths.h"
 #include "base/command_line.h"
 #include "base/debug/dump_without_crashing.h"
 #include "base/files/file_path.h"
@@ -34,6 +38,7 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "components/crash/core/app/crashpad.h"
+#include "components/crash/core/common/crash_keys.h"
 #include "components/prefs/pref_service.h"
 #include "net/base/mime_util.h"
 #include "net/http/http_response_headers.h"
@@ -76,8 +81,11 @@ constexpr net::NetworkTrafficAnnotationTag kCrashReport =
           "off, the user pressed Send Report when the browser offered to send the report of its "
           "crash the time before."
         data:
-          "The minidump alone: the crashed process's threads, their stacks and registers, its "
-          "loaded modules and Crashpad's annotations, such as the browser's version."
+          "The minidump: the crashed process's threads, their stacks and registers, its loaded "
+          "modules and Crashpad's annotations: the browser's version, its switches but those "
+          "naming the user's folders, its features and field trials, the GPU, the extensions' "
+          "IDs and the event it was handling. For a Sentry collector, a field saying to keep no "
+          "IP address with the report."
         destination: OTHER
         destination_other: "The collector the build names, which anyone can host."
       }
@@ -126,6 +134,37 @@ std::unique_ptr<CrashReportDatabase> OpenReports() {
   std::optional<base::FilePath> path = ProfilesReports();
   return path ? CrashReportDatabase::InitializeWithoutCreating(*path) : nullptr;
 }
+
+// The user's home, read as each process starts, before its sandbox, and kept for the page
+// processes the zygote forks on Linux, which can't read it.
+base::FilePath& Home() {
+  static base::NoDestructor<base::FilePath> home;
+  return *home;
+}
+
+// The switches the crash keys leave out: Chrome's (chrome/common/crash_keys.cc), whose filter
+// can't be called from here, and those naming the user's folders, as a path in the home names the
+// user: the profile's, wherever it is, and any other.
+bool LeftOutSwitch(const std::string& flag) {
+  static constexpr auto kLeftOut = std::to_array<std::string_view>({
+      "string-annotations", "enable-logging", "logging-level", "type", "v", "vmodule",
+      "gpu-preferences", "metrics-client-id", "user-data-dir",
+  });
+  if (crash_keys::IsDefaultBoringSwitch(flag) || flag.starts_with("/prefetch:")) {
+    return true;
+  }
+  const std::string home = Home().AsUTF8Unsafe();
+  if (!home.empty() && flag.find(home) != std::string::npos) {
+    return true;
+  }
+  return flag.starts_with("--") &&
+         std::ranges::contains(kLeftOut, std::string_view(flag).substr(2, flag.find('=') - 2));
+}
+
+// For a Sentry collector, which takes the report's IP address from its connection and keeps it
+// with the report, with the place it gives: to take none. Other collectors leave the field.
+constexpr char kSentryFields[] =
+    R"({"sdk":{"name":"browser_core","version":"1","settings":{"infer_ip":"never"}}})";
 
 struct Unsent {
   crashpad::UUID uuid;
@@ -244,9 +283,9 @@ void Sent(int round,
   Reports()->PostTaskAndReply(FROM_HERE, base::BindOnce(&Delete, uuid), base::BindOnce(&SendNext));
 }
 
-// The minidump alone, as a Breakpad collector takes it, which GlitchTip's and Sentry's minidump
-// endpoints are. Crashpad's handler would add the minidump's annotations as fields, which the
-// minidump has anyway. `asked`, it's the one report the user said to send.
+// The minidump, as a Breakpad collector takes it, which GlitchTip's and Sentry's minidump endpoints
+// are, and Sentry's fields. Crashpad's handler would add the minidump's annotations as fields,
+// which the minidump has anyway. `asked`, it's the one report the user said to send.
 void Send(int round, bool asked, std::optional<Unsent> report) {
   if (round != g_round) {
     return;
@@ -260,6 +299,7 @@ void Send(int round, bool asked, std::optional<Unsent> report) {
   net::AddMultipartValueForUploadWithFileName("upload_file_minidump",
                                               report->uuid.ToString() + ".dmp", report->minidump,
                                               boundary, "application/octet-stream", &body);
+  net::AddMultipartValueForUpload("sentry", kSentryFields, boundary, "", &body);
   net::AddMultipartFinalDelimiterForUpload(boundary, &body);
   auto request = std::make_unique<network::ResourceRequest>();
   request->url = Collector();
@@ -363,6 +403,13 @@ void LeaveOutPages() {
   crashpad::CrashpadInfo::GetCrashpadInfo()->set_gather_indirectly_referenced_memory(
       crashpad::TriState::kDisabled, 0);
   base::debug::SetDumpWithoutCrashingFunction(nullptr);
+}
+
+void LeaveOutFolders() {
+  if (Home().empty()) {
+    base::PathService::Get(base::DIR_HOME, &Home());
+  }
+  crash_keys::SetSwitchesFromCommandLine(*base::CommandLine::ForCurrentProcess(), &LeftOutSwitch);
 }
 
 std::string CollectorHost() {

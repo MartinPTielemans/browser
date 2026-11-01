@@ -56,6 +56,10 @@ impl Host for Recorder {
         self.record(format!("save {}", png.len()));
     }
 
+    fn save_to_library(&self, png: &[u8]) {
+        self.record(format!("save to library {}", png.len()));
+    }
+
     fn share(&self, png: &[u8], share: Share) {
         self.record(format!("share {} {share:?}", png.len()));
     }
@@ -71,7 +75,10 @@ fn png() -> Vec<u8> {
 /// Capture mode's window over a page that fills it.
 struct Mode {
     cx: VisualTestContext,
+    window: WindowHandle<Capture>,
     host: Rc<Recorder>,
+    /// Whether the window has a Library, as a private one hasn't.
+    library: bool,
 }
 
 impl Mode {
@@ -79,13 +86,14 @@ impl Mode {
         let host = Rc::new(Recorder::default());
         let window = cx.update(|cx| open(host.clone(), cx)).expect("no window for Capture");
         let cx = VisualTestContext::from_window(window.into(), cx);
-        Mode { cx, host }
+        Mode { cx, window, host, library: true }
     }
 
     /// What ⇧⌘2 does: the shell's `start`.
     fn start(&mut self) {
         let frame = Bounds::new(point(px(0.), px(0.)), size(px(800.), px(600.)));
-        self.cx.cx.update(|cx| start(TAB, frame, 8., cx));
+        let library = self.library;
+        self.cx.cx.update(|cx| start(TAB, frame, 8., library, Look::dark(), cx));
         self.cx.run_until_parked();
     }
 
@@ -96,7 +104,13 @@ impl Mode {
 
     /// ⇧⌘2, and the picture of the page the window shows with.
     fn shown(cx: &mut TestAppContext) -> Self {
+        Mode::shown_with(true, cx)
+    }
+
+    /// ⇧⌘2 in a window with a Library, or in a private one without.
+    fn shown_with(library: bool, cx: &mut TestAppContext) -> Self {
         let mut mode = Mode::new(cx);
+        mode.library = library;
         mode.start();
         mode.captured(1);
         assert_eq!(mode.calls(), [format!("capture {TAB} 1 view"), "show 0 0 800 600".into()]);
@@ -126,20 +140,38 @@ impl Mode {
     fn calls(&self) -> Vec<String> {
         self.host.0.take()
     }
+
+    /// The browser window over `tab` draws its menus light, or dark, now.
+    fn look(&mut self, tab: u64, light: bool) {
+        let look = Look { light, ..Look::dark() };
+        self.cx.cx.update(|cx| set_look(tab, look, cx));
+        self.cx.run_until_parked();
+    }
+
+    /// What capture mode last drew, the pill or the menu, and whether in the light look.
+    fn drawn(&mut self) -> Option<(&'static str, bool)> {
+        let window = self.window;
+        let drawn = |capture: &mut Capture| capture.session.as_ref().and_then(|session| session.drawn);
+        self.cx.cx.update(|cx| window.update(cx, |capture, _, _| drawn(capture))).unwrap()
+    }
 }
 
 fn rect(x: f32, y: f32, width: f32, height: f32) -> Bounds<Pixels> {
     Bounds::new(point(px(x), px(y)), size(px(width), px(height)))
 }
 
-/// A row's middle in the menu, from the menu's corner: the field, then 40 a row and 9 a line.
+/// The menu's rows start under the field and its line, inside the panel's padding.
+const ROWS_TOP: f32 = PADDING + ROW + LINE;
+
+/// A row's middle in the menu, from the menu's corner: the field, then 24 a row and 9 a line, as
+/// ilo's menu has them. As a window with a Library has them.
 fn row(action: Action) -> f32 {
-    let mut top = FIELD_TOP + FIELD_HEIGHT + ROWS_TOP;
+    let mut top = ROWS_TOP;
     for row in ROWS {
         match row {
             Some(row) if *row == action => return top + ROW / 2.,
             Some(_) => top += ROW,
-            None => top += SEPARATOR,
+            None => top += LINE,
         }
     }
     panic!("no row for {action:?}");
@@ -266,7 +298,7 @@ fn send_to_copies_where_the_system_has_no_share_menu(cx: &mut TestAppContext) {
     mode.click(100., 100.);
     assert_eq!(mode.calls(), ["camera false"]);
     let menu = point(50. - RING + MENU_LEFT, 60. - RING);
-    mode.click(menu.x + MENU_WIDTH / 2., menu.y + FIELD_TOP + FIELD_HEIGHT / 2.);
+    mode.click(menu.x + MENU_WIDTH / 2., menu.y + PADDING + ROW / 2.);
     assert_eq!(mode.calls(), [format!("capture {TAB} 2 50 60 200 80")]);
     mode.captured(2);
     let calls = mode.calls();
@@ -276,4 +308,48 @@ fn send_to_copies_where_the_system_has_no_share_menu(cx: &mut TestAppContext) {
         true => assert!(calls[2].starts_with(&format!("share {len} Menu("))),
         false => assert_eq!(calls[2], format!("copy {len}")),
     }
+}
+
+/// Save to Library is Arc's first row. It saves the picture with no question and says so; a
+/// private window has no Library, so its menu starts at Copy.
+#[gpui::test]
+fn save_to_library_is_the_first_row_but_in_a_private_window(cx: &mut TestAppContext) {
+    let mut mode = Mode::shown(cx);
+    mode.hover(100., 100., rect(50., 60., 200., 80.));
+    mode.click(100., 100.);
+    assert_eq!(mode.calls(), ["camera false"]);
+    let menu = point(50. - RING + MENU_LEFT, 60. - RING);
+    let first = ROWS_TOP + ROW / 2.;
+    assert_eq!(row(Action::SaveToLibrary), first);
+    mode.click(menu.x + MENU_WIDTH / 2., menu.y + first);
+    assert_eq!(mode.calls(), [format!("capture {TAB} 2 50 60 200 80")]);
+    mode.captured(2);
+    let len = png().len();
+    let saved = ["hide".to_string(), format!("end {TAB}"), format!("save to library {len}")];
+    assert_eq!(mode.calls(), saved);
+
+    let mut private = Mode::shown_with(false, cx);
+    private.hover(100., 100., rect(50., 60., 200., 80.));
+    private.click(100., 100.);
+    assert_eq!(private.calls(), ["camera false"]);
+    private.click(menu.x + MENU_WIDTH / 2., menu.y + first);
+    private.captured(2);
+    let copied = ["hide".to_string(), format!("end {TAB}"), format!("copy {len}")];
+    assert_eq!(private.calls()[1..], copied);
+}
+
+#[gpui::test]
+fn it_takes_the_windows_look_as_it_changes(cx: &mut TestAppContext) {
+    let mut mode = Mode::shown(cx);
+    assert_eq!(mode.drawn(), Some(("pill", false)));
+    // Another window's look isn't this one's.
+    mode.look(TAB + 1, true);
+    assert_eq!(mode.drawn(), Some(("pill", false)));
+    mode.look(TAB, true);
+    assert_eq!(mode.drawn(), Some(("pill", true)));
+    mode.hover(100., 100., rect(50., 60., 200., 80.));
+    mode.click(100., 100.);
+    assert_eq!(mode.drawn(), Some(("menu", true)));
+    mode.look(TAB, false);
+    assert_eq!(mode.drawn(), Some(("menu", false)));
 }

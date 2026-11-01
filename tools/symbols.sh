@@ -1,30 +1,28 @@
 #!/bin/bash
 # Uploads a release's crash report symbols to the collector app/branding/crash-reports names
-# (docs/decisions.md, 9) with sentry-cli, which GlitchTip takes as Sentry does: the files and folders
-# given, which sentry-cli searches for debug files, and on Windows the engine's PDBs, which its
-# release keeps apart from it (engine/fetch.sh symbols). SENTRY_URL, SENTRY_AUTH_TOKEN, SENTRY_ORG
-# and SENTRY_PROJECT name the collector's project. With none of them, or with no collector, as in a
-# fork's build, it uploads nothing; with only some it stops. Given nothing, it checks only that, so
-# a release stops before it builds.
+# (docs/decisions.md, 9) with sentry-cli: the files and folders given, which sentry-cli searches for
+# debug files, and on Windows the engine's PDBs, which its release keeps apart from it
+# (engine/fetch.sh symbols). SENTRY_URL, SENTRY_AUTH_TOKEN, SENTRY_ORG and SENTRY_PROJECT name the
+# collector's project: for ilo's, https://de.sentry.io, the EU region, though an organization
+# token's own URL wins over SENTRY_URL. Without the token, the owner's to make, or with no
+# collector, as in a fork's build, it says so and uploads nothing; with the token but not the rest
+# it stops. Given nothing, it checks only that, so a release stops before it builds.
 # Usage: tools/symbols.sh [file or folder]...
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 
+if [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
+  echo "symbols: no SENTRY_AUTH_TOKEN (README.md › Releases), so no symbols were uploaded." >&2
+  exit 0
+fi
 missing=
-for name in SENTRY_AUTH_TOKEN SENTRY_URL SENTRY_ORG SENTRY_PROJECT; do
+for name in SENTRY_URL SENTRY_ORG SENTRY_PROJECT; do
   [ -n "${!name:-}" ] || missing="$missing $name"
 done
-case $missing in
-'') ;;
-' SENTRY_AUTH_TOKEN SENTRY_URL SENTRY_ORG SENTRY_PROJECT')
-  echo "symbols: no crash collector is set up (README.md › Releases), so no symbols are uploaded." >&2
-  exit 0
-  ;;
-*)
+if [ -n "$missing" ]; then
   echo "symbols: uploading crash reports' symbols needs$missing as well (README.md › Releases)." >&2
   exit 1
-  ;;
-esac
+fi
 if [ -z "$(tr -d '[:space:]' <"$root/app/branding/crash-reports")" ]; then
   echo "symbols: app/branding/crash-reports names no collector, so no symbols are uploaded." >&2
   exit 0

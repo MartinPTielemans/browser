@@ -114,7 +114,7 @@ fn crossing_the_pinned_line_gives_a_click(cx: &mut TestAppContext) {
 #[gpui::test]
 fn going_into_a_folder_gives_a_click(cx: &mut TestAppContext) {
     let docs = [(20, ("Docs".into(), true))];
-    let folders = Folders { folders: docs.into(), parents: Default::default() };
+    let folders = Folders { folders: docs.into(), ..Default::default() };
     let (shell, host) = shell_with(cx, &[20, 21, 22], &[4], folders);
     let y = press(&shell, cx, 22);
     // Up past 21 to the gap under the folder.

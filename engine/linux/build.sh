@@ -1,10 +1,12 @@
 #!/bin/bash
 # Builds the Linux engine in the tree prepare.sh made: chrome, with the core in it, and what it
-# runs with. The first build takes hours; after that a change recompiles what it touches and
-# relinks chrome.
+# runs with, or the targets named after the tree (test.sh names the core's tests). The first build
+# takes hours; after that a change recompiles what it touches and relinks chrome.
 set -euo pipefail
-[ $# -eq 1 ] || { echo "usage: build.sh <work directory>" >&2 && exit 2; }
+[ $# -ge 1 ] || { echo "usage: build.sh <work directory> [target...]" >&2 && exit 2; }
 out=$1/src/out/Default
+targets=("${@:2}")
+[ ${#targets[@]} -gt 0 ] || targets=(chrome chrome_crashpad_handler)
 # The checkout's series and core, as engine/build.sh takes them on the Mac.
 . "$(dirname "$0")/../tree.sh"
 apply_series "$1/src"
@@ -16,4 +18,4 @@ ninja -C "$out" build.ninja >/dev/null
 # jobs, as on the Mac (engine/build.sh says why).
 export PYTHON_CPU_COUNT=2
 jobs=${BUILD_JOBS:-$(($(awk '/^MemTotal:/ { print $2 }' /proc/meminfo) / (3 << 20)))}
-exec ninja -C "$out" -j "$jobs" chrome chrome_crashpad_handler
+exec ninja -C "$out" -j "$jobs" "${targets[@]}"

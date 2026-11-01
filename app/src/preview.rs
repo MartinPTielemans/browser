@@ -4,6 +4,7 @@
 
 use std::{
     cell::{Cell, RefCell},
+    collections::HashMap,
     rc::Rc,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -13,7 +14,8 @@ use browser::import::sources::{Os, Roots};
 use browser::log;
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState,
-    Folders, Match, MenuBar, MenuEntry, Page, Shell, SpaceEntry, Split, Trouble, WindowButton,
+    Folders, Match, MediaAction, MenuBar, MenuEntry, Page, Shell, SpaceEntry, Split, Trouble,
+    WindowButton,
 };
 use browser::command_bar::{self, Suggestion};
 use browser::dialog;
@@ -233,7 +235,8 @@ fn now() -> f64 {
 
 struct Fake {
     shell: WeakEntity<Shell>,
-    next_id: Cell<u64>,
+    /// Shared with the changes it makes later, which make ids too.
+    next_id: Rc<Cell<u64>>,
     spaces: RefCell<Vec<SpaceEntry>>,
     archive: RefCell<Vec<(u64, &'static str, &'static str, f64)>>,
     downloads: RefCell<Vec<Download>>,
@@ -329,7 +332,7 @@ impl Browser for Fake {
     }
 
     // Under the tab, with its title and page, as the core does.
-    fn duplicate(&self, tab: u64, cx: &mut App) {
+    fn duplicate(&self, tab: u64, cx: &mut App) -> u64 {
         let copy = self.next_id.get();
         self.next_id.set(copy + 1);
         self.later(cx, move |shell, cx| {
@@ -341,6 +344,7 @@ impl Browser for Fake {
             set_today(shell, today, cx);
             shell.set_selected(copy, cx);
         });
+        copy
     }
 
     // The made-up tabs stay in their Space.
@@ -437,8 +441,76 @@ impl Browser for Fake {
         self.change_folder(folder, cx, move |entry| entry.0 = name);
     }
 
+    fn set_folder_icon(&self, folder: u64, icon: &str, cx: &mut App) {
+        let icon: SharedString = icon.to_string().into();
+        self.later(cx, move |shell, cx| {
+            let mut folders = shell.folders();
+            match icon.is_empty() {
+                true => folders.icons.remove(&folder),
+                false => folders.icons.insert(folder, icon),
+            };
+            let (pinned, today) = (shell.pinned().to_vec(), shell.today().to_vec());
+            let splits = shell.splits();
+            shell.set_tabs(shell.space(), pinned, today, splits, folders, cx);
+        });
+    }
+
+    // As the core does: the copy under the folder, with a copy of each row in it.
+    fn duplicate_folder(&self, folder: u64, cx: &mut App) -> u64 {
+        let copy = self.next_id.get();
+        let next = self.next_id.clone();
+        next.set(copy + 1);
+        self.later(cx, move |shell, cx| {
+            let (mut pinned, mut folders) = (shell.pinned().to_vec(), shell.folders());
+            let Some(at) = pinned.iter().position(|&id| id == folder) else {
+                return;
+            };
+            let end = end_of(&pinned, &folders, folder);
+            let mut copies = HashMap::from([(folder, copy)]);
+            let mut made = vec![copy];
+            for &row in &pinned[at + 1..end] {
+                let id = next.get();
+                next.set(id + 1);
+                copies.insert(row, id);
+                made.push(id);
+            }
+            for (&from, &to) in &copies {
+                if let Some(parent) = folders.parents.get(&from).copied() {
+                    let parent = copies.get(&parent).copied().unwrap_or(parent);
+                    folders.parents.insert(to, parent);
+                }
+                if let Some(entry) = folders.folders.get(&from).cloned() {
+                    folders.folders.insert(to, entry);
+                }
+                if let Some(icon) = folders.icons.get(&from).cloned() {
+                    folders.icons.insert(to, icon);
+                }
+                if !folders.folders.contains_key(&from) {
+                    shell.set_page(to, shell.page(from), cx);
+                }
+            }
+            pinned.splice(end..end, made);
+            let (today, splits) = (shell.today().to_vec(), shell.splits());
+            shell.set_tabs(shell.space(), pinned, today, splits, folders, cx);
+        });
+        copy
+    }
+
     fn set_folder_open(&self, folder: u64, open: bool, cx: &mut App) {
         self.change_folder(folder, cx, move |entry| entry.1 = open);
+    }
+
+    // The preview keeps the rows of the Space shown alone.
+    fn set_pinned_open(&self, space: u64, open: bool, cx: &mut App) {
+        self.later(cx, move |shell, cx| {
+            if space != shell.space() {
+                return;
+            }
+            let folders = Folders { pinned_shut: !open, ..shell.folders() };
+            let (pinned, today) = (shell.pinned().to_vec(), shell.today().to_vec());
+            let splits = shell.splits();
+            shell.set_tabs(shell.space(), pinned, today, splits, folders, cx);
+        });
     }
 
     fn move_folder(&self, folder: u64, to: u64, index: usize, cx: &mut App) {
@@ -481,6 +553,18 @@ impl Browser for Fake {
     }
 
     fn reopen_closed_tab(&self, _: &mut App) {}
+
+    fn reopen_preview(
+        &self,
+        _: &browser::link_preview::Closed,
+        _: (Bounds<Pixels>, f32),
+        _: &mut App,
+    ) {
+    }
+
+    fn close_preview(&self, _: u64, _: &mut App) -> bool {
+        false
+    }
 
     fn reopen_tab(&self, _: u64, _: &mut App) -> u64 {
         0
@@ -558,6 +642,26 @@ impl Browser for Fake {
     // And no previews.
     fn file_preview(&self, _: u64, _: &str, _: &mut App) {}
 
+    // Nor videos.
+    fn open_video(&self, _: u64, _: &str, _: u32, _: &mut App) -> bool {
+        false
+    }
+
+    fn video_frame(&self, _: u64, _: &mut App) -> Option<Arc<gpui::RenderImage>> {
+        None
+    }
+
+    fn close_video(&self, _: u64, _: &mut App) {}
+
+    // Nor captures.
+    fn list_captures(&self, _: &mut App) {}
+
+    fn hover_kinds(&self, _: &mut App) -> u32 {
+        browser::shell::HOVER_ALL
+    }
+
+    fn set_hover_kinds(&self, _: u32, _: &mut App) {}
+
     // The made-up downloads have no files, so each is gone already and none drags.
     fn trash(&self, _: &str, _: &mut App) -> bool {
         true
@@ -588,6 +692,45 @@ impl Browser for Fake {
         });
     }
 
+    // The made-up pages share nothing.
+    fn share_instead(&self, _: u64, _: &mut App) {}
+
+    fn media(&self, tab: u64, action: MediaAction, cx: &mut App) {
+        self.later(cx, move |shell, cx| {
+            let media_playing = match action {
+                MediaAction::Play => true,
+                MediaAction::Pause => false,
+                MediaAction::Next => shell.page(tab).media_playing,
+                MediaAction::PictureInPicture => shell.page(tab).media_playing,
+            };
+            // A made-up page floats nothing, but its player's button goes as a real one's would.
+            let media_picture_in_picture = (shell.page(tab).media_picture_in_picture)
+                && action != MediaAction::PictureInPicture;
+            let page = Page { media_playing, media_picture_in_picture, ..shell.page(tab) };
+            shell.set_page(tab, page, cx);
+        });
+    }
+
+    fn cast(&self, tab: u64, cx: &mut App) {
+        self.later(cx, move |shell, cx| {
+            let device = shell::CastDevice {
+                id: "cast:preview".into(),
+                name: "Living Room TV".into(),
+                state: shell::CastState::Available,
+                status: "".into(),
+            };
+            let cast = shell::Cast { header: "Cast tab".into(), devices: vec![device] };
+            shell.set_cast(tab, Some(cast), cx);
+        });
+    }
+
+    fn cast_close(&self, _: &mut App) {}
+
+    // Casting starting closes the dialog, as the core's does.
+    fn cast_to(&self, tab: u64, _: SharedString, cx: &mut App) {
+        self.later(cx, move |shell, cx| shell.set_cast(tab, None, cx));
+    }
+
     fn can_use_system_engine(&self) -> bool {
         true
     }
@@ -612,9 +755,17 @@ impl Browser for Fake {
 
     fn go_forward(&self, _: u64, _: &mut App) {}
 
+    fn tab_history(&self, _: u64, _: bool, _: &mut App) {}
+
+    fn go_to_history(&self, _: u64, _: i32, _: &mut App) {}
+
+    fn open_history(&self, _: u64, _: i32, _: &mut App) {}
+
     fn reload(&self, _: u64, _: bool, _: &mut App) {}
 
     fn clear_site(&self, _: u64, _: bool, _: &mut App) {}
+
+    fn set_developer_mode(&self, _: u64, _: bool, _: &mut App) {}
 
     // The made-up pages ask nothing.
     fn answer_permission(&self, _: u64, _: shell::Answer, _: &mut App) {}
@@ -633,12 +784,23 @@ impl Browser for Fake {
     // The made-up pages have no source and no DevTools.
     fn view_source(&self, _: u64, _: &mut App) {}
     fn save_page(&self, _: u64, _: &mut App) {}
+
+    fn save_markdown(&self, _: &str, _: String, _: usize, _: &mut App) {}
     fn close_page_menu(&self, _: u64, _: Option<i32>, _: &mut App) {}
     fn print(&self, _: u64, _: &mut App) {}
 
     fn devtools(&self, _: u64, _: i32, _: &mut App) {}
 
     fn task_manager(&self, _: &mut App) {}
+
+    // The preview has no engine to trace, nor the toast's window.
+    fn start_trace(&self) -> bool {
+        false
+    }
+
+    fn stop_trace(&self) {}
+
+    fn trace_note(&self, _: Option<Rc<dyn Fn(&mut App)>>, _: &mut App) {}
 
     // The preview has no menu bar and no extensions.
     fn set_menus(&self, _: &MenuBar, _: &mut App) {}
@@ -659,6 +821,12 @@ impl Browser for Fake {
         false
     }
 
+    fn turn_on_extension(&self, _: u64, _: &str, _: &mut App) -> bool {
+        false
+    }
+
+    fn extension_crash_told(&self, _: u64, _: &str, _: &mut App) {}
+
     fn open_extension_options(&self, _: &str, _: &mut App) {}
 
     fn manage_extensions(&self, _: Option<&str>, _: &mut App) {}
@@ -678,7 +846,11 @@ impl Browser for Fake {
     fn set_side_panel_width(&self, _: f32, _: &mut App) {}
 
     fn view_history(&self, _: &mut App) {}
+    fn open_page(&self, _: &str, _: &mut App) {}
+    fn new_note(&self, _: u64, _: Option<u64>, _: &mut App) {}
     fn site_search_settings(&self, _: &mut App) {}
+
+    fn clear_browsing_data(&self, _: &mut App) {}
 
     fn close_other_window(&self, _: &mut App) -> bool {
         false
@@ -741,7 +913,17 @@ impl Browser for Fake {
     ) {
     }
 
-    fn capture(&self, _: u64, _: Bounds<Pixels>, _: f32, _: bool, _: &mut App) {}
+    fn capture(
+        &self,
+        _: u64,
+        _: Bounds<Pixels>,
+        _: f32,
+        _: bool,
+        _: bool,
+        _: menu::Look,
+        _: &mut App,
+    ) {
+    }
 
     fn page_picture(&self, _: u64, _: u64, _: &mut App) {}
 
@@ -769,6 +951,8 @@ impl Browser for Fake {
 
     fn hand_back(&self, _: u64, _: &mut App) {}
 
+    fn give_to_agent(&self, _: u64, _: u64, _: &mut App) {}
+
     fn stop_agent(&self, _: SharedString, _: &mut App) {}
 
     fn shortcuts(&self, _: &mut App) {}
@@ -791,12 +975,15 @@ impl Browser for Fake {
         0
     }
 
-    fn create_space(&self, name: &str, profile: u64, cx: &mut App) -> u64 {
+    fn create_space(&self, name: &str, profile: u64, after: u64, cx: &mut App) -> u64 {
         let space = self.next_id.get();
         self.next_id.set(space + 1);
         let entry =
             (space, name.to_string().into(), None, profile, "".into(), "".into(), "".into());
-        self.spaces.borrow_mut().push(entry);
+        let mut spaces = self.spaces.borrow_mut();
+        let at = spaces.iter().position(|(id, ..)| *id == after).map_or(spaces.len(), |at| at + 1);
+        spaces.insert(at, entry);
+        drop(spaces);
         self.report_spaces(cx);
         space
     }
@@ -856,6 +1043,8 @@ impl Browser for Fake {
     fn create_profile(&self, _: &str, _: &mut App) -> u64 {
         0
     }
+
+    fn rename_profile(&self, _: u64, _: &str, _: &mut App) {}
 
     // The tests' made-up Arc, so the import's step shows a browser to pick.
     fn import_host(&self) -> Rc<dyn browser::import::Host> {
@@ -942,6 +1131,7 @@ impl Browser for Fake {
     }
 
     fn split_with(&self, _: u64, _: u64, _: bool, _: &mut App) {}
+    fn open_split_at(&self, _: &str, _: u64, _: bool, _: bool, _: &mut App) {}
 
     // The targets' window is the app's, over the page, which the preview has neither of.
     fn show_drop_targets(&self, _: bool, _: &mut App) {}
@@ -965,6 +1155,10 @@ impl Browser for Fake {
     fn show_reveal(&self, _: f32, _: &mut App) {}
 
     fn hide_reveal(&self, _: &mut App) {}
+
+    fn option_reveals_sidebar(&self) -> bool {
+        true
+    }
 
     // PREVIEW_SIDEBAR=<width> starts the sidebar at that width, such as its narrowest, 164.
     fn saved_sidebar_width(&self) -> Option<f32> {
@@ -996,6 +1190,20 @@ impl Browser for Fake {
 
     fn hide_undo_toast(&self, _: &mut App) {}
 
+    fn in_front(&self) -> bool {
+        true
+    }
+
+    fn toast_button(
+        &self,
+        _: &str,
+        _: (Option<&'static str>, &'static str),
+        _: Rc<dyn Fn(&mut App)>,
+        _: Duration,
+        _: &mut App,
+    ) {
+    }
+
     fn set_edit_titles(&self, _: Option<&str>, _: Option<&str>, _: &mut App) {}
 
     fn full_screen_note(&self, _: bool, _: &mut App) {}
@@ -1008,6 +1216,9 @@ impl Browser for Fake {
 
     // So is the hover card's, and there's no engine to picture a page.
     fn hover_card(&self, _: browser::hover_card::Hover, _: &mut App) {}
+
+    // And the folder preview's.
+    fn folder_preview(&self, _: browser::folder_preview::Ask, _: &mut App) {}
 
     fn card_picture(&self, _: u64, _: &mut App) {}
 
@@ -1037,6 +1248,15 @@ impl Browser for Fake {
         let look = menu::Look { light: light || look.light, ..look };
         let area = Bounds::new(point(px(0.), px(0.)), PREVIEW_AREA.get());
         menu::show(menu::Request { items, at, area, look, chosen }, cx);
+    }
+
+    fn tell(
+        &self,
+        _: dialog::Question,
+        _: Box<dyn FnOnce(Vec<String>, &mut App)>,
+        _: &mut App,
+    ) -> bool {
+        false
     }
 
     // The dialog's window is one the app's host lays over the browser window. With PREVIEW_DIALOG=1
@@ -1192,8 +1412,9 @@ fn preview_bar(mode: &str, at: Point<Pixels>, cx: &mut App) {
             // Arc's "clear": the best command above the search row, others whose names start
             // with it under it, and a weaker one after the suggestions.
             let (cache, cookies) = (Command::ClearCacheAndRefresh, Command::ClearCookiesAndRefresh);
+            let clear_keys = shell::keystroke_label("shift-cmd-k");
             let rows = vec![
-                command("Clear Today", Command::Clear, Some("⇧⌘K"), Match::Name),
+                command("Clear Today", Command::Clear, Some(&clear_keys), Match::Name),
                 search("clear"),
                 command("Clear Cache and Refresh", cache, None, Match::Name),
                 command("Clear Cookies and Refresh", cookies, None, Match::Name),
@@ -1353,7 +1574,7 @@ fn main() {
                 let folder = first_favorite + FAVORITES.len() as u64;
                 let browser = Rc::new(Fake {
                     shell: cx.weak_entity(),
-                    next_id: Cell::new(folder + 1 + READING.len() as u64),
+                    next_id: Rc::new(Cell::new(folder + 1 + READING.len() as u64)),
                     spaces: RefCell::new(spaces.clone()),
                     archive: RefCell::new(archive),
                     downloads: RefCell::new(downloads),
@@ -1416,6 +1637,7 @@ fn main() {
                 let folders = Folders {
                     folders: [(folder, ("Docs".into(), true))].into(),
                     parents: [(2, folder)].into(),
+                    ..Default::default()
                 };
                 let today = (3..=TABS.len() as u64).collect();
                 let split = Split {
@@ -1498,6 +1720,14 @@ fn main() {
                 };
                 if let Some((tab, trouble)) = trouble {
                     shell.set_page(tab, Page { trouble, ..shell.page(tab) }, cx);
+                }
+                // PREVIEW_DEVELOPER_MODE=1 has the tab shown, the third tab and the GitHub
+                // favorite in Developer Mode, so its outline and contrast show.
+                if std::env::var_os("PREVIEW_DEVELOPER_MODE").is_some() {
+                    for tab in [shell.selected(), 3, favorites[2]] {
+                        let page = Page { developer_mode: true, ..shell.page(tab) };
+                        shell.set_page(tab, page, cx);
+                    }
                 }
                 if welcome {
                     shell.set_welcome(cx);
@@ -1694,6 +1924,8 @@ impl theme_picker::Host for PreviewPicker {
     fn show(&self, _: f32, _: f32, _: &[(f32, f32, f32)]) {}
 
     fn hide(&self) {}
+
+    fn detent(&self) {}
 }
 
 /// The dialog over the preview's window, which it covers, for its host can't move it.
@@ -1733,6 +1965,7 @@ impl site_controls::Host for PreviewSiteControls {
     fn allow_saving(&self, _: u64, _: &browser::passwords::Login) {}
 
     fn set_ad_blocking(&self, _: u64, _: bool) {}
+    fn set_developer_mode(&self, _: u64, _: bool) {}
 
     fn run(&self, _: site_controls::Run, _: u64, _: &mut App) {}
 
@@ -1779,5 +2012,6 @@ fn preview_site() -> Site {
         system_engine: None,
         logins: Vec::new(),
         ad_blocking: Some(true),
+        developer_mode: Some(false),
     }
 }

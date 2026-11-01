@@ -6,12 +6,17 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
+#include <string>
 #include <utility>
 #include <vector>
 
 #include "base/auto_reset.h"
+#include "base/functional/bind.h"
 #include "base/functional/callback.h"
+#include "base/logging.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/weak_ptr.h"
 #include "base/no_destructor.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/scoped_observation.h"
@@ -20,7 +25,11 @@
 #include "chrome/installer/util/shell_util.h"
 #include "ui/aura/client/focus_change_observer.h"
 #include "ui/aura/client/focus_client.h"
+#include "ui/aura/client/window_types.h"
+#include "ui/aura/env.h"
+#include "ui/aura/env_observer.h"
 #include "ui/aura/window.h"
+#include "ui/aura/window_observer.h"
 #include "ui/aura/window_tracker.h"
 #include "ui/base/ime/input_method.h"
 #include "ui/base/win/hwnd_subclass.h"
@@ -29,6 +38,7 @@
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size_conversions.h"
+#include "ui/views/focus/native_view_focus_manager.h"
 #include "ui/views/widget/desktop_aura/desktop_native_widget_aura.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_observer.h"
@@ -42,6 +52,68 @@ namespace browser_core::platform {
 
 namespace {
 
+// A native view in the logs below: its widget's name, and its own.
+std::string Describe(aura::Window* window) {
+  if (!window) {
+    return "nothing";
+  }
+  views::Widget* widget = views::Widget::GetWidgetForNativeView(window);
+  return (widget ? widget->GetName() : std::string("no widget")) + " / " + window->GetName();
+}
+
+// A window's class, in the logs below.
+std::string ClassOf(HWND hwnd) {
+  char name[64] = "";
+  if (hwnd) {
+    GetClassNameA(hwnd, name, sizeof(name));
+  }
+  return name;
+}
+
+// With --vmodule=window_views=1, what can close Chrome's dropdown under a page's field (#1037):
+// Chrome hides it on any native focus that isn't its own, and as the widget it hangs from moves,
+// which here is the page's pane's. It logs each popup's showing and hiding, and each native focus.
+class PopupLog : public views::NativeViewFocusChangeListener,
+                 public aura::EnvObserver,
+                 public aura::WindowObserver {
+ public:
+  PopupLog() {
+    views::NativeViewFocusManager::GetInstance()->AddFocusChangeListener(this);
+    aura::Env::GetInstance()->AddObserver(this);
+  }
+
+  // views::NativeViewFocusChangeListener: what Chrome's dropdown hears.
+  void OnNativeFocusChanged(gfx::NativeView focused_now) override {
+    VLOG(1) << "native focus now " << Describe(focused_now);
+  }
+
+  // aura::EnvObserver:
+  void OnWindowInitialized(aura::Window* window) override {
+    if (window->GetType() == aura::client::WINDOW_TYPE_POPUP ||
+        window->GetType() == aura::client::WINDOW_TYPE_MENU) {
+      popups_.insert(window);
+      window->AddObserver(this);
+    }
+  }
+
+  // aura::WindowObserver: heard for a popup's own windows too, which aren't logged.
+  void OnWindowVisibilityChanged(aura::Window* window, bool visible) override {
+    if (popups_.contains(window)) {
+      VLOG(1) << "popup " << Describe(window) << (visible ? " shown at " : " hidden at ")
+              << window->GetBoundsInScreen().ToString();
+    }
+  }
+
+  void OnWindowDestroying(aura::Window* window) override {
+    if (popups_.erase(window)) {
+      window->RemoveObserver(this);
+    }
+  }
+
+ private:
+  std::set<raw_ptr<aura::Window>> popups_;
+};
+
 // Gives a slot's HWND the keyboard while a page in it has aura's focus, and takes the page's focus
 // as the HWND loses it. Windows sends keys and the input method's messages only to the focused
 // HWND, and Chromium focuses a child widget's HWND, and tells its input method, only as a
@@ -50,10 +122,12 @@ class PaneKeyboard : public aura::client::FocusChangeObserver,
                      public ui::HWNDMessageFilter,
                      public views::WidgetObserver {
  public:
-  explicit PaneKeyboard(views::Widget* widget)
+  // |took_keyboard| runs each time the slot's HWND takes the keyboard.
+  PaneKeyboard(views::Widget* widget, base::RepeatingClosure took_keyboard)
       : widget_(widget),
         hwnd_(views::HWNDForWidget(widget)),
-        client_(aura::client::GetFocusClient(widget->GetNativeView())) {
+        client_(aura::client::GetFocusClient(widget->GetNativeView())),
+        took_keyboard_(std::move(took_keyboard)) {
     if (client_) {
       client_->AddObserver(this);
     }
@@ -67,7 +141,11 @@ class PaneKeyboard : public aura::client::FocusChangeObserver,
   // HWND focused, which it needs to take the input method's text. Not while another of the app's
   // windows is in front, such as the command bar.
   void OnWindowFocused(aura::Window* gained_focus, aura::Window*) override {
-    if (gained_focus && GetFocus() != hwnd_ && GetActiveWindow() == GetAncestor(hwnd_, GA_ROOT)) {
+    const bool take =
+        gained_focus && GetFocus() != hwnd_ && GetActiveWindow() == GetAncestor(hwnd_, GA_ROOT);
+    VLOG(1) << "pane " << hwnd_ << " focuses " << Describe(gained_focus)
+            << (take ? ", taking the keyboard" : "");
+    if (take) {
       base::AutoReset<bool> taking(&taking_, true);
       SetFocus(hwnd_);
     }
@@ -77,11 +155,14 @@ class PaneKeyboard : public aura::client::FocusChangeObserver,
   bool FilterMessage(HWND, UINT message, WPARAM w_param, LPARAM, LRESULT*) override {
     ui::InputMethod* input_method = widget_->GetInputMethod();
     if (message == WM_SETFOCUS) {
+      took_keyboard_.Run();
       if (input_method) {
         input_method->OnFocus();
       }
       // A page focused while another window was in front hears again, to take the input method.
       aura::Window* focused = client_ && !taking_ ? client_->GetFocusedWindow() : nullptr;
+      VLOG(1) << "pane " << hwnd_ << " has the keyboard"
+              << (focused ? ", focusing again " + Describe(focused) : std::string());
       if (focused) {
         aura::WindowTracker tracker;
         tracker.Add(focused);
@@ -95,6 +176,8 @@ class PaneKeyboard : public aura::client::FocusChangeObserver,
       if (to && IsChild(hwnd_, to)) {
         return false;
       }
+      VLOG(1) << "pane " << hwnd_ << " loses the keyboard to " << to << " " << ClassOf(to)
+              << ", blurring its page";
       if (input_method) {
         input_method->OnBlur();
       }
@@ -110,6 +193,11 @@ class PaneKeyboard : public aura::client::FocusChangeObserver,
   // views::WidgetObserver:
   void OnWidgetDestroying(views::Widget*) override { Stop(); }
 
+  // What a dropdown hung from the pane hears, and closes for.
+  void OnWidgetBoundsChanged(views::Widget*, const gfx::Rect& bounds) override {
+    VLOG(1) << "pane " << hwnd_ << " bounds now " << bounds.ToString();
+  }
+
  private:
   void Stop() {
     if (client_) {
@@ -123,6 +211,7 @@ class PaneKeyboard : public aura::client::FocusChangeObserver,
   raw_ptr<views::Widget> widget_;
   HWND hwnd_;
   raw_ptr<aura::client::FocusClient> client_;
+  base::RepeatingClosure took_keyboard_;
   bool taking_ = false;
   base::ScopedObservation<views::Widget, views::WidgetObserver> observation_{this};
 };
@@ -140,27 +229,46 @@ struct Slot {
   gfx::Rect page_in_devtools;
   // Only the bottom corners are round, for the side panel under the app's header.
   bool bottom_corners_only = false;
+  // Its corners' own, for a link preview's page, else the window's.
+  std::optional<double> corner_radius;
 };
 
 // The pages and DevTools a window shows once it changes, which move between its slots unhidden.
 using Staying = std::vector<aura::Window*>;
 
-class WindowViews : public views::WidgetObserver, public ui::HWNDMessageFilter {
+gfx::Insets InsetsOf(const gfx::Rect& frame, const gfx::Size& window) {
+  return gfx::Insets::TLBR(frame.y(), frame.x(), window.height() - frame.bottom(),
+                           window.width() - frame.right());
+}
+
+class WindowViews : public views::WidgetObserver,
+                    public aura::WindowObserver,
+                    public ui::HWNDMessageFilter {
  public:
   WindowViews(views::Widget* widget, HWND ui) : widget_(widget), ui_(ui) {
     observation_.Observe(widget);
     ui::HWNDSubclass::AddFilterToTarget(window(), this);
   }
 
-  ~WindowViews() override { ui::HWNDSubclass::RemoveFilterFromAllTargets(this); }
+  ~WindowViews() override {
+    if (preview_.page) {
+      preview_.page->RemoveObserver(this);
+    }
+    ui::HWNDSubclass::RemoveFilterFromAllTargets(this);
+  }
 
   HWND window() const { return views::HWNDForWidget(widget_); }
   HWND ui() const { return ui_; }
   std::vector<Slot>& panes() { return panes_; }
   Slot& side_panel() { return side_panel_; }
+  Slot& preview() { return preview_; }
   FocusRing& ring() { return ring_; }
   double corner_radius() const { return corner_radius_; }
   void set_corner_radius(double radius) { corner_radius_ = radius; }
+  bool held() const { return held_; }
+  void set_held(bool held) { held_ = held; }
+  bool ui_holds_for_page() const { return ui_holds_for_page_; }
+  void set_ui_holds_for_page(bool holds) { ui_holds_for_page_ = holds; }
 
   // A slot's widget, made the first time it's needed.
   views::Widget* WidgetFor(Slot& slot) {
@@ -170,10 +278,16 @@ class WindowViews : public views::WidgetObserver, public ui::HWNDMessageFilter {
                                        views::Widget::InitParams::TYPE_CONTROL);
       params.child = true;
       params.parent = widget_->GetNativeView();
+      // Aura focuses nothing in a widget that can't activate, as a control's can't by default: a
+      // click in the page, and the core's Focus of it, never gave it the keyboard (#872).
+      params.activatable = views::Widget::InitParams::Activatable::kYes;
       params.native_widget = new views::DesktopNativeWidgetAura(slot.widget.get());
       params.name = "BrowserCorePane";
       slot.widget->Init(std::move(params));
-      slot.keyboard = std::make_unique<PaneKeyboard>(slot.widget.get());
+      // A page taking the keyboard ends the UI's hold on it, as on Linux.
+      slot.keyboard = std::make_unique<PaneKeyboard>(
+          slot.widget.get(), base::BindRepeating(&WindowViews::set_ui_holds_for_page,
+                                                 base::Unretained(this), false));
     }
     return slot.widget.get();
   }
@@ -194,6 +308,9 @@ class WindowViews : public views::WidgetObserver, public ui::HWNDMessageFilter {
   }
 
   void Empty(Slot& slot, const Staying& staying = {}) {
+    if (&slot == &preview_ && slot.page) {
+      slot.page->RemoveObserver(this);
+    }
     aura::Window* holder = slot.widget ? slot.widget->GetNativeView() : nullptr;
     Detach(holder, slot.page, staying);
     Detach(holder, slot.devtools, staying);
@@ -201,6 +318,38 @@ class WindowViews : public views::WidgetObserver, public ui::HWNDMessageFilter {
     slot.devtools = nullptr;
     if (slot.widget) {
       slot.widget->Hide();
+    }
+  }
+
+  // Holds |page|, which no window shows, hidden in the window under its slots until the runner
+  // returned runs, so it has the window's compositor: a page out of every window has none, and a
+  // copy of it waits for a frame until it's shown again (#1056), as on Linux. Hidden, it costs no
+  // frames unless it's captured.
+  base::ScopedClosureRunner DrawUnseen(aura::Window* page) {
+    aura::Window* content = widget_->GetNativeView();
+    page->Hide();
+    content->AddChild(page);
+    content->StackChildAtBottom(page);
+    unseen_.Add(page);
+    auto tracked = std::make_unique<aura::WindowTracker>();
+    tracked->Add(page);
+    return base::ScopedClosureRunner(base::BindOnce(
+        [](base::WeakPtr<WindowViews> views, std::unique_ptr<aura::WindowTracker> tracked) {
+          if (views && !tracked->windows().empty()) {
+            views->Unsee(tracked->windows().front());
+          }
+        },
+        weak_factory_.GetWeakPtr(), std::move(tracked)));
+  }
+
+  // Takes |page| out of the window, unless a slot has shown it since DrawUnseen held it.
+  void Unsee(aura::Window* page) {
+    if (!unseen_.Contains(page)) {
+      return;
+    }
+    unseen_.Remove(page);
+    if (page->parent() == widget_->GetNativeView()) {
+      widget_->GetNativeView()->RemoveChild(page);
     }
   }
 
@@ -215,18 +364,25 @@ class WindowViews : public views::WidgetObserver, public ui::HWNDMessageFilter {
     return gfx::ScaleToFlooredSize(gfx::Size(client.right, client.bottom), 1 / Scale());
   }
 
-  // Sizes the UI to the window's content, and each slot to its insets, over the UI.
-  void LayOut() {
+  // Sizes the UI to the window's content.
+  void SizeUI() {
     RECT client;
     GetClientRect(window(), &client);
     SetWindowPos(ui_, HWND_BOTTOM, 0, 0, client.right, client.bottom,
                  SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+  }
+
+  // Sizes the UI to the window's content, and each slot to its insets, over the UI.
+  void LayOut() {
+    SizeUI();
     const float scale = Scale();
     const gfx::Size size = ContentSize();
     for (Slot& slot : panes_) {
       LayOut(slot, size, scale);
     }
     LayOut(side_panel_, size, scale);
+    // Last, so it's over the panes.
+    LayOut(preview_, size, scale);
     ring_.Fit();
   }
 
@@ -251,7 +407,8 @@ class WindowViews : public views::WidgetObserver, public ui::HWNDMessageFilter {
     }
     // shortcut: a window region's corners are aliased, unlike Core Animation's on the Mac; upgrade
     // to a DirectComposition clip if the edge shows.
-    const int diameter = base::ClampRound(2 * corner_radius_ * scale);
+    const int diameter =
+        base::ClampRound(2 * slot.corner_radius.value_or(corner_radius_) * scale);
     HRGN region = CreateRoundRectRgn(0, 0, pixels.width() + 1, pixels.height() + 1, diameter,
                                      diameter);
     if (slot.bottom_corners_only) {
@@ -263,8 +420,46 @@ class WindowViews : public views::WidgetObserver, public ui::HWNDMessageFilter {
     SetWindowRgn(hwnd, region, TRUE);
   }
 
+  // Shows |page|, a link preview's, at |frame| over the pages shown, in place of the preview it
+  // shows. The app's overlay over the window has a hole where it shows, and its card round that.
+  void ShowPreview(aura::Window* page, const gfx::Rect& frame, double corner_radius) {
+    views::Widget* holder = WidgetFor(preview_);
+    aura::Window* parent = holder->GetNativeView();
+    if (preview_.page != page) {
+      Empty(preview_);
+      if (page->parent()) {
+        page->parent()->RemoveChild(page);
+      }
+      parent->AddChild(page);
+      page->AddObserver(this);
+      preview_.page = page;
+    }
+    page->Show();
+    preview_.corner_radius = corner_radius;
+    preview_.insets = InsetsOf(frame, ContentSize());
+    holder->ShowInactive();
+    LayOut();
+  }
+
+  // aura::WindowObserver: a link preview's page goes as its tab closes, and its slot with it.
+  void OnWindowDestroying(aura::Window* window) override {
+    window->RemoveObserver(this);
+    if (preview_.page == window) {
+      preview_.page = nullptr;
+      if (preview_.widget) {
+        preview_.widget->Hide();
+      }
+    }
+  }
+
   // views::WidgetObserver:
-  void OnWidgetBoundsChanged(views::Widget*, const gfx::Rect&) override { LayOut(); }
+  void OnWidgetBoundsChanged(views::Widget*, const gfx::Rect&) override {
+    if (held_) {
+      SizeUI();
+    } else {
+      LayOut();
+    }
+  }
 
   void OnWidgetDestroying(views::Widget*) override {
     ring_.Hide();
@@ -272,8 +467,14 @@ class WindowViews : public views::WidgetObserver, public ui::HWNDMessageFilter {
       Empty(slot);
     }
     Empty(side_panel_);
+    Empty(preview_);
+    // A page held for its picture leaves too, or it would go with the window.
+    while (!unseen_.windows().empty()) {
+      Unsee(unseen_.windows().front());
+    }
     panes_.clear();
     side_panel_ = Slot();
+    preview_ = Slot();
     observation_.Reset();
     ui::HWNDSubclass::RemoveFilterFromAllTargets(this);
   }
@@ -302,11 +503,20 @@ class WindowViews : public views::WidgetObserver, public ui::HWNDMessageFilter {
   HWND ui_;
   std::vector<Slot> panes_;
   Slot side_panel_;
+  // A link preview's page, over the panes.
+  Slot preview_;
   // After the slots, so it leaves its holder before that goes.
   FocusRing ring_;
   double corner_radius_ = 0;
+  // The pages stay where they are as the window resizes, until ShowPages (HoldPagesForResize).
+  bool held_ = false;
+  // The UI has the keyboard while no page shows, for the next page shown (KeyboardForPage).
+  bool ui_holds_for_page_ = false;
   HWND had_keyboard_ = nullptr;
+  // The pages DrawUnseen holds.
+  aura::WindowTracker unseen_;
   base::ScopedObservation<views::Widget, views::WidgetObserver> observation_{this};
+  base::WeakPtrFactory<WindowViews> weak_factory_{this};
 };
 
 std::map<views::Widget*, std::unique_ptr<WindowViews>>& AllWindowViews() {
@@ -317,11 +527,6 @@ std::map<views::Widget*, std::unique_ptr<WindowViews>>& AllWindowViews() {
 WindowViews* ViewsOf(views::Widget* widget) {
   auto it = AllWindowViews().find(widget);
   return it == AllWindowViews().end() ? nullptr : it->second.get();
-}
-
-gfx::Insets InsetsOf(const gfx::Rect& frame, const gfx::Size& window) {
-  return gfx::Insets::TLBR(frame.y(), frame.x(), window.height() - frame.bottom(),
-                           window.width() - frame.right());
 }
 
 // Puts |view| in |parent| if it isn't there, and shows it unless |hidden|.
@@ -344,7 +549,8 @@ void Hold(aura::Window* parent, aura::Window* view, bool hidden) {
 views::NativeWidget* NewNativeWidget(views::Widget* widget, base::RepeatingClosure) {
   // shortcut: keeps Windows' title bar, where the Mac's UI fills it; give the window a custom frame
   // with the app's caption buttons when the header row is ported. Windows has no full screen of
-  // its own, so the window leaves it only when Chrome asks.
+  // its own, so the window leaves it only when Chrome or the app (bc_window_toggle_full_screen)
+  // asks, each through Window::LeaveFullScreen.
   return new views::DesktopNativeWidgetAura(widget);
 }
 
@@ -359,6 +565,9 @@ void AddWindowViews(views::Widget* widget, void* ui_view) {
     SetWindowLongPtr(ui, GWL_STYLE,
                      (GetWindowLongPtr(ui, GWL_STYLE) & ~WS_POPUP) | WS_CHILD | WS_VISIBLE);
     SetParent(ui, window);
+  }
+  if (VLOG_IS_ON(1)) {
+    static base::NoDestructor<PopupLog> popup_log;
   }
   auto views = std::make_unique<WindowViews>(widget, ui);
   WindowViews* raw = views.get();
@@ -379,6 +588,7 @@ void ShowPages(views::Widget* widget,
     return;
   }
   views->set_corner_radius(corner_radius);
+  views->set_held(false);
   const bool hidden = !widget->IsVisible();
   const gfx::Size size = views->ContentSize();
 
@@ -391,6 +601,12 @@ void ShowPages(views::Widget* widget,
   }
   if (side_panel) {
     staying.push_back(side_panel->page);
+  }
+
+  // A link preview's page kept as a tab shows in a pane now.
+  Slot& preview = views->preview();
+  if (preview.page && std::ranges::contains(staying, preview.page.get())) {
+    views->Empty(preview, staying);
   }
 
   std::vector<Slot>& slots = views->panes();
@@ -416,6 +632,17 @@ void ShowPages(views::Widget* widget,
     if (devtools) {
       Hold(parent, devtools, hidden);
       slot.page_in_devtools = pane.devtools->page_frame;
+    }
+    if (slot.page != pane.page && VLOG_IS_ON(1)) {
+      // What Chrome's dropdown takes for the page's window, and the window it keeps within.
+      views::Widget* top = views::Widget::GetTopLevelWidgetForNativeView(pane.page);
+      views::Widget* root = top;
+      while (root && root->parent()) {
+        root = root->parent();
+      }
+      VLOG(1) << "pane " << i << " page " << Describe(pane.page) << ": top-level widget "
+              << (top ? top->GetName() : std::string("none")) << ", in "
+              << (root ? root->GetName() : std::string("none"));
     }
     Hold(parent, pane.page, hidden);
     if (devtools) {
@@ -457,7 +684,16 @@ void ShowPages(views::Widget* widget,
   views->LayOut();
 }
 
-void HoldPagesForResize(views::Widget*) {}
+void HoldPagesForResize(views::Widget* widget) {
+  if (WindowViews* views = ViewsOf(widget)) {
+    views->set_held(true);
+  }
+}
+
+bool PagesHeldForResize(views::Widget* widget) {
+  WindowViews* views = ViewsOf(widget);
+  return views && views->held();
+}
 
 void HidePages(views::Widget* widget) {
   WindowViews* views = ViewsOf(widget);
@@ -474,8 +710,19 @@ void HidePages(views::Widget* widget) {
   }
 }
 
-// The app's host has no view for a link preview's page here yet, so nothing calls it with one.
-void ShowPageIn(gfx::NativeView, void*, const gfx::Rect&, double) {}
+// The app's view for a link preview is an overlay of its own over the window, which can't hold a
+// page, as on Linux, so the page shows in the window over its pages, where the overlay leaves a
+// hole, and the card the app draws round that.
+void ShowPageIn(views::Widget* widget,
+                gfx::NativeView page,
+                void*,
+                const gfx::Rect& frame,
+                double corner_radius) {
+  WindowViews* views = widget ? ViewsOf(widget) : nullptr;
+  if (views && page) {
+    views->ShowPreview(page, frame, corner_radius);
+  }
+}
 
 std::optional<gfx::Rect> FocusRingFrame(views::Widget* widget) {
   WindowViews* views = ViewsOf(widget);
@@ -492,6 +739,11 @@ std::optional<gfx::Rect> FocusRingFrame(views::Widget* widget) {
   return std::nullopt;
 }
 
+bool PageDialogsInOwnWindow() {
+  // Aura would draw it in the window's HWND, under the UI's and the pages' child HWNDs.
+  return true;
+}
+
 bool KeyboardForPage(views::Widget* widget) {
   WindowViews* views = ViewsOf(widget);
   HWND focus = GetFocus();
@@ -499,8 +751,9 @@ bool KeyboardForPage(views::Widget* widget) {
   if (!views || !focus || focus == views->window()) {
     return true;
   }
+  // The UI's, unless it only holds it while no page shows.
   if (focus == views->ui() || IsChild(views->ui(), focus)) {
-    return false;
+    return views->ui_holds_for_page();
   }
   for (Slot& slot : views->panes()) {
     if (!slot.widget || focus != views::HWNDForWidget(slot.widget.get())) {
@@ -511,14 +764,30 @@ bool KeyboardForPage(views::Widget* widget) {
     aura::Window* focused = client ? client->GetFocusedWindow() : nullptr;
     return !slot.devtools || !focused || !slot.devtools->Contains(focused);
   }
-  // The side panel, or another window's.
-  return false;
+  // A link preview's, or else the side panel or another window's.
+  return views->preview().widget && focus == views::HWNDForWidget(views->preview().widget.get());
 }
 
 void ReleaseKeyboard(views::Widget* widget) {
   if (WindowViews* views = ViewsOf(widget)) {
+    views->set_ui_holds_for_page(false);
     SetFocus(views->window());
   }
+}
+
+void UITakesKeyboard(views::Widget* widget, bool until_page) {
+  WindowViews* views = ViewsOf(widget);
+  if (!views) {
+    return;
+  }
+  // Heard before the app gives the UI the keyboard (focus_ui), so the focus says whether the UI had
+  // it. Asked to keep it, as for the New Space form's field, it keeps it. Asked to hold it, as the
+  // app does as it shows a Space with no page, it holds it for the next page shown, unless it
+  // keeps it already, as the form's Space shows (#895). The page that had it is hidden but keeps
+  // Windows' focus, where no shortcut reaches the UI.
+  HWND focus = GetFocus();
+  const bool ui_had = focus && (focus == views->ui() || IsChild(views->ui(), focus));
+  views->set_ui_holds_for_page(until_page && (views->ui_holds_for_page() || !ui_had));
 }
 
 void KeepKeyboard(views::Widget* widget, base::OnceClosure change) {
@@ -554,10 +823,12 @@ void StretchOnResize(content::RenderWidgetHostView*, bool) {
   // shortcut: no stretch on Windows; the page shows its last frame unscaled until it redraws.
 }
 
-// shortcut: a page out of every window has no compositor here either, as on Linux, so its picture
-// waits until it's shown; hold it as Linux's does once the Windows engine runs the cards check.
-base::ScopedClosureRunner DrawUnseen(views::Widget*, gfx::NativeView) {
-  return base::ScopedClosureRunner();
+base::ScopedClosureRunner DrawUnseen(views::Widget* widget, gfx::NativeView page) {
+  WindowViews* views = ViewsOf(widget);
+  if (!views || !page || page->GetRootWindow()) {
+    return base::ScopedClosureRunner();
+  }
+  return views->DrawUnseen(page);
 }
 
 }  // namespace browser_core::platform

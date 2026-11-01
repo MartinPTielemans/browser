@@ -171,6 +171,32 @@ fn the_menu_takes_the_windows_look(cx: &mut TestAppContext) {
     assert!(delete.destructive && line.parent.is_none());
 }
 
+/// Capture mode, started in the window's look, takes it again as the system's appearance or the
+/// Space's theme changes it (#861).
+#[gpui::test]
+fn capture_mode_follows_the_windows_look(cx: &mut TestAppContext) {
+    use crate::theme::Appearance;
+    let host = Rc::new(Recorder::default());
+    let browser = host.clone();
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+    let light = || host.capture_look.get().map(|(_, light)| light);
+    for (system, theme, shown) in [
+        (Tone::Dark, None, false),
+        (Tone::Light, None, true),
+        (Tone::Light, Some(Theme { appearance: Appearance::Dark, ..Theme::at(0.5, 0.) }), false),
+        (Tone::Light, None, true),
+    ] {
+        shell.update(cx, |shell, cx| {
+            shell.force_tone(Some(system));
+            shell.set_spaces(vec![entry(theme.map(|theme| theme.main_color()), theme)], cx);
+            shell.set_space(1, cx);
+        });
+        // The system's appearance is read as the window draws.
+        cx.run_until_parked();
+        assert_eq!(light(), Some(shown), "with the system {system:?} and the theme {theme:?}");
+    }
+}
+
 /// View › Appearance stands in for the system's: light or dark turns a Space with no theme, or an
 /// automatic one, that way, a theme that forces its own keeps it, and automatic gives back the
 /// system's. The host keeps the choice, the menu bar checks it, and the command bar offers the

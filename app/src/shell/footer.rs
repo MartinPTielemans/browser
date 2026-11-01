@@ -120,7 +120,7 @@ impl Shell {
         div()
             .id("plus")
             .when(self.a11y, |plus| {
-                plus.button_named("New Space or Folder").pressed_by_mouse_down(true, false)
+                plus.button_named("New Space, Folder or Note").pressed_by_mouse_down(true, false)
             })
             .absolute()
             .right(px(PLUS_INSET))

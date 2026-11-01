@@ -14,6 +14,7 @@
 #include "base/supports_user_data.h"
 #include "base/task/cancelable_task_tracker.h"
 #include "base/task/single_thread_task_runner.h"
+#include "base/values.h"
 #include "browser_core/host.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/download/download_crx_util.h"
@@ -21,8 +22,12 @@
 #include "chrome/browser/icon_loader.h"
 #include "chrome/browser/icon_manager.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_keyed_service_factory.h"
+#include "chrome/common/pref_names.h"
 #include "components/download/content/public/all_download_item_notifier.h"
 #include "components/download/public/common/download_item.h"
+#include "components/keyed_service/core/keyed_service.h"
+#include "components/pref_registry/pref_registry_syncable.h"
 #include "content/public/browser/download_manager.h"
 #include "ui/gfx/codec/png_codec.h"
 #include "ui/gfx/image/image.h"
@@ -195,7 +200,34 @@ void ReportIcon(bc_id id, gfx::Image icon) {
   Host().download_icon(Host().context, id, png ? png->data() : nullptr, png ? png->size() : 0);
 }
 
+// Builds no service: Chrome registers a profile's prefs through its factories, after its own.
+class PrefsFactory : public ProfileKeyedServiceFactory {
+ public:
+  static PrefsFactory* GetInstance() {
+    static base::NoDestructor<PrefsFactory> instance;
+    return instance.get();
+  }
+
+  PrefsFactory() : ProfileKeyedServiceFactory("BrowserCoreDownloads") {}
+
+ private:
+  std::unique_ptr<KeyedService> BuildServiceInstanceForBrowserContext(
+      content::BrowserContext* context) const override {
+    return nullptr;
+  }
+
+  // ungoogled-chromium asks where each download goes by default; Arc doesn't. A profile whose user
+  // turned asking on in chrome://settings keeps it, as that's saved and a default isn't.
+  void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) override {
+    registry->SetDefaultPrefValue(prefs::kPromptForDownload, base::Value(false));
+  }
+};
+
 }  // namespace
+
+void RegisterDownloadPrefs() {
+  PrefsFactory::GetInstance();
+}
 
 void ObserveDownloads(Profile* profile) {
   TheDownloads().Observe(profile);

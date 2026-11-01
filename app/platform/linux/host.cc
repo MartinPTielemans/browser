@@ -9,13 +9,18 @@
 // HUD, the drop targets, the toast, the tooltip and the link target are floats.rs's, the Site
 // Controls and Capture are popovers.rs's, the sidebar reveal is reveal_window.rs's, Settings is
 // settings_window.rs's, as GPUI's Linux platform shows them, the shadows under the overlays and the
-// Site Controls are shadows.rs's, and the window buttons, which the UI draws, are window_buttons.rs's.
+// Site Controls are shadows.rs's, the window buttons, which the UI draws, are window_buttons.rs's,
+// and a download's preview is previews.rs's.
 
 #include "../host.h"
 
 #include <ctype.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <langinfo.h>
+#include <locale.h>
 #include <spawn.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -58,6 +63,8 @@ extern "C" unsigned g_unix_fd_add_full(int priority,
                                        void* data,
                                        void (*notify)(void* data)) __attribute__((weak));
 constexpr unsigned kGlibIoIn = 1;
+constexpr unsigned kGlibIoPri = 2;
+constexpr unsigned kGlibIoErr = 8;
 // Chromium's fd watches', its Wayland display's among them (G_PRIORITY_DEFAULT_IDLE - 10). GLib
 // checks only the sources as urgent as the most urgent ready one, and the display's check is where
 // Chromium reads what it prepared to read, or gives that up; above it, GPUI would run with the read
@@ -220,6 +227,22 @@ std::string DefaultFor(const std::string& type) {
   return "";
 }
 
+// The day the user's weeks start on, as tm_wday counts from Sunday: their LC_TIME locale's, read
+// from glibc as GTK's calendar reads it, a day counted from an origin day, 1 being the origin.
+// Monday where the locale can't be loaded, as most have it.
+int FirstWeekday() {
+  locale_t locale = newlocale(LC_TIME_MASK, "", nullptr);
+  if (!locale) {
+    return 1;
+  }
+  // The origin is a date in a number: 1997-11-30, a Sunday, or 1997-12-01, a Monday.
+  const auto origin = static_cast<uint32_t>(
+      reinterpret_cast<uintptr_t>(nl_langinfo_l(_NL_TIME_WEEK_1STDAY, locale)));
+  const int first = nl_langinfo_l(_NL_TIME_FIRST_WEEKDAY, locale)[0];
+  freelocale(locale);
+  return ((origin == 19971201 ? 1 : 0) + first - 1) % 7;
+}
+
 }  // namespace
 
 extern "C" {
@@ -268,10 +291,8 @@ void host_watch_fd(int fd, void (*ready)(void)) {
 }
 
 // The core shows the browser window as it opens it, in front or for a saved window behind,
-// since the window is Chromium's.
+// since the window is Chromium's. host_show_window_behind is frames.rs's, which stacks it.
 void host_show_window(void* ui_view) {}
-
-void host_show_window_behind(void* ui_view, void* above_ui_view) {}
 
 void host_window_opened(void* ui_view, uint64_t window) {
   WindowIds()[ui_view] = window;
@@ -305,14 +326,7 @@ void host_capture_name(char* name, size_t capacity) {
   }
 }
 
-// No sight of the displays' layout (host_centered), so a window opens where the compositor puts it.
-size_t host_screens(double* frames, size_t count) {
-  return 0;
-}
-
-bool host_window_frame(void* ui_view, double* x, double* y, double* width, double* height) {
-  return false;
-}
+// host_screens and host_window_frame are frames.rs's, which reads them from the X server.
 
 // shortcut: links a launch carries come in on the command line, so there's nothing to wait for.
 void host_watch_finished_launching(void (*finished)(void)) {
@@ -326,9 +340,7 @@ void host_dock_dot_launch(const char* profile_dir) {}
 
 void host_dock_dot(bool colored, uint32_t color) {}
 
-// The compositor places each window (host_centered), so the next opens where it's put, at the size
-// the app asks for, the default one, as nothing here reads the size of the one before.
-void host_cascaded(void* ui_view, double* x, double* y, double* width, double* height) {}
+// host_cascaded is frames.rs's too.
 
 // Through the core, as the window is Chromium's: under Wayland its toplevel, which GPUI's window is
 // a subsurface in.
@@ -357,14 +369,15 @@ void host_watch_key_window(void (*changed)(void* ui_view)) {
   g_key_window_changed = changed;
 }
 
-// shortcut: nothing says when the browser window goes full screen, as the window manager's own
-// shortcut does it, and only Chromium's window hears it; the core's widget would report it.
+// The window's bounds change as it goes full screen or comes back, by the window manager's own
+// shortcut too, and the UI asks the core then (Shell::bounds_changed), so nothing watches here.
 void host_watch_full_screen(void (*changed)(void* ui_view, bool entered)) {}
 
 // GPUI's Wayland client hands the app the touchpad's three-finger swipes over the page
 // (gpui_linux::watch_embedder_swipes, in main.rs), which the compositor sends unless it keeps them
 // for its own, such as for workspaces. X11 sends them to the page's window alone, Chromium's.
 void host_watch_swipes(bool (*swiped)(void* ui_view, double x, double y, bool back)) {}
+// host_watch_option_taps is system.rs's.
 bool host_after_menus(void (*apply)(void)) { return false; }
 
 void host_watch_resigning_active(void (*resigning)(void)) {
@@ -411,30 +424,18 @@ void host_window_closed(void* ui_view) {
   }
 }
 
-bool host_can_draw_emoji(const char*) {
-  return true;
-}
-
-// shortcut: under Wayland Chromium and GPUI each get every key from a wl_keyboard of their own,
-// so the host can't keep the keys typed after the command bar's shortcut from the page; holding
-// them is for the core's key handling to do.
+// Under Wayland Chromium and GPUI each get every key from a wl_keyboard of their own, and under
+// X11 Chromium's window has the focus, so a page's keys reach Chromium first and the host can't
+// keep those typed after a bar's shortcut from the page. The core holds them, and an overlay that
+// takes the keyboard takes them (overlays.rs), or the page does.
 void host_hold_keys(void) {}
 
-// No link preview yet: the core shows a page in an app's view on the Mac alone, so links open in
-// the tab.
-void* host_add_link_preview(void* view, void (*dismissed)(void)) {
-  return nullptr;
-}
+void host_release_held_keys(void) {}
 
-void host_show_link_preview(void* ui_view) {}
+// GPUI's clipboard and its file chooser portal copy text and a capture and save a capture
+// (platform/linux/system.rs).
+void host_copy(const char* text) {}
 
-void host_link_preview_drew(double left, double top, double width, double height, double opacity) {}
-
-void host_release_link_preview(void) {}
-
-void host_hide_link_preview(void) {}
-
-// GPUI's clipboard and its file chooser portal copy and save a capture (platform/linux/system.rs).
 void host_copy_png(const uint8_t* png, size_t size) {}
 
 void host_save_png(void* ui_view, const uint8_t* png, size_t size) {}
@@ -442,14 +443,39 @@ void host_save_png(void* ui_view, const uint8_t* png, size_t size) {}
 // No system share menu on Linux: capture copies instead, and says so (capture.rs).
 void host_share_png(const uint8_t* png, size_t size, void* view, double x, double y, double width, double height, bool messages) {}
 
-// shortcut: no hover card on Linux yet; its window is never shown, so the card is off.
-void host_add_hover_card(void* card_view, double margin, void (*away)(void)) {}
+// The hover card is one of the floats (floats.rs).
 
-void host_show_hover_card(void* ui_view, double left, double top, double width, double height) {}
-
-void host_hide_hover_card(void) {}
-
-void host_watch_memory_pressure(void (*pressed)(void)) {}
+// The kernel's pressure stall information: a trigger on /proc/pressure/memory wakes Chromium's loop
+// once some task has stalled on memory for 150 ms within 2 s, the shortest window it gives a
+// process without privileges. A new trigger also fires in its first seconds, while the UI has
+// little to let go of. A kernel without it, or older than 6.5, which keeps triggers for root,
+// says nothing.
+void host_watch_memory_pressure(void (*pressed)(void)) {
+  static bool watching;
+  if (watching || !g_unix_fd_add_full) {
+    return;
+  }
+  const int fd = open("/proc/pressure/memory", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+  if (fd < 0) {
+    return;
+  }
+  const char trigger[] = "some 150000 2000000";
+  if (write(fd, trigger, sizeof trigger) < 0) {
+    close(fd);
+    return;
+  }
+  watching = true;
+  g_unix_fd_add_full(
+      kGlibPriorityFdWatch, fd, kGlibIoPri | kGlibIoErr,
+      [](int, unsigned condition, void* pressed) {
+        if (condition & kGlibIoErr) {
+          return 0;
+        }
+        reinterpret_cast<void (*)(void)>(pressed)();
+        return 1;
+      },
+      reinterpret_cast<void*>(pressed), nullptr);
+}
 
 // Nothing for the host to do: the UI asks the core next (focus_ui in main.rs), which takes the
 // keyboard from the page and, on X11, puts the X server's focus on GPUI's window.
@@ -461,13 +487,13 @@ int host_ask(const char* message, const char* detail, const char* const* buttons
   return -1;
 }
 
+// Chrome's own windows, such as its Task Manager, take Ctrl+W themselves, which closes them:
+// with no menu bar taking a key for every window, as the Mac's does, the UI never gets theirs.
 bool host_close_other_window(void) {
   return false;
 }
 
 void host_detent(void) {}
-
-void host_take_drops(bool (*dragged)(void* ui_view, int phase, double x, double y, const host_dragged* items, size_t count)) {}
 
 // GIO's, from the chrome that loads the app, as GLib's are: its trash is the freedesktop.org one the
 // file managers share, in the home's or in the file's own volume's.
@@ -492,14 +518,18 @@ bool host_trash(const char* path) {
   return access(path, F_OK) != 0 && errno == ENOENT;
 }
 
-// shortcut: no file previews yet; the downloads list shows its generic icon.
-void host_file_preview(const char*,
-                       uint64_t id,
-                       void (*done)(uint64_t, const uint8_t*, size_t, double, double, bool)) {
-  Later([done, id] { done(id, nullptr, 0, 0, 0, false); });
+// shortcut: no video playback yet; Media's video tiles show their icon. When they play, it's to be
+// through Chromium's own decoder in the core, not a system library such as GStreamer, whose
+// codecs vary by distribution.
+void* host_video_open(const char*, int) {
+  return nullptr;
 }
 
-void host_copy(const char* text) {}
+bool host_video_frame(void*, uint8_t*) {
+  return false;
+}
+
+void host_video_close(void*) {}
 
 void host_open_in_safari(const char* url) {}
 
@@ -519,8 +549,7 @@ void host_day_starts(double starts[4]) {
   today.tm_isdst = -1;
   tm yesterday = today;
   yesterday.tm_mday -= 1;
-  // shortcut: weeks start on Monday, as most locales have it; the locale's own isn't read yet.
-  const int first_day = 1;  // As tm_wday counts, from Sunday.
+  const int first_day = FirstWeekday();
   tm week = today;
   week.tm_mday -= (today.tm_wday - first_day + 7) % 7;
   tm last_week = week;

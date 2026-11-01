@@ -8,9 +8,15 @@ use std::{
 };
 
 use browser::log;
-use gpui::{ClipboardItem, Context, Image, ImageFormat, Window};
+use gpui::{App, ClipboardItem, Context, Image, ImageFormat, Window};
 
 use crate::platform;
+
+/// Puts `text` on the clipboard, as host_copy does on the Mac: a tab's URL, a link to it, a build's
+/// details. check.sh's runs have a headless session's clipboard, never the user's.
+pub fn copy(text: &str, cx: &mut App) {
+    cx.write_to_clipboard(ClipboardItem::new_string(text.to_owned()));
+}
 
 /// Puts the capture on the clipboard, as host_copy_png does on the Mac.
 pub fn copy_png(png: &[u8]) {
@@ -25,9 +31,7 @@ pub fn copy_png(png: &[u8]) {
 
 /// Asks where to save the capture, through the desktop's file chooser portal, and saves it there.
 pub fn save_png(png: &[u8]) {
-    let mut name = [0 as c_char; 64];
-    unsafe { platform::host_capture_name(name.as_mut_ptr(), name.len()) };
-    let name = unsafe { CStr::from_ptr(name.as_ptr()) }.to_string_lossy().into_owned();
+    let name = crate::capture_name();
     let png = png.to_vec();
     crate::update_app_later(move |cx| {
         // The portal opens in the folder given, and GPUI asks for one; the home folder is always
@@ -84,6 +88,29 @@ pub extern "C" fn host_drag_file(path: *const c_char, ended: extern "C" fn(taken
 pub extern "C" fn host_watch_control(released: extern "C" fn()) {
     // After the update under way, which the walk's ⌃Tab asked from.
     gpui_linux::watch_control(move || crate::overlays::later(released));
+}
+
+/// Calls `tapped` with the UI's view of the browser window with the keyboard each time ⌥ is pressed
+/// and let go alone, as host.h says. GPUI hears it in the UI; on X11 not in the page, whose keys
+/// are Chromium's window's alone.
+#[unsafe(no_mangle)]
+pub extern "C" fn host_watch_option_taps(tapped: extern "C" fn(ui_view: *mut c_void)) {
+    gpui_linux::watch_alt_taps(move || {
+        let Some(cx) = crate::CX.with_borrow(Clone::clone) else { return };
+        // After the event, out of the display's handling. Not in an overlay or Settings, which
+        // are other windows.
+        cx.spawn(async move |cx| {
+            let active = cx.update(|cx| cx.active_window());
+            let view = crate::WINDOWS.with_borrow(|windows| {
+                let window = windows.iter().find(|window| Some(window.handle) == active)?;
+                Some(window.ui_view)
+            });
+            if let Some(view) = view {
+                tapped(view);
+            }
+        })
+        .detach();
+    });
 }
 
 /// A touchpad swipe over the page in the browser window whose Wayland surface is `surface`

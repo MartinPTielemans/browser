@@ -2,8 +2,8 @@
 # the Windows engine built from this commit's core. Main's pushes and runs by hand only, on GitHub's
 # hosted runners: never a pull request, and never the self-hosted runner, which builds the engine
 # and holds Microsoft's toolchain. A commit whose core/public/browser_core.h no published engine
-# has is skipped, as nothing can run it. Every run in app/check/ shows in the summary: passed,
-# failed, or skipped and why.
+# has is skipped, as nothing can run it: its check job shows as skipped, with a warning saying why.
+# Every run in app/check/ shows in the summary: passed, failed, or skipped and why.
 name: Check on Windows
 
 on:
@@ -24,25 +24,21 @@ permissions:
   contents: read
 
 jobs:
-  check:
+  # Whether an engine fits, alone, so that a commit none fits shows its check as skipped, not as
+  # passed with nothing run.
+  engine:
     runs-on: windows-2022
-    timeout-minutes: 120
     defaults:
       run:
         shell: bash
         working-directory: app
-    env:
-      # The runs the Windows driver (platform/windows/drive.cc) is meant to pass so far.
-      WINDOWS_RUNS: load tabs dialogs
+    outputs:
+      found: ${{ steps.engine.outputs.found }}
     steps:
-      # setup.sh and the patches it applies need the repository's line endings.
-      - run: git config --global core.autocrlf false
-        working-directory: .
       # With the history, where fetch.sh looks for the engine's commit.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - id: engine
         run: |
           status=0
@@ -52,24 +48,57 @@ jobs:
           0) echo "found=true" >> "$GITHUB_OUTPUT" ;;
           2)
             why=$(tail -1 "$RUNNER_TEMP/fetch.log")
-            echo "::notice::No Windows engine fits this commit, so nothing is built or checked. $why"
+            echo "::warning::No Windows engine fits this commit, so nothing is built or checked. $why"
             printf 'Skipped: no Windows engine fits this commit, so nothing is built or checked.\n\n%s\n' "$why" >> "$GITHUB_STEP_SUMMARY"
             echo "found=false" >> "$GITHUB_OUTPUT"
             ;;
           *) exit "$status" ;;
           esac
 
-      # The runs call python3, which the runner names python.
-      - if: ${{ steps.engine.outputs.found == 'true' }}
-        run: |
+  check:
+    needs: engine
+    if: ${{ needs.engine.outputs.found == 'true' }}
+    runs-on: windows-2022
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+    env:
+      # The runs the Windows driver (platform/windows/drive.cc) is meant to pass so far.
+      WINDOWS_RUNS: load tabs dialogs crash about
+    steps:
+      # setup.sh and the patches it applies need the repository's line endings.
+      - run: git config --global core.autocrlf false
+        working-directory: .
+      # With the history, where fetch.sh looks for the engine's commit.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - run: ../engine/fetch.sh > /dev/null
+
+      # The runs call python3, which the runner names python. The access run reads UI Automation
+      # with comtypes (tools/uia-tree.sh).
+      - run: |
           rustup update stable --no-self-update
           mkdir -p "$RUNNER_TEMP/bin"
           printf '#!/bin/sh\nexec python "$@"\n' > "$RUNNER_TEMP/bin/python3"
           chmod +x "$RUNNER_TEMP/bin/python3"
           cygpath -w "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          python -m pip install --disable-pip-version-check comtypes==1.4.17
 
-      - if: ${{ steps.engine.outputs.found == 'true' }}
-        uses: actions/cache@v4
+      # Chrome asks before a page opens another app only when Windows names an app for the link's
+      # scheme, and the runner has none for the dialogs run's maps: link, which the Mac opens in
+      # Maps. The run cancels it, so the stand-in never starts.
+      - shell: pwsh
+        run: |
+          $maps = 'HKCU:\Software\Classes\maps'
+          New-Item -Path "$maps\shell\open\command" -Force -Value '"C:\Windows\System32\cmd.exe" /c exit' | Out-Null
+          Set-Item -Path $maps -Value 'URL:Maps'
+          New-ItemProperty -Path $maps -Name 'URL Protocol' -Value '' -Force | Out-Null
+
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
@@ -80,12 +109,10 @@ jobs:
             check-windows-
             app-windows-
 
-      - if: ${{ steps.engine.outputs.found == 'true' }}
-        run: ./setup.sh && ./build.sh
+      - run: ./setup.sh && ./build.sh
 
       # Each run alone, so one failing doesn't hide the rest, and each keeps its own build/check.
-      - if: ${{ steps.engine.outputs.found == 'true' }}
-        env:
+      - env:
           RUNS: ${{ inputs.runs }}
         run: |
           out=$RUNNER_TEMP/check
@@ -119,13 +146,25 @@ jobs:
               start=$SECONDS
               status=0
               timeout 20m ./check.sh "$run" > "$out/$run.log" 2>&1 || status=$?
-              [ ! -d build/check ] || mv build/check "$out/$run"
-              # By the app's path, never by image name, which would reach any other Chrome.
+              # By the app's path, never by image name, which would reach any other Chrome. Before
+              # the move, as Windows won't move a folder a process still has a file open in.
               pkill -9 -f "$(cygpath -m "$PWD/build/Browser")/" || true
+              # Gone, so the next run doesn't find it still running.
+              for _ in $(seq 20); do
+                pgrep -f "$(cygpath -m "$PWD/build/Browser")/" > /dev/null || break
+                sleep 0.5
+              done
+              if [ -d build/check ] && ! mv build/check "$out/$run"; then
+                cp -r build/check "$out/$run" || true
+                rm -rf build/check || true
+              fi
               if [ "$status" = 0 ]; then
                 result="passed in $((SECONDS - start)) s"
               else
-                result="failed ($status): $(grep -m1 '^FAIL' "$out/$run.log" | cut -c7- | tr '|' '/')"
+                # A run that ends without a FAIL line, such as one whose tool is missing, mustn't
+                # end the loop: the step's shell is bash -eo pipefail.
+                said=$(grep -m1 '^FAIL' "$out/$run.log" | cut -c7-) || said=$(tail -1 "$out/$run.log")
+                result="failed ($status): $(echo "$said" | tr '|' '/')"
                 failed=1
                 echo "::error::The $run run failed. Its log: $run.log in the artifact."
               fi
@@ -138,7 +177,7 @@ jobs:
           done
           exit "$failed"
 
-      - if: ${{ always() && steps.engine.outputs.found == 'true' }}
+      - if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: check-windows

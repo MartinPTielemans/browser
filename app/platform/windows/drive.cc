@@ -18,14 +18,16 @@
 // alerts host_ask shows. dragover, dragdrop and dragleave hand a drag from another app, a shell
 // data object carrying what Explorer or a browser would, straight to the drop target Windows would
 // pick, the UI's; one over a page or an overlay, whose targets are Chromium's and GPUI's, logs as
-// unsupported. The others, pageswipe, full screen, displays, hide, backdrop, openmenu and ime,
-// Windows has nothing the driver can stand in for yet: each logs "browser: drive: unsupported
+// unsupported. ime on types as drive.mm's scripted input method does, in the UI's fields alone, as
+// Linux's driver does. fullscreen puts the window full screen or takes it out through the core, as
+// Linux's driver does. The others, pageswipe, displays, hide, backdrop and openmenu, Windows has
+// nothing the driver can stand in for yet: each logs "browser: drive: unsupported
 // <command>" before drive.mm's "can't do that", so a run fails at once.
 //
 // It logs as drive.mm does: "browser: drive <n>: <command>" as command n arrives, and "browser:
-// drive <n> done, key <window>, focus <view>, active <0|1>, marked none" once Chromium and GPUI
-// have handled its messages. The window and view are named as AppKit's classes are on the Mac, so
-// the runs read one vocabulary: key is BrowserCoreNSWindow for a browser window and GPUIPanel for
+// drive <n> done, key <window>, focus <view>, active <0|1>, marked <none|start,length>" once
+// Chromium and GPUI have handled its messages, with what the UI's field with the keys has marked.
+// The window and view are named as AppKit's classes are on the Mac, so the runs read one vocabulary: key is BrowserCoreNSWindow for a browser window and GPUIPanel for
 // an overlay, and focus RenderWidgetHostViewCocoa for a page, AccessKitSubclassOfGPUIView for the
 // UI and GPUIView for an overlay. Active is whether one of the app's windows is in front.
 
@@ -33,6 +35,7 @@
 
 #include <shlobj.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -40,8 +43,10 @@
 #include <deque>
 #include <functional>
 #include <sstream>
+#include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "../host.h"
@@ -53,6 +58,11 @@ bool host_menu_window_choose(const char* title);
 bool host_menu_window_dismiss(void);
 bool host_drive_pointer(unsigned message, long x, long y);
 bool host_drive_key(unsigned vk, long lparam);
+uint64_t host_browser_window_id(size_t index);
+// The app's (src/main.rs), on GPUI's window |hwnd|, for the scripted input method.
+bool browser_drive_compose(void* hwnd, const char* text, size_t start, size_t end, bool selected);
+bool browser_drive_commit(void* hwnd, const char* text);
+bool browser_drive_marked(void* hwnd, size_t* start, size_t* length);
 void* host_drop_target(void* hwnd);
 }
 
@@ -86,10 +96,17 @@ bool g_running = false;
 size_t g_driven = 0;
 // The modifiers flags holds from now on.
 int g_flags = 0;
+// Whether the last key's Ctrl is still down. It stays down until the next input, as the Mac's app
+// takes ⌃ to be until the flags change, so a ⌃Tab walk goes on to the next ⌃Tab, as Linux's driver
+// holds it (KEY_FLAGS).
+bool g_key_ctrl = false;
 // The window a press went to, which hears the drag until the release, as capture does.
 HWND g_pressed = nullptr;
 // The window the pointer is in, which hears it leave.
 HWND g_hovered = nullptr;
+// The moves the driver has posted and its windows haven't taken yet, which DropRealPointer lets
+// through. Some are never taken, as by a window that closed, so only the latest are kept.
+std::deque<std::pair<HWND, LPARAM>> g_posted_moves;
 // The last click: its window, place on screen, button and time.
 struct Click {
   HWND hwnd = nullptr;
@@ -262,7 +279,7 @@ bool TargetInKey(double x, double y, Target* target) {
 void HoldKeys(int modifiers, UINT buttons = 0) {
   BYTE state[256];
   GetKeyboardState(state);
-  const int held = modifiers | g_flags;
+  const int held = modifiers | g_flags | (g_key_ctrl ? kCtrl : 0);
   const auto set = [&state](int key, bool down) { state[key] = down ? 0x80 : 0; };
   set(VK_CONTROL, held & kCtrl);
   set(VK_LCONTROL, held & kCtrl);
@@ -300,6 +317,10 @@ void Move(const Target& target, int modifiers, UINT buttons) {
     return;
   }
   Enter(target);
+  if (g_posted_moves.size() == 64) {
+    g_posted_moves.pop_front();
+  }
+  g_posted_moves.emplace_back(target.hwnd, ClientParam(target));
   PostMessageW(target.hwnd, WM_MOUSEMOVE, MouseKeys(modifiers, buttons), ClientParam(target));
 }
 
@@ -415,7 +436,7 @@ UINT VirtualKey(const std::string& key, int* modifiers) {
       {"return", VK_RETURN},  {"escape", VK_ESCAPE}, {"tab", VK_TAB},      {"space", VK_SPACE},
       {"backspace", VK_BACK}, {"delete", VK_DELETE}, {"pageup", VK_PRIOR}, {"pagedown", VK_NEXT},
       {"up", VK_UP},          {"down", VK_DOWN},     {"left", VK_LEFT},    {"right", VK_RIGHT},
-      {"f10", VK_F10},        {"f12", VK_F12}};
+      {"f4", VK_F4},          {"f10", VK_F10},       {"f12", VK_F12}};
   for (const auto& [name, vk] : named) {
     if (key == name) {
       return vk;
@@ -503,14 +524,50 @@ void PostModifiers(int from, int to) {
 // step's messages are handled with the keyboard state it leaves, so each change is a step.
 void AddKey(UINT vk, int modifiers) {
   g_steps.push_back({[=] {
-    PostModifiers(g_flags, g_flags | modifiers);
+    const int held = g_flags | (std::exchange(g_key_ctrl, false) ? kCtrl : 0);
+    PostModifiers(held, g_flags | modifiers);
     PostKey(vk, modifiers, true);
   }});
   g_steps.push_back({[=] { PostKey(vk, modifiers, false); }});
   g_steps.push_back({[=] {
-    PostModifiers(g_flags | modifiers, g_flags);
+    const int kept = modifiers & kCtrl & ~g_flags;
+    PostModifiers(g_flags | modifiers, g_flags | kept);
+    g_key_ctrl = kept != 0;
     HoldKeys(0);
   }});
+}
+
+// Lets go of the Ctrl the last key left down, as input that isn't a key comes.
+void LetGoKeyCtrl() {
+  if (std::exchange(g_key_ctrl, false)) {
+    PostModifiers(g_flags | kCtrl, g_flags);
+    HoldKeys(0);
+  }
+}
+
+// The radius in points of |hwnd|'s round corners, as its window region cuts them, or 0: the
+// diameter whose round rectangle, all four corners or the bottom two, is that region exactly, as
+// the core makes it (core/platform/win/window_views.cc).
+double CornerRadius(HWND hwnd, double scale) {
+  HRGN region = CreateRectRgn(0, 0, 0, 0);
+  RECT client;
+  GetClientRect(hwnd, &client);
+  double radius = 0;
+  if (GetWindowRgn(hwnd, region) != ERROR) {
+    for (int diameter = 2; diameter <= 128 && !radius; ++diameter) {
+      HRGN round =
+          CreateRoundRectRgn(0, 0, client.right + 1, client.bottom + 1, diameter, diameter);
+      HRGN bottom = CreateRectRgn(0, 0, client.right, client.bottom / 2);
+      CombineRgn(bottom, bottom, round, RGN_OR);
+      if (EqualRgn(region, round) || EqualRgn(region, bottom)) {
+        radius = diameter / (2 * scale);
+      }
+      DeleteObject(round);
+      DeleteObject(bottom);
+    }
+  }
+  DeleteObject(region);
+  return radius;
 }
 
 void LogLayout(HWND root) {
@@ -542,6 +599,11 @@ void LogLayout(HWND root) {
              (client.bottom - rect.bottom) / scale, (rect.right - rect.left) / scale,
              (rect.bottom - rect.top) / scale);
     line += part;
+    // As the Mac's driver gives a page view's rounded layer.
+    if (const double radius = IsChromium(child) ? CornerRadius(child, scale) : 0; radius > 0) {
+      snprintf(part, sizeof part, " radius %.0f", radius);
+      line += part;
+    }
   }
   // Windows' own title bar has the window's buttons.
   line += "\nbrowser: layout buttons hidden hidden hidden";
@@ -664,13 +726,64 @@ std::string FocusName(HWND focus, HWND key) {
   return Utf8(ClassOf(focus));
 }
 
+// What the UI's field with the keys has marked, as "start,length" in UTF-16, or "none".
+std::string Marked() {
+  HWND focus = GetFocus();
+  size_t start = 0, length = 0;
+  if (!focus || !IsGpui(focus) || !browser_drive_marked(focus, &start, &length)) {
+    return "none";
+  }
+  return std::to_string(start) + "," + std::to_string(length);
+}
+
 void ReportDone(long number) {
   HWND key = GetActiveWindow();
   DWORD process = 0;
   GetWindowThreadProcessId(GetForegroundWindow(), &process);
-  fprintf(stderr, "browser: drive %ld done, key %s, focus %s, active %d, marked none\n", number,
+  fprintf(stderr, "browser: drive %ld done, key %s, focus %s, active %d, marked %s\n", number,
           KeyName(key).c_str(), FocusName(GetFocus(), key).c_str(),
-          process == GetCurrentProcessId());
+          process == GetCurrentProcessId(), Marked().c_str());
+}
+
+// The scripted input method, while ime is on, and what it composes, if anything.
+bool g_ime_on = false;
+std::optional<std::string> g_composition;
+
+// Adds the step that handles |key| as drive.mm's scripted input method does, with the calls a
+// Japanese one makes in the UI's field with the keys: letters compose, space converts them all,
+// return commits and escape cancels. Windows' own input methods can't be scripted, and the runners
+// have no Japanese one, so it calls GPUI's input handler as Linux's driver does. Returns 1 for a key
+// it took, 0 for one it leaves to the window, as one with a shortcut's modifiers, and -1 for one it
+// would compose in a page, whose input method is Chromium's, which the driver can't type through:
+// as plain keys it would pass for a composition.
+int AddImeKey(const std::string& key, int modifiers) {
+  const bool letter = key.size() == 1 && key[0] >= 'a' && key[0] <= 'z';
+  if (!g_ime_on || ((modifiers | g_flags) & (kCtrl | kAlt)) || !(g_composition || letter)) {
+    return 0;
+  }
+  HWND focus = GetFocus();
+  if (!focus || !IsGpui(focus)) {
+    return -1;
+  }
+  const std::string composed = g_composition.value_or("");
+  if (key == "return") {
+    g_composition.reset();
+    g_steps.push_back({[=] { browser_drive_commit(focus, composed.c_str()); }});
+  } else if (key == "escape") {
+    g_composition.reset();
+    g_steps.push_back({[=] { browser_drive_compose(focus, "", 0, 0, false); }});
+  } else if (key == "space") {
+    // 日本語, selected whole, as a real one selects its conversion.
+    const std::string converted = "\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E";
+    g_composition = converted;
+    g_steps.push_back({[=] { browser_drive_compose(focus, converted.c_str(), 0, 3, true); }});
+  } else if (letter) {
+    const std::string text = composed + key;
+    g_composition = text;
+    g_steps.push_back(
+        {[=] { browser_drive_compose(focus, text.c_str(), text.size(), text.size(), true); }});
+  }
+  return 1;
 }
 
 bool Unsupported(const std::string& action) {
@@ -794,9 +907,33 @@ bool Run(const std::string& line) {
   // What follows the command's name, for those that take text.
   const std::string rest =
       line.size() > action.size() ? line.substr(action.size() + 1) : std::string();
-  if (action == "pageswipe" || action == "fullscreen" || action == "display" || action == "hide" ||
-      action == "backdrop" || action == "openmenu" || action == "ime") {
+  // The pointer's and text's input comes with no Ctrl the last key left down (LetGoKeyCtrl), so a
+  // click after ⌘T is no Ctrl-click. A key takes it from there, and flags lets it go itself.
+  static const char* const kInput[] = {
+      "click",         "rightclick",     "middleclick", "doubleclick", "clickkey",
+      "rightclickkey", "doubleclickkey", "drag",        "dragover",    "dragdrop",
+      "dragleave",     "press",          "dragto",      "release",     "rightpress",
+      "rightdragto",   "rightrelease",   "move",        "scroll",      "swipe",
+      "wheel",         "keydown",        "keyup",       "type",        "ime",
+      "insert",        "choose",         "dismiss"};
+  for (const char* input : kInput) {
+    if (action == input) {
+      g_steps.push_back({[] { LetGoKeyCtrl(); }});
+      break;
+    }
+  }
+  if (action == "pageswipe" || action == "display" || action == "hide" || action == "backdrop" ||
+      action == "openmenu") {
     return Unsupported(action);
+  }
+  // As the Mac's driver presses the green button: the window says it went once it has resized.
+  if (action == "fullscreen") {
+    const bc_id window = host_browser_window_id(g_driven);
+    if (!window) {
+      return false;
+    }
+    bc_window_toggle_full_screen(window);
+    return true;
   }
   // At once, as the Mac's driver hands its drags to AppKit's views, since nothing is posted.
   if (action == "dragover" || action == "dragdrop") {
@@ -909,6 +1046,8 @@ bool Run(const std::string& line) {
     const bool right = action.rfind("right", 0) == 0;
     const std::string step = right ? action.substr(5) : action;
     const UINT button = right ? MK_RBUTTON : MK_LBUTTON;
+    // The keys named after the point, such as ⌥ for a drag that drops a copy.
+    const int keys = Modifiers(words);
     if (step == "press") {
       Target target;
       if (!TargetAt(x, y, &target)) {
@@ -916,7 +1055,7 @@ bool Run(const std::string& line) {
       }
       g_pressed = target.hwnd;
       g_steps.push_back({[=] { Move(target, 0, 0); }});
-      g_steps.push_back({[=] { Press(target, button, 0, false); }});
+      g_steps.push_back({[=] { Press(target, button, keys, false); }});
       return true;
     }
     Target target;
@@ -926,10 +1065,10 @@ bool Run(const std::string& line) {
       return false;
     }
     if (step == "dragto") {
-      g_steps.push_back({[=] { Move(target, 0, button); }});
+      g_steps.push_back({[=] { Move(target, keys, button); }});
     } else {
       g_pressed = nullptr;
-      g_steps.push_back({[=] { Release(target, button, 0); }});
+      g_steps.push_back({[=] { Release(target, button, keys); }});
     }
     return true;
   }
@@ -1135,6 +1274,9 @@ bool Run(const std::string& line) {
     std::string key;
     words >> key;
     int modifiers = Modifiers(words, key);
+    if (const int ime = AddImeKey(key, modifiers)) {
+      return ime > 0;
+    }
     const UINT vk = VirtualKey(key, &modifiers);
     if (!vk) {
       return false;
@@ -1154,7 +1296,7 @@ bool Run(const std::string& line) {
                                                    : 0;
     }
     g_steps.push_back({[=] {
-      const int from = g_flags;
+      const int from = g_flags | (std::exchange(g_key_ctrl, false) ? kCtrl : 0);
       g_flags = 0;
       PostModifiers(from, modifiers);
       g_flags = modifiers;
@@ -1165,12 +1307,32 @@ bool Run(const std::string& line) {
   if (action == "type") {
     for (char character : rest) {
       int modifiers = 0;
-      const UINT vk = VirtualKey(std::string(1, character), &modifiers);
+      const std::string key(1, character);
+      const int ime = AddImeKey(key, 0);
+      if (ime < 0) {
+        return false;
+      }
+      if (ime > 0) {
+        continue;
+      }
+      const UINT vk = VirtualKey(key, &modifiers);
       if (!vk) {
         return false;
       }
       AddKey(vk, modifiers);
     }
+    return true;
+  }
+  if (action == "ime") {
+    std::string state;
+    words >> state;
+    if (state != "on" && state != "off") {
+      return false;
+    }
+    // As the commands before it have run, which the keys after it are read with.
+    g_ime_on = state == "on";
+    g_composition.reset();
+    g_steps.push_back({[] {}});
     return true;
   }
   // Commits the text to the focused view as typed characters, as the emoji panel does.
@@ -1243,13 +1405,29 @@ LRESULT CALLBACK DriverProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
 
 // Windows tells a window the pointer left it once it asks to hear so and the desktop's pointer
 // isn't in it, which it never is for the driver's pointer: that leave is dropped, and the driver
-// posts its own as its pointer leaves.
-LRESULT CALLBACK DropRealLeave(int code, WPARAM wparam, LPARAM lparam) {
+// posts its own as its pointer leaves. Windows also moves the desktop's pointer, where it rests,
+// over the window under it as a window shows or hides, as the link target's plate does: the
+// page under it heard the pointer leave the link the driver's pointer was on. Only the driver's
+// own moves reach the app's windows.
+LRESULT CALLBACK DropRealPointer(int code, WPARAM wparam, LPARAM lparam) {
   auto* message = reinterpret_cast<MSG*>(lparam);
-  if (code == HC_ACTION && wparam == PM_REMOVE &&
-      (message->message == WM_MOUSELEAVE || message->message == WM_NCMOUSELEAVE) &&
+  if (code != HC_ACTION || wparam != PM_REMOVE) {
+    return CallNextHookEx(nullptr, code, wparam, lparam);
+  }
+  if ((message->message == WM_MOUSELEAVE || message->message == WM_NCMOUSELEAVE) &&
       message->lParam != kDriverLeave && message->hwnd == g_hovered) {
     message->message = WM_NULL;
+  } else if (message->message == WM_MOUSEMOVE) {
+    const auto posted =
+        std::ranges::find(g_posted_moves, std::pair(message->hwnd, message->lParam));
+    if (posted != g_posted_moves.end()) {
+      g_posted_moves.erase(g_posted_moves.begin(), posted + 1);
+    } else {
+      fprintf(stderr, "browser: drive: dropped the desktop's pointer moving at %d %d\n",
+              static_cast<short>(LOWORD(message->lParam)),
+              static_cast<short>(HIWORD(message->lParam)));
+      message->message = WM_NULL;
+    }
   }
   return CallNextHookEx(nullptr, code, wparam, lparam);
 }
@@ -1270,7 +1448,7 @@ void drive_start(void) {
   RegisterClassW(&window_class);
   g_driver = CreateWindowExW(0, window_class.lpszClassName, L"", 0, 0, 0, 0, 0, HWND_MESSAGE,
                              nullptr, window_class.hInstance, nullptr);
-  SetWindowsHookExW(WH_GETMESSAGE, DropRealLeave, nullptr, GetCurrentThreadId());
+  SetWindowsHookExW(WH_GETMESSAGE, DropRealPointer, nullptr, GetCurrentThreadId());
   HWND driver = g_driver;
   std::thread([driver] {
     HANDLE input = GetStdHandle(STD_INPUT_HANDLE);

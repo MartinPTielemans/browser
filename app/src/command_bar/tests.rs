@@ -374,6 +374,30 @@ fn return_goes_where_the_completion_goes(cx: &mut TestAppContext) {
     assert_eq!(bar.calls(), ["open https://example.com/", "hide"]);
 }
 
+/// The keys typed in the page after ⌃L, which the core held from it (bc_hold_keys), go in the
+/// field as typed once it opens: characters with their text and ⌫ as the key it is. A shortcut,
+/// such as ⌃A, types nothing.
+#[gpui::test]
+fn keys_held_from_the_page_go_in_as_typed(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    let shift = Modifiers { shift: true, ..Modifiers::none() };
+    let held = [
+        ("G", shift),
+        ("o", Modifiers::none()),
+        ("x", Modifiers::none()),
+        ("Backspace", Modifiers::none()),
+        (" ", Modifiers::none()),
+        ("!", shift),
+    ];
+    for (key, modifiers) in held {
+        let keystroke = shell::web_keystroke(key, modifiers);
+        bar.cx.update(|window, cx| window.dispatch_keystroke(keystroke, cx));
+    }
+    bar.cx.run_until_parked();
+    assert_eq!(bar.input().0, "Go !");
+    assert_eq!(shell::web_keystroke("a", Modifiers::control()).key_char, None);
+}
+
 #[gpui::test]
 fn backspace_takes_the_completion_back_until_the_next_key(cx: &mut TestAppContext) {
     let mut bar = Bar::new(cx);
@@ -1132,7 +1156,8 @@ fn a_command_has_its_own_glyph_where_lucide_names_it_and_each_is_built_in() {
         Command::JavaScriptConsole, Command::ManageExtensions, Command::RenameSpace,
         Command::NextTab, Command::PreviousTab, Command::ViewLibrary, Command::ViewDownloads,
         Command::ViewHistory, Command::Settings, Command::KeyboardShortcuts, Command::About,
-        Command::Import, Command::NewSpace, Command::SiteSearchSettings,
+        Command::Import, Command::NewSpace, Command::SiteSearchSettings, Command::ClearBrowsingData,
+        Command::HelpCenter, Command::WhatsNew, Command::ReportProblem, Command::CopyBuildInfo,
     ];
     for command in commands {
         let Icon::Glyph(path) = glyph(command) else {
@@ -1269,6 +1294,7 @@ fn one_letter_lists_quit_after_the_suggestions(cx: &mut TestAppContext) {
 
 /// Arc's "copy": the best command above the search row, and the others a name or a hidden word
 /// starts with before the core's other rows, as "copy" finds New Window and Duplicate Current Tab.
+/// Copy Build Info is ours, for Arc's Copy Arc Info in its Help menu.
 #[gpui::test]
 fn copy_puts_copy_url_above_the_search_row(cx: &mut TestAppContext) {
     let mut bar = Bar::with_commands(cx);
@@ -1277,6 +1303,7 @@ fn copy_puts_copy_url_above_the_search_row(cx: &mut TestAppContext) {
         "Copy URL ⇧⌘C".to_string(),
         search("copy"),
         "Copy URL as Markdown ⌥⇧⌘C".into(),
+        "Copy Build Info".into(),
         "New Window ⌘N".into(),
         "Duplicate Current Tab".into(),
         "https://copy.com/".into(),
@@ -1299,6 +1326,7 @@ fn clear_lists_clear_today_first_and_collapse_last(cx: &mut TestAppContext) {
         "Clear Cache and Refresh".into(),
         "Clear Cookies and Refresh".into(),
         "Clear Archive".into(),
+        "Clear Browsing Data… ⇧⌘⌫".into(),
         "https://clearhaus.com/".into(),
         "Collapse All Folders".into(),
     ];
@@ -1320,6 +1348,7 @@ fn a_word_of_the_name_puts_the_best_first_and_the_rest_after(cx: &mut TestAppCon
         "Separate Page from Split View".into(),
         "Expand Current Split".into(),
         "Flip Split View".into(),
+        "New Note Split".into(),
     ];
     assert_eq!(bar.listed(), expected);
     bar.keys("cmd-a");
@@ -1344,6 +1373,7 @@ fn tab_in_an_empty_field_lists_only_the_commands(cx: &mut TestAppContext) {
         "Separate Page from Split View",
         "Expand Current Split",
         "Flip Split View",
+        "New Note Split",
     ];
     assert_eq!(bar.listed(), only);
     // What's typed doesn't go to a page or a search.
@@ -1485,14 +1515,16 @@ fn space_puts_new_space_first(cx: &mut TestAppContext) {
         search("space"),
         "https://spacex.com/".into(),
         "Rename Space".into(),
+        "Export Space as Markdown…".into(),
         "Next Space ⌥⌘→".into(),
         "Previous Space ⌥⌘←".into(),
+        "Stop Recording Trace".into(),
     ];
     assert_eq!(bar.listed(), expected);
 }
 
 /// The hidden words: "duplicate" finds New Window after Duplicate Current Tab, as Arc's does with
-/// a page, and "hide" Toggle Sidebar after Hide Sidebar.
+/// a page, and "hide" Collapse Pinned Tabs and Toggle Sidebar after Hide Sidebar.
 #[gpui::test]
 fn a_hidden_word_finds_its_command(cx: &mut TestAppContext) {
     let mut bar = Bar::with_commands(cx);
@@ -1502,7 +1534,12 @@ fn a_hidden_word_finds_its_command(cx: &mut TestAppContext) {
     assert_eq!(bar.listed(), expected);
     bar.keys("cmd-a");
     type_and_suggest(&mut bar, "hide", suggestions("hide", &[]));
-    let expected = ["Hide Sidebar ⌘S".to_string(), search("hide"), "Toggle Sidebar ⌘S".into()];
+    let expected = [
+        "Hide Sidebar ⌘S".to_string(),
+        search("hide"),
+        "Collapse Pinned Tabs".into(),
+        "Toggle Sidebar ⌘S".into(),
+    ];
     assert_eq!(bar.listed(), expected);
 }
 
@@ -1668,4 +1705,53 @@ fn shift_f10_opens_the_fields_menu_on_its_first_item(cx: &mut TestAppContext) {
     bar.cx.run_until_parked();
     let text = bar.window.update(&mut bar.cx.cx, |bar, _, cx| bar.input.read(cx).text().to_owned());
     assert_eq!(text.unwrap(), "docs.test");
+}
+
+/// A .new address typed to its dot gets its row first, named by what it makes, in place of the
+/// core's row for the same page (#698). ↩ opens it in a new tab, even from a tab's URL, which it
+/// leaves. The word alone stays a search.
+#[gpui::test]
+fn a_typed_new_address_opens_its_new_document_in_a_new_tab(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("meet");
+    bar.suggest("meet", vec![searching("meet")]);
+    assert_eq!(bar.listed(), [search("meet")]);
+    bar.type_text(".");
+    bar.suggest("meet.", vec![page("https://meet./"), searching("meet.")]);
+    assert_eq!(bar.listed(), ["https://meet.new/", "https://meet./", &search("meet.")]);
+    let named = bar.window.read_with(&bar.cx.cx, |bar, _| bar.rows[0].text.clone()).unwrap();
+    assert_eq!(named, "New Google Meet");
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["open https://meet.new/", "hide"]);
+
+    bar.edit("https://example.com/", None);
+    bar.type_text("docs.new");
+    bar.suggest("docs.new", vec![page("https://docs.new/"), searching("docs.new")]);
+    assert_eq!(bar.listed(), ["https://docs.new/", &search("docs.new")]);
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["open https://docs.new/", "hide"]);
+}
+
+/// ⌘⌫ and ⌥⌫ edit the bar's field as in any other, and the bar asks again for what's left. At
+/// the start of a site search they leave it, as ⌫ does (#1076).
+#[gpui::test]
+fn cmd_and_option_backspace_ask_again_and_leave_a_site_search(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("cats and dogs");
+    bar.host.asked.take();
+    bar.keys("alt-backspace");
+    assert_eq!(bar.input(), ("cats and ".into(), 9..9));
+    assert_eq!(bar.host.asked.take().last().map(|(text, _)| text.as_str()), Some("cats and "));
+    bar.keys("left left left left cmd-backspace");
+    assert_eq!(bar.input(), ("and ".into(), 0..0));
+    assert_eq!(bar.host.asked.take().last().map(|(text, _)| text.as_str()), Some("and "));
+
+    for key in ["cmd-backspace", "alt-backspace"] {
+        let mut bar = Bar::new(cx);
+        bar.type_text("duck.test");
+        bar.suggest("duck.test", vec![hinting("duck.test")]);
+        bar.keys("tab");
+        bar.keys(key);
+        assert_eq!(bar.input(), ("duck.test".into(), 9..9), "{key}");
+    }
 }

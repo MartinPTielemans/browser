@@ -1,0 +1,34 @@
+Lets the core open the links in a launch's command line (//browser_core/hooks.h): `xdg-open
+https://…` and a link clicked in a mail client on Linux, and a second `chrome <url>`, which the
+process singleton hands to the running browser. The core starts Chrome with --no-startup-window,
+which makes such a launch silent, so the hook comes just before it and the links reach the core,
+the first launch's too. The Mac's come by AppController (chromium-core-open-links.patch).
+
+--- a/chrome/browser/ui/startup/startup_browser_creator.cc
++++ b/chrome/browser/ui/startup/startup_browser_creator.cc
+@@ -154,6 +154,12 @@
+ using content::BrowserThread;
+ using content::ChildProcessSecurityPolicy;
+ 
++// browser_core: the core opens the links in a launch's command line in its own windows
++// (//browser_core/hooks.h).
++void (*g_browser_core_open_command_line)(const base::CommandLine& command_line,
++                                         const base::FilePath& cur_dir,
++                                         Profile* profile) = nullptr;
++
+ namespace {
+ 
+ // Dumps the current set of the browser process's histograms to |output_file|.
+@@ -1169,6 +1175,12 @@
+   }
+ #endif  //  !BUILDFLAG(IS_CHROMEOS)
+ 
++  // browser_core: the switch below is the core's, whose windows open the links, this launch's or
++  // another's the process singleton handed over.
++  if (g_browser_core_open_command_line) {
++    g_browser_core_open_command_line(command_line, cur_dir, privacy_safe_profile);
++  }
++
+   // If --no-startup-window is specified then do not open a new window.
+   if (command_line.HasSwitch(switches::kNoStartupWindow)) {
+     silent_launch = true;

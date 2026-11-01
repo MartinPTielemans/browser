@@ -1,10 +1,10 @@
 //! The popover that picks a Space's icon, Arc's: it hangs under the Space's name, its arrow at the
 //! icon, with Emoji | Icon at its top, and a trash button after it once there's an icon to remove,
 //! and under them the glyphs, or a search and a grid of emoji (docs/ux-spec.md › Spaces › Icon).
-//! A tab's hangs the same way from its favicon, with the Emoji tab only, as a tab's icon is an
-//! emoji. GPUI can't draw over the page's native view, so it's a window of its own that the host
-//! shows over the browser window, as its child, with the keyboard, translucent over a blur in the
-//! shape drawn here. What it asks of its window goes through `Host`.
+//! A tab's hangs the same way from its favicon, and a folder's from its folder, each with the Emoji
+//! tab only, as their icons are emoji. GPUI can't draw over the page's native view, so it's a
+//! window of its own that the host shows over the browser window, as its child, with the keyboard,
+//! translucent over a blur in the shape drawn here. What it asks of its window goes through `Host`.
 
 use std::{ops::Range, rc::Rc, time::Instant};
 
@@ -27,6 +27,7 @@ use crate::{
 mod emoji;
 
 use emoji::{Drawable, Grid, Row};
+use emojis::SkinTone;
 pub use emoji::Recents;
 
 actions!(icon_picker, [Dismiss, Keep, Up, Down]);
@@ -96,25 +97,27 @@ pub enum Tab {
 pub enum Subject {
     Space(u64),
     Tab(u64),
+    Folder(u64),
 }
 
 impl Subject {
-    /// The tabs it offers: a tab's custom icon takes the favicon's place, so it is a character the
-    /// row draws, and the Icon tab's glyphs are a Space's.
+    /// The tabs it offers: a tab's custom icon takes the favicon's place, and a folder's the
+    /// folder's, so each is a character the row draws, and the Icon tab's glyphs are a Space's.
     fn tabs(self) -> &'static [Tab] {
         match self {
             Subject::Space(_) => &[Tab::Emoji, Tab::Icon],
-            Subject::Tab(_) => &[Tab::Emoji],
+            Subject::Tab(_) | Subject::Folder(_) => &[Tab::Emoji],
         }
     }
 }
 
 impl std::fmt::Display for Subject {
-    /// As check.sh reads it: a Space is its id, a tab "tab" and its id.
+    /// As check.sh reads it: a Space is its id, a tab "tab" and its id, a folder "folder" and its.
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Subject::Space(space) => write!(f, "{space}"),
             Subject::Tab(tab) => write!(f, "tab {tab}"),
+            Subject::Folder(folder) => write!(f, "folder {folder}"),
         }
     }
 }
@@ -131,6 +134,8 @@ struct Picking {
     query: String,
     grid: Grid,
     selected: Option<usize>,
+    /// Whether the six skin tones are out along the search.
+    tones: bool,
     /// While the content slides from one tab's to the other's: the tab it slides from, and when.
     slide: Option<(Tab, Instant)>,
     _edit: Option<Subscription>,
@@ -262,7 +267,7 @@ pub fn show(
         .update(cx, |picker, window, cx| {
             let tab = match subject {
                 Subject::Space(_) => tab_for(&icon),
-                Subject::Tab(_) => Tab::Emoji,
+                Subject::Tab(_) | Subject::Folder(_) => Tab::Emoji,
             };
             // check.sh reads this line.
             log!("browser: icon picker for {subject} on {}", tab.name());
@@ -274,6 +279,7 @@ pub fn show(
                 query: String::new(),
                 grid: Grid::default(),
                 selected: None,
+                tones: false,
                 slide: None,
                 _edit: None,
             });
@@ -290,6 +296,14 @@ pub fn entity(cx: &App) -> Option<Entity<IconPicker>> {
 }
 
 /// The user left the picker without picking, such as with a click outside it.
+/// The Space it edits is going from under it, as a swipe turns the page: it closes as Esc closes
+/// it, where `dismissed` hears of a close the host has made.
+pub fn leave(cx: &mut App) {
+    if let Some(window) = cx.try_global::<IconPickerWindow>().map(|picker| picker.0) {
+        window.update(cx, |picker, window, cx| picker.dismiss(&Dismiss, window, cx)).ok();
+    }
+}
+
 pub fn dismissed(cx: &mut App) {
     if let Some(window) = cx.try_global::<IconPickerWindow>().map(|picker| picker.0) {
         window
@@ -304,9 +318,13 @@ pub fn dismissed(cx: &mut App) {
 /// Whether the picker shows, for a click on the icon it points at to close it rather than open it
 /// again.
 pub fn is_open(cx: &App) -> bool {
-    cx.try_global::<IconPickerWindow>()
-        .and_then(|picker| picker.0.read(cx).ok())
-        .is_some_and(|picker| picker.picking.is_some())
+    open_for(cx).is_some()
+}
+
+/// What the picker shows for, if it shows.
+pub fn open_for(cx: &App) -> Option<Subject> {
+    let picker = cx.try_global::<IconPickerWindow>()?.0.read(cx).ok()?;
+    picker.picking.as_ref().map(|picking| picking.subject)
 }
 
 /// How far right the old tab's content and the new one's are, `progress` (0 to 1) into a switch
@@ -340,6 +358,7 @@ impl IconPicker {
             picking.slide = Some((picking.tab, Instant::now()));
         }
         picking.tab = tab;
+        picking.tones = false;
         picking._edit = None;
         if tab == Tab::Icon {
             window.focus(&self.focus, cx);
@@ -352,6 +371,7 @@ impl IconPicker {
         let host = &self.host;
         let drawable =
             self.drawable.get_or_insert_with(|| Drawable::new(|emoji| host.draws(emoji)));
+        drawable.ask_tone(self.recents.tone(), |emoji| host.draws(emoji));
         picking.grid = Grid::new("", &self.recents, drawable);
         picking.selected = current(&picking.icon, &picking.grid);
         self.search.update(cx, |field, cx| field.reset(SharedString::default(), window, cx));
@@ -376,10 +396,19 @@ impl IconPicker {
             return;
         }
         // Asked for when the tab showed, which any search follows.
-        let Some(drawable) = &self.drawable else {
+        if self.drawable.is_none() {
+            return;
+        }
+        picking.query = text.to_string();
+        self.regrid(cx);
+    }
+
+    /// Lists the emoji again for the search, as when it changes.
+    fn regrid(&mut self, cx: &mut Context<Self>) {
+        let (Some(picking), Some(drawable)) = (&mut self.picking, &self.drawable) else {
             return;
         };
-        picking.query = text.to_string();
+        let text = picking.query.as_str();
         picking.grid = Grid::new(text, &self.recents, drawable);
         picking.selected = if text.trim().is_empty() {
             current(&picking.icon, &picking.grid)
@@ -438,6 +467,64 @@ impl IconPicker {
         if self.search.read(cx).text().is_empty() && self.go(1, 0, cx) {
             cx.stop_propagation();
         }
+    }
+
+    /// Shows the grid's emoji in `tone`, and keeps it with the recents for the next time.
+    fn pick_tone(&mut self, tone: SkinTone, cx: &mut Context<Self>) {
+        let Some(picking) = &mut self.picking else {
+            return;
+        };
+        picking.tones = false;
+        if tone != self.recents.tone() {
+            let host = &self.host;
+            if let Some(drawable) = &mut self.drawable {
+                drawable.ask_tone(tone, |emoji| host.draws(emoji));
+            }
+            self.recents.set_tone(tone);
+            self.host.keep_recents(&self.recents.to_text());
+            self.regrid(cx);
+        }
+        cx.notify();
+    }
+
+    /// The tone button at the search's right end, or the six tones along it once it's clicked.
+    fn tone_button(&self, picking: &Picking, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let plate = |id: (&'static str, usize), tone: SkinTone| {
+            div()
+                .id(id)
+                .size(px(emoji::TONE_PLATE))
+                .flex()
+                .flex_none()
+                .items_center()
+                .justify_center()
+                .rounded(px(SEGMENTS_RADIUS))
+                .hover(|plate| plate.bg(Palette::on_dark(STATE_HOVERED)))
+                .active(|plate| plate.bg(Palette::on_dark(STATE_PRESSED)))
+                .text_size(px(emoji::TONE_EMOJI))
+                .child(emoji::hand(tone))
+        };
+        let shown = self.recents.tone();
+        let tones = picking.tones.then(|| {
+            emoji::TONES.iter().enumerate().map(|(index, &tone)| {
+                plate(("icon-picker-tone", index), tone)
+                    .when(tone == shown, |plate| plate.bg(rgba(CHOSEN)))
+                    .on_click(cx.listener(move |picker, _, window, cx| {
+                        picker.pick_tone(tone, cx);
+                        window.focus(&picker.search.focus_handle(cx), cx);
+                    }))
+            })
+        });
+        let button = (!picking.tones).then(|| {
+            plate(("icon-picker-tones", 0), shown).on_click(cx.listener(|picker, _, window, cx| {
+                if let Some(picking) = &mut picker.picking {
+                    picking.tones = true;
+                    cx.notify();
+                }
+                // The picker takes the keyboard on the press, and typing goes on in the search.
+                window.focus(&picker.search.focus_handle(cx), cx);
+            }))
+        });
+        div().flex().flex_none().children(tones.into_iter().flatten()).children(button)
     }
 
     /// Gives the Space the emoji at `item` in the list, and puts it first among the recents.
@@ -615,12 +702,14 @@ impl IconPicker {
                     .left(px(GRID_X))
                     .w(px(PITCH * COLUMNS as f32))
                     .h(px(emoji::SEARCH_HEIGHT))
-                    .px(px(emoji::SEARCH_PADDING))
+                    .pl(px(emoji::SEARCH_PADDING))
+                    .pr(px((emoji::SEARCH_HEIGHT - emoji::TONE_PLATE) / 2.))
                     .flex()
                     .items_center()
                     .rounded(px(emoji::SEARCH_RADIUS))
                     .bg(rgba(SEGMENTS_FILL))
-                    .child(self.search.clone()),
+                    .child(div().flex_1().min_w_0().child(self.search.clone()))
+                    .child(self.tone_button(picking, cx)),
             )
             .child(
                 div()

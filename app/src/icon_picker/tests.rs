@@ -387,3 +387,11 @@ fn icons_come_in_from_the_right_and_emoji_from_the_left() {
     near(slid(Tab::Icon, Tab::Emoji, 0.), (0., -WIDTH));
     near(slid(Tab::Icon, Tab::Emoji, 1.), (WIDTH, 0.));
 }
+
+#[gpui::test]
+fn a_folders_icon_is_an_emoji_as_a_tabs_is(cx: &mut TestAppContext) {
+    assert_eq!(Subject::Folder(3).tabs(), [Tab::Emoji]);
+    assert_eq!(Subject::Folder(3).to_string(), "folder 3");
+    let mut picker = Picker::of(Subject::Folder(7), "", "", cx);
+    assert_eq!(picker.tab(), Some(Tab::Emoji));
+}

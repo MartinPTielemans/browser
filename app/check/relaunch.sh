@@ -18,6 +18,11 @@ frame_of() {
 space_of() {
   grep "^browser: window $1 in space " "$log" | tail -1 | cut -d' ' -f6-
 }
+# The frame $1 $2 $3 $4 on the screen the app opens windows on, in place's terms: on the Mac with
+# BROWSER_DISPLAY=builtin that's the Mac's own, not the main display place counts from (#904).
+at() {
+  echo "$(($1 + screen_x)) $(($2 + screen_y)) $3 $4"
+}
 # The ids of the windows opened, in the order they opened.
 windows_opened() {
   grep '^browser: window opened ' "$log" | cut -d' ' -f4
@@ -48,7 +53,17 @@ if [ "$active" != 1 ]; then
   echo "skip: relaunch. Browser wasn't the active app, so the page ignored the click."
   exit 0
 fi
-send place 60 80 1000 700
+# Linux's session has one screen.
+screen_x=0
+screen_y=0
+if [ "$(uname)" = Darwin ]; then
+  send screen
+  screen=$(grep -m1 '^browser: screen at ' "$log" | cut -d' ' -f4-)
+  screen_x=${screen%% *}
+  screen=${screen#* }
+  screen_y=${screen%% *}
+fi
+send place "$(at 60 80 1000 700)"
 quit_by_key
 exited
 
@@ -57,8 +72,8 @@ await '^browser: restored in ' || fail "the relaunch didn't restore the Spaces"
 await '^browser: first frame at ' || fail "the restored window didn't draw"
 await '^browser: window opened [0-9]' || fail "the restored window didn't open"
 first=$(windows_opened | head -1)
-[ "$(frame_of "$first")" = "60 80 1000 700" ] ||
-  fail "the window came back at $(frame_of "$first"), not where it was at 60 80 1000 700"
+[ "$(frame_of "$first")" = "$(at 60 80 1000 700)" ] ||
+  fail "the window came back at $(frame_of "$first"), not where it was at $(at 60 80 1000 700)"
 one="window on screen $(launch_at 'window on screen') ms, first frame $(launch_at 'first frame') ms"
 
 # Two windows in two Spaces, of different sizes and places, with the second key. A third closes
@@ -68,7 +83,7 @@ expect '^browser: command new-window via ' "⌘N didn't run New Window"
 expect '^browser: window opened [0-9]' "⌘N didn't open a window"
 second=$(windows_opened | tail -1)
 send window 2
-send place 320 140 900 640
+send place "$(at 320 140 900 640)"
 send menu New Space…
 expect '^browser: command new-space via ui$' "New Space in the menu didn't run in the second window"
 send type reading
@@ -89,9 +104,13 @@ send window 1
 send key n cmd shift
 expect '^browser: private window opened [0-9]' "⇧⌘N didn't open a private window"
 send window 2
-send order
-expect '^browser: order window 2 window 4 window 1, key window 2$' \
-  "before the quit, the windows weren't the second, the private one and the first, front to back"
+if [ "$(uname)" = Linux ]; then
+  echo "skip: the windows' order before the quit: on X11 a new window opens behind the one in front (#712)."
+else
+  send order
+  expect '^browser: order window 2 window 4 window 1, key window 2$' \
+    "before the quit, the windows weren't the second, the private one and the first, front to back"
+fi
 quit_by_key
 exited
 
@@ -106,10 +125,10 @@ await '^browser: window [0-9]* in space Space 1$' || fail "the window behind did
 grep -q '^browser: private window opened ' "$log" && fail "the private window came back"
 front=$(windows_opened | head -1)
 back=$(windows_opened | tail -1)
-[ "$(frame_of "$front")" = "320 140 900 640" ] ||
-  fail "the window in front came back at $(frame_of "$front"), not at 320 140 900 640"
-[ "$(frame_of "$back")" = "60 80 1000 700" ] ||
-  fail "the window behind came back at $(frame_of "$back"), not at 60 80 1000 700"
+[ "$(frame_of "$front")" = "$(at 320 140 900 640)" ] ||
+  fail "the window in front came back at $(frame_of "$front"), not at $(at 320 140 900 640)"
+[ "$(frame_of "$back")" = "$(at 60 80 1000 700)" ] ||
+  fail "the window behind came back at $(frame_of "$back"), not at $(at 60 80 1000 700)"
 await "^browser: window $front in space reading\$" ||
   fail "the window in front came back in $(space_of "$front"), not reading"
 await "^browser: window $back in space Space 1\$" ||
@@ -130,15 +149,16 @@ cascaded=$(windows_opened | tail -1)
 read -r x y width height <<EOF
 $(frame_of "$cascaded")
 EOF
-[ "$width $height" = "900 640" ] && [ "${x:-0}" -gt 320 ] && [ "${y:-0}" -gt 140 ] ||
-  fail "⌘N's window opened at $(frame_of "$cascaded"), not as big as the one in front at 320 140 900 640 and down and to its right"
+[ "$width $height" = "900 640" ] && [ "${x:-0}" -gt $((screen_x + 320)) ] &&
+  [ "${y:-0}" -gt $((screen_y + 140)) ] ||
+  fail "⌘N's window opened at $(frame_of "$cascaded"), not as big as the one in front at $(at 320 140 900 640) and down and to its right"
 
 # Closed last, a regular window sets where the next launch's window opens, and a private window
 # open at another frame doesn't.
 send key n cmd shift
 expect '^browser: private window opened [0-9]' "⇧⌘N didn't open a private window"
 send window 4
-send place 500 300 700 500
+send place "$(at 500 300 700 500)"
 send window 2
 send key w cmd shift
 expect "^browser: window closed $back\$" "⇧⌘W didn't close the window behind"
@@ -146,7 +166,7 @@ send window 3
 send key w cmd shift
 expect "^browser: window closed $cascaded\$" "⇧⌘W didn't close ⌘N's window"
 send window 1
-send place 140 100 1040 680
+send place "$(at 140 100 1040 680)"
 # The last regular window's close quits, so the driver never reports it done.
 post key w cmd shift
 exec 3>&-
@@ -154,11 +174,11 @@ exited
 
 launch_logged "$out/relaunch-d.log"
 await '^browser: window opened [0-9]' || fail "no window opened after the last one closed"
-grep -q '^browser: launch window frame 140 100 1040 680$' "$log" ||
-  fail "the launch window opened at $(grep '^browser: launch window frame ' "$log" | cut -d' ' -f5-), not where the last window closed at 140 100 1040 680"
+grep -q "^browser: launch window frame $(at 140 100 1040 680)\$" "$log" ||
+  fail "the launch window opened at $(grep '^browser: launch window frame ' "$log" | cut -d' ' -f5-), not where the last window closed at $(at 140 100 1040 680)"
 first=$(windows_opened | head -1)
-[ "$(frame_of "$first")" = "140 100 1040 680" ] ||
-  fail "the window opened at $(frame_of "$first"), not where the last window closed at 140 100 1040 680"
+[ "$(frame_of "$first")" = "$(at 140 100 1040 680)" ] ||
+  fail "the window opened at $(frame_of "$first"), not where the last window closed at $(at 140 100 1040 680)"
 exec 3>&-
 quit
 

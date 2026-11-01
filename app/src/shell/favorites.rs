@@ -5,21 +5,22 @@ use std::{collections::HashMap, rc::Rc, time::Instant};
 
 use gpui::{
     Context, Hsla, MouseButton, MouseDownEvent, Role, canvas, div, hsla, img, prelude::*, px,
-    rgba,
+    rgba, svg,
 };
 
 use crate::elevation::Level;
 use crate::tooltip::{self, Anchor, Tip};
+use crate::icon_picker::Subject;
 
 use crate::palette::{Palette, Tone};
 use super::{
     access::Accessible,
-    Curve, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X, FOLDER_TITLE_X, FOOTER_HEIGHT, HAIRLINE,
+    Curve, DEVELOPER_TILE, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X, FOLDER_TITLE_X, FOOTER_HEIGHT, HAIRLINE,
     HOVERED, LIST_TOP,
-    PLATE_INSET, Place, Row, SLEEPING_FAVICON, Shell, Slot, Space, TALL_FAVORITES, TILE,
-    TILE_GAP, TILE_HEIGHT, TILE_HOVERED, TILE_MIN, TILE_RADIUS, TILE_RING,
-    TILE_UNTHEMED, TILE_UNTHEMED_LIGHT, TITLE_END_INSET, TITLE_GAP, TURN_TITLE_FADE, TileTheme, tile_theme::RING_WIDTH,
-    title,
+    PLATE_INSET, Place, Row, SECONDARY, SLEEPING_FAVICON, Shell, Slot, Space, TALL_FAVORITES, TILE,
+    TILE_GAP, TILE_HEIGHT, TILE_HOVERED, TILE_MARK, TILE_MARK_INSET, TILE_MIN, TILE_RADIUS,
+    TILE_RING, TILE_UNTHEMED, TILE_UNTHEMED_LIGHT, TITLE_END_INSET, TITLE_GAP, TURN_TITLE_FADE,
+    TileTheme, developer_outline, rows::capture_glyph, tile_theme::RING_WIDTH, title,
 };
 
 /// The most favorites a Space shows, as Arc's 12 a profile. Past it a tab doesn't become one,
@@ -350,7 +351,8 @@ impl Shell {
         let Row::Tab(tab) = row else {
             return;
         };
-        if !self.is_folder(tab) {
+        // A closed folder with tabs has its preview, which names it, in place of the tooltip.
+        if !self.is_folder(tab) || !self.previewed(tab).is_empty() {
             return;
         }
         let (name, title) = (self.folder_name(tab), FOLDER_TITLE_X);
@@ -410,9 +412,15 @@ impl Shell {
             Some(dragged) => (dragged == Slot::Tab(tab)).then_some(1.),
             None => self.hover_fill(Row::Tab(tab)),
         };
-        let fill = self.palette.plate(TILE + (TILE_HOVERED - TILE) * hover.unwrap_or(0.));
+        let developer = self.page(tab).developer_mode;
+        let fill = tile_fill(&self.palette, developer, hover.unwrap_or(0.));
         let theme = selected.then(|| self.tile_theme(tab)).flatten();
         let (shown, ring_width, ring) = shown_look(theme.as_deref(), &self.palette);
+        // The outline takes the ring's place.
+        let ring = if selected && developer { gpui::transparent_black() } else { ring };
+        if selected && !developer {
+            self.developer_outline_gone();
+        }
         let fill = match dragging == Some(Slot::Tab(tab)) {
             true => self.window_fill().blend(if selected { shown } else { fill }),
             false if selected => shown,
@@ -456,11 +464,34 @@ impl Shell {
                 }),
             )
             .on_click(cx.listener(move |shell, _, _, cx| shell.clicked_tile(tab, cx)))
-            .children(self.drawn_for_picker(tab))
+            .children(self.drawn_for_picker(Subject::Tab(tab)))
             .children(theme.as_deref().and_then(TileTheme::layers))
             .child(icon)
+            .when(selected && developer, |tile| {
+                tile.child(self.logged_developer_outline(tab, TILE_RADIUS))
+            })
             .child(self.framed(tab, if selected { ring_width } else { HAIRLINE }))
+            .children(self.tile_mark(tab))
+            .children(self.keyed_ring(tab, TILE_RADIUS))
             .child(self.icon_drawn(tab))
+    }
+
+    /// A favorite's mark in its tile's top right: what its page captures or shares, as its row's,
+    /// else a note while it plays sound (Arc animates musical notes; ours is still, as a song would
+    /// draw every frame).
+    fn tile_mark(&self, tab: u64) -> Option<impl IntoElement + use<>> {
+        let page = self.page(tab);
+        let playing = (page.audible && !page.muted).then_some("icons/eighth-note.svg");
+        let glyph = capture_glyph(&page).or(playing)?;
+        Some(
+            svg()
+                .path(glyph)
+                .absolute()
+                .top(px(TILE_MARK_INSET))
+                .right(px(TILE_MARK_INSET))
+                .size(px(TILE_MARK))
+                .text_color(self.palette.text(SECONDARY)),
+        )
     }
 
     /// Logs the icon `tab`'s tile draws once it's another than the one it drew, so a capture after
@@ -554,8 +585,10 @@ impl Shell {
         let places = self.tile_places(favorites.len());
         let tiles = places.into_iter().zip(favorites).map(|([left, top, width], &tab)| {
             let selected = tab == selected;
+            let developer = self.page(tab).developer_mode;
             let theme = selected.then(|| self.tile_theme(tab)).flatten();
             let (shown, ring_width, ring) = shown_look(theme.as_deref(), &self.palette);
+            let ring = if selected && developer { gpui::transparent_black() } else { ring };
             let tile = div()
                 .absolute()
                 .left(px(left))
@@ -571,9 +604,12 @@ impl Shell {
                     true => ring,
                     false => Level::Resting.rim_in(&self.palette).into(),
                 })
-                .bg(if selected { shown } else { self.palette.plate(TILE) })
+                .bg(if selected { shown } else { tile_fill(&self.palette, developer, 0.) })
                 .children(theme.as_deref().and_then(TileTheme::layers))
-                .child(self.tile_icon(tab, theme.as_deref()));
+                .child(self.tile_icon(tab, theme.as_deref()))
+                .when(selected && developer, |tile| {
+                    tile.child(developer_outline(&self.palette, TILE_RADIUS))
+                });
             #[cfg(test)]
             let tile =
                 tile.child(self.beside_framed(tab, if selected { ring_width } else { HAIRLINE }));
@@ -583,6 +619,14 @@ impl Shell {
             div().absolute().top(px(LIST_TOP)).left_0().w(px(self.width())).children(tiles)
         })
     }
+}
+
+/// A tile's fill while it isn't shown, `hover` of the way to its hover fill: a step firmer for a
+/// tab in Developer Mode.
+fn tile_fill(palette: &Palette, developer: bool, hover: f32) -> Hsla {
+    let rest = if developer { DEVELOPER_TILE } else { TILE };
+    let under = crate::palette::state_alpha(rest, crate::palette::STATE_HOVERED);
+    palette.plate(rest + (under - rest) * hover)
 }
 
 /// The selected tile's fill, ring width and ring: a colourful icon's ring is drawn with the blurred

@@ -1,6 +1,6 @@
 [package]
 name = "browser"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2024"
 publish = false
 license = "GPL-3.0-or-later"
@@ -51,6 +51,16 @@ gpui_macos = { path = ".deps/zed/crates/gpui_macos" }
 # Windows' GPUI platform, for the window the browser embeds GPUI in.
 [target.'cfg(target_os = "windows")'.dependencies]
 gpui_windows = { path = ".deps/zed/crates/gpui_windows" }
+# The agents' MCP server's named pipe (src/agents/pipe.rs), in the version GPUI's already brings.
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }
 
 # Zed's workspace takes GPUI's Linux platform without its window systems, so it runs headless
 # unless they're asked for here.
@@ -61,8 +71,16 @@ gpui_linux = { path = ".deps/zed/crates/gpui_linux" }
 # Flatpak's portal, for updates (src/flatpak.rs): the D-Bus GPUI's portals already use.
 zbus = { version = "5.13", default-features = false, features = ["async-io"] }
 futures-lite = "2"
-# The driver's keys on X11 (platform/linux/drive.rs), as linux/Cargo.toml has it for the library.
-x11rb = { version = "0.13", features = ["xkb"] }
+# The wait on the portal's answer (src/flatpak.rs), on the timers zbus already runs on.
+async-io = "2"
+# The driver's keys and pointer on X11 (platform/linux/drive.rs) and the windows' frames
+# (frames.rs), as linux/Cargo.toml has it for the library.
+x11rb = { version = "0.13", features = ["xkb", "randr", "xtest"] }
+# The driver's pointer and keyboard in the headless sway session (platform/linux/drive_wayland.rs).
+wayland-client = "0.31"
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+wayland-protocols-misc = { version = "0.3", features = ["client"] }
+xkbcommon = "0.8"
 
 [build-dependencies]
 # 0.73 accepts syn 3 but only builds with syn 2, which 0.72 asks for.
@@ -77,7 +95,9 @@ gpui = { path = ".deps/zed/crates/gpui", features = ["test-support"] }
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 zbus = { version = "5.13", default-features = false, features = ["async-io", "p2p"] }
 
-# The macOS accessibility adapter GPUI uses, with VO-Shift-M's menu and a folder's open state,
-# which it lacks upstream (setup.sh, patches/accesskit-macos-actions.patch).
+# The accessibility adapters GPUI uses, with what they lack upstream (setup.sh): the Mac's with
+# VO-Shift-M's menu and a folder's open state (patches/accesskit-macos-actions.patch), and AT-SPI's
+# with the expanded state (patches/accesskit-atspi-expanded.patch).
 [patch.crates-io]
 accesskit_macos = { path = ".deps/accesskit_macos" }
+accesskit_atspi_common = { path = ".deps/accesskit_atspi_common" }

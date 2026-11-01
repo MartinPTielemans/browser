@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <map>
 #include <memory>
 #include <optional>
@@ -34,11 +35,14 @@
 #include "ui/compositor/layer_solid_color.h"
 #include "ui/events/event.h"
 #include "ui/events/event_handler.h"
+#include "ui/events/keycodes/dom/keycode_converter.h"
 #include "ui/gfx/geometry/insets.h"
+#include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/rounded_corners_f.h"
 #include "ui/gfx/geometry/size_conversions.h"
+#include "ui/gfx/x/atom_cache.h"
 #include "ui/gfx/x/connection.h"
 #include "ui/gfx/x/event.h"
 #include "ui/gfx/x/event_observer.h"
@@ -50,7 +54,9 @@
 #include "ui/platform_window/wm/wm_move_resize_handler.h"
 #include "ui/views/widget/desktop_aura/desktop_native_widget_aura.h"
 #include "ui/views/widget/widget.h"
+#include "ui/views/widget/widget_delegate.h"
 #include "ui/views/widget/widget_observer.h"
+#include "ui/views/window/non_client_view.h"
 
 // As in Chrome, each page shown goes in an aura window in the browser window, over its views, so
 // the keys reach a page through the window's own focus, after the browser's shortcuts. Aura draws
@@ -105,6 +111,26 @@ void SetInputFocus(x11::Window window) {
       .IgnoreError();
 }
 
+// |event| as the X server sends a key typed, but for the window it goes to.
+std::optional<x11::KeyEvent> X11KeyOf(const ui::KeyEvent& event) {
+  const int code = ui::KeycodeConverter::DomCodeToNativeKeycode(event.code());
+  if (code == ui::KeycodeConverter::InvalidNativeKeycode()) {
+    return std::nullopt;
+  }
+  constexpr auto kNone = x11::KeyButMask{};
+  return x11::KeyEvent{
+      .opcode = event.type() == ui::EventType::kKeyPressed ? x11::KeyEvent::Press
+                                                           : x11::KeyEvent::Release,
+      .detail = static_cast<x11::KeyCode>(code),
+      .root = x11::Connection::Get()->default_root(),
+      .state = (event.IsShiftDown() ? x11::KeyButMask::Shift : kNone) |
+               (event.IsCapsLockOn() ? x11::KeyButMask::Lock : kNone) |
+               (event.IsControlDown() ? x11::KeyButMask::Control : kNone) |
+               (event.IsAltDown() ? x11::KeyButMask::Mod1 : kNone),
+      .same_screen = true,
+  };
+}
+
 ui::PlatformWindow* PlatformWindowOf(views::Widget* widget) {
   return static_cast<aura::WindowTreeHostPlatform*>(widget->GetNativeWindow()->GetHost())
       ->platform_window();
@@ -135,6 +161,8 @@ struct Slot {
   gfx::Rect page_in_devtools;
   // Only the bottom corners are round, for the side panel under the app's header.
   bool bottom_corners_only = false;
+  // Its corners' own, for a link preview's page, else the window's.
+  std::optional<double> corner_radius;
 };
 
 // The pages and DevTools a window shows once it changes, which move between its slots unhidden.
@@ -196,12 +224,16 @@ class WindowViews : public views::WidgetObserver,
   aura::Window* content() const { return widget_->GetNativeView(); }
   x11::Window window() const { return XWindowOf(widget_); }
   bool ui_has_keyboard() const { return ui_has_keyboard_; }
+  bool ui_holds_for_page() const { return ui_holds_for_page_; }
   bool overlay_has_keyboard() const { return overlay_has_keyboard_; }
   std::vector<Slot>& panes() { return panes_; }
   Slot& side_panel() { return side_panel_; }
+  Slot& preview() { return preview_; }
   FocusRing& ring() { return ring_; }
   void set_corner_radius(double radius) { corner_radius_ = radius; }
+  bool held() const { return held_; }
   void set_held(bool held) { held_ = held; }
+  void set_preview_color(SkColor4f color) { preview_color_ = color; }
   UITextInput& ui_text_input() { return ui_text_input_; }
 
   // A slot's holder, made the first time it's needed, over the window's own views.
@@ -288,6 +320,30 @@ class WindowViews : public views::WidgetObserver,
     }
   }
 
+  // Shows |page|, a link preview's, at |frame| over the pages shown, in place of the preview it
+  // shows. The app's overlay over the window has a hole where it shows, and its card round that.
+  void ShowPreview(aura::Window* page, const gfx::Rect& frame, double corner_radius) {
+    aura::Window* holder = HolderFor(preview_);
+    if (preview_.page != page) {
+      Empty(preview_);
+      if (page->parent()) {
+        page->parent()->RemoveChild(page);
+      }
+      holder->AddChild(page);
+      Keep(preview_, page, nullptr);
+    }
+    page->Show();
+    holder->layer()->AsSolidColor()->SetColor(preview_color_);
+    preview_.corner_radius = corner_radius;
+    const gfx::Size size = ContentSizeOf(widget_);
+    preview_.insets = gfx::Insets::TLBR(frame.y(), frame.x(), size.height() - frame.bottom(),
+                                        size.width() - frame.right());
+    content()->StackChildAtTop(holder);
+    holder->Show();
+    LayOut(preview_, size);
+    ShowThrough();
+  }
+
   // Sizes each slot to its insets.
   void LayOut() {
     const gfx::Size size = ContentSizeOf(widget_);
@@ -295,6 +351,7 @@ class WindowViews : public views::WidgetObserver,
       LayOut(slot, size);
     }
     LayOut(side_panel_, size);
+    LayOut(preview_, size);
     ring_.Fit();
   }
 
@@ -314,7 +371,7 @@ class WindowViews : public views::WidgetObserver,
     } else {
       slot.page->SetBounds(bounds);
     }
-    const float r = corner_radius_;
+    const float r = slot.corner_radius.value_or(corner_radius_);
     slot.holder->layer()->SetRoundedCornerRadius(
         slot.bottom_corners_only ? gfx::RoundedCornersF(0, 0, r, r) : gfx::RoundedCornersF(r));
   }
@@ -335,6 +392,7 @@ class WindowViews : public views::WidgetObserver,
       add(slot);
     }
     add(side_panel_);
+    add(preview_);
     if (OnWayland()) {
       std::vector<gfx::Rect> region;
       for (const Slot* slot : shown) {
@@ -383,7 +441,8 @@ class WindowViews : public views::WidgetObserver,
       const gfx::Rect frame = gfx::ScaleToEnclosingRect(slot->holder->bounds(), scale);
       std::vector<x11::Rectangle> hole;
       for (gfx::Rect row :
-           RoundShape(frame.size(), corner_radius_ * scale, slot->bottom_corners_only)) {
+           RoundShape(frame.size(), slot->corner_radius.value_or(corner_radius_) * scale,
+                      slot->bottom_corners_only)) {
         row.Offset(frame.OffsetFromOrigin());
         hole.push_back(XRectangle(row));
       }
@@ -402,6 +461,7 @@ class WindowViews : public views::WidgetObserver,
   // showed may have moved it.
   void OverlayTakesKeyboard(bool takes) {
     overlay_has_keyboard_ = takes;
+    early_keys_.clear();
     ui_text_input_.SetKeyboard(ui_has_keyboard_ || overlay_has_keyboard_);
     if (!takes && ui_ != x11::Window::None && !ui_has_keyboard_ && IsWithin(InputFocus(), ui_)) {
       UITakesKeyboard();
@@ -409,13 +469,14 @@ class WindowViews : public views::WidgetObserver,
   }
 
   // The UI lets the keyboard go to the window, which KeyboardForPage counts as the page's, and on
-  // X11 the window has the input focus.
+  // X11 the window has the input focus, even where a press in the UI that gives a page the
+  // keyboard, as one on a tab's row does, had GPUI move it into the UI's window first.
   void PageTakesKeyboard() {
-    if (!ui_has_keyboard_) {
-      return;
+    if (ui_has_keyboard_) {
+      ui_has_keyboard_ = false;
+      ui_holds_for_page_ = false;
+      ui_text_input_.SetKeyboard(overlay_has_keyboard_);
     }
-    ui_has_keyboard_ = false;
-    ui_text_input_.SetKeyboard(overlay_has_keyboard_);
     if (ui_ != x11::Window::None && IsWithin(InputFocus(), ui_)) {
       SetInputFocus(window());
     }
@@ -425,8 +486,26 @@ class WindowViews : public views::WidgetObserver,
   // the window has it. Taken from another window, as by a window whose page moved out, that
   // window's handling of its focus event, which comes after it has the focus back, would take it
   // back too, and the two would go on without end (#531).
-  void UITakesKeyboard() {
+  enum class Asked { kNo, kToKeep, kToHold };
+  void UITakesKeyboard(Asked asked = Asked::kNo) {
+    // With no page shown, the keys only reach the window's shortcuts through the UI, which holds
+    // them for the next page shown, as the Mac's window does. Taken again while it has them, as the
+    // window manager focusing the window as it maps has it, it still holds them or keeps them.
+    // Asked by the app, as for the New Space form's field, it keeps them, as the Mac's UI view
+    // does once it's the first responder. Asked to hold them, as the app does as it shows a Space
+    // with no page, the window's first too, it holds them for the next page shown, even with the
+    // page before still in the window, unless it keeps them, as the form's Space shows (#895).
+    if (asked == Asked::kToKeep) {
+      ui_holds_for_page_ = false;
+    } else if (asked == Asked::kToHold) {
+      ui_holds_for_page_ = ui_holds_for_page_ || !ui_has_keyboard_;
+    } else if (!ui_has_keyboard_) {
+      ui_holds_for_page_ =
+          std::ranges::none_of(panes_, [](const Slot& slot) { return slot.page; });
+    }
     ui_has_keyboard_ = true;
+    ui_lent_ = false;
+    page_lent_.RemoveAll();
     if (auto* client = aura::client::GetFocusClient(content())) {
       client->ResetFocusWithinActiveWindow(content());
     }
@@ -486,11 +565,13 @@ class WindowViews : public views::WidgetObserver,
       Empty(slot);
     }
     Empty(side_panel_);
+    Empty(preview_);
     while (!unseen_.windows().empty()) {
       Unsee(unseen_.windows().front());
     }
     panes_.clear();
     side_panel_ = Slot();
+    preview_ = Slot();
     kept_.RemoveAllObservations();
     observation_.Reset();
   }
@@ -508,24 +589,104 @@ class WindowViews : public views::WidgetObserver,
     };
     std::ranges::for_each(panes_, forget);
     forget(side_panel_);
+    forget(preview_);
+    // A link preview's page goes as its tab closes, and its hole with it.
+    if (preview_.holder && !preview_.page && preview_.holder->IsVisible()) {
+      preview_.holder->Hide();
+      ShowThrough();
+    }
   }
 
-  // aura::client::FocusChangeObserver: the core focusing a page gives it the keyboard.
-  void OnWindowFocused(aura::Window* gained_focus, aura::Window*) override {
-    if (gained_focus && InSlot(gained_focus)) {
+  // aura::client::FocusChangeObserver: the core focusing a page gives it the keyboard, as Chromium
+  // focusing a window of its own in the browser window does, such as an extension's popup or a
+  // tab's dialog. That gives it back as it goes to the UI or page that had it, as Chrome's views
+  // restore the focus, which here would leave it with the window, where no page hears the keys.
+  void OnWindowFocused(aura::Window* gained_focus, aura::Window* lost_focus) override {
+    if (gained_focus && gained_focus != content()) {
+      if (InSlot(gained_focus)) {
+        ui_lent_ = false;
+        page_lent_.RemoveAll();
+      } else if (ui_has_keyboard_) {
+        ui_lent_ = true;
+      } else if (lost_focus && InSlot(lost_focus)) {
+        page_lent_.RemoveAll();
+        page_lent_.Add(lost_focus);
+      }
       PageTakesKeyboard();
+    } else if (ui_lent_) {
+      UITakesKeyboard();
+    } else if (!page_lent_.windows().empty()) {
+      // Not while the focus client tells of the change.
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+          FROM_HERE,
+          base::BindOnce(&WindowViews::PageTakesBackKeyboard, weak_factory_.GetWeakPtr()));
+    }
+  }
+
+  // On X11 GPUI hears only the keys sent to its own windows, so ⌥ pressed and let go alone while
+  // the page has the keyboard is told from here, as GPUI tells the UI's (host_watch_option_taps).
+  // Under Wayland GPUI hears the page's keys too.
+  void WatchOptionTap(const ui::KeyEvent& event) {
+    const bool option = event.key_code() == ui::VKEY_MENU;
+    const int others = ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN | ui::EF_COMMAND_DOWN;
+    if (event.type() == ui::EventType::kKeyPressed) {
+      option_alone_ = option && !(event.flags() & others);
+      return;
+    }
+    if (!option || !std::exchange(option_alone_, false) || !Host().window_option_tapped) {
+      return;
+    }
+    for (Window* window : Window::All()) {
+      if (window->widget() == widget_) {
+        Host().window_option_tapped(Host().context, window->id());
+      }
     }
   }
 
   // ui::EventHandler, before the window's views and pages get the event:
+  void OnScrollEvent(ui::ScrollEvent* event) override { option_alone_ = false; }
+
   void OnKeyEvent(ui::KeyEvent* event) override {
+    if (!ui_has_keyboard_ && !overlay_has_keyboard_ && ui_ != x11::Window::None) {
+      WatchOptionTap(*event);
+    }
     // The UI's or an overlay's, which on Wayland reach the window too.
     if (ui_has_keyboard_ || overlay_has_keyboard_) {
       event->StopPropagation();
     }
+    // On X11 the X server sends the UI's keys here while the input focus is on the window, not
+    // GPUI's, unless the pointer is over the UI: wlroots 0.17's Xwayland puts it back up from
+    // GPUI's window each time it's taken down (#628), as a new window it focuses keeps it. They go
+    // on to GPUI's window, where the focus would have sent them.
+    if (ui_has_keyboard_ && !overlay_has_keyboard_ && ui_ != x11::Window::None) {
+      std::optional<x11::KeyEvent> key = X11KeyOf(*event);
+      if (x11::Window main = UIMain(); key && main != x11::Window::None) {
+        key->event = main;
+        x11::Connection* connection = x11::Connection::Get();
+        // With the focus, or GPUI, finding it on this window, hands the key back here as the
+        // page's, and the two pass it on without end, as ⌘Q after full screen did (#919).
+        SetInputFocus(main);
+        connection->SendEvent(*key, main, x11::EventMask::NoEvent);
+        connection->Flush();
+      }
+    }
+    // On X11 only one typed before the overlay that took the keyboard had the input focus reaches
+    // the window, as fast typing after ⌃F does once the keys held for the bar were given to it, as
+    // GPUI moves the focus on its next turn. They go to the overlay once it has the focus.
+    if (overlay_has_keyboard_ && ui_ != x11::Window::None) {
+      if (std::optional<x11::KeyEvent> key = X11KeyOf(*event)) {
+        early_keys_.push_back(*key);
+        SendEarlyKeys();
+      }
+    }
   }
 
   void OnMouseEvent(ui::MouseEvent* event) override {
+    // ⌥ held for a click or a scroll isn't a tap.
+    if (event->type() == ui::EventType::kMousePressed ||
+        event->type() == ui::EventType::kMousewheel) {
+      option_alone_ = false;
+    }
     if (event->type() != ui::EventType::kMousePressed) {
       return;
     }
@@ -540,9 +701,42 @@ class WindowViews : public views::WidgetObserver,
     }
   }
 
+  // The window manager's state for the window changed. A full screen it ended itself, by its own
+  // key, Chromium's X11 window ignores, keeping its own (X11Window::OnXWindowStateChanged), so the
+  // window leaves here, the one way every exit takes (Window::LeaveFullScreen).
+  void WindowManagerStateChanged() {
+    std::vector<x11::Atom> states;
+    x11::Connection::Get()->GetArrayProperty(window(), x11::GetAtom("_NET_WM_STATE"), &states);
+    const bool full_screen =
+        std::ranges::contains(states, x11::GetAtom("_NET_WM_STATE_FULLSCREEN"));
+    // Only once the window manager has had it full screen: until it takes Chromium's request, the
+    // window's state lacks it.
+    const bool ended = window_manager_full_screen_ && !full_screen;
+    window_manager_full_screen_ = full_screen;
+    if (!ended || !widget_->IsFullscreen()) {
+      return;
+    }
+    for (Window* each : Window::All()) {
+      if (each->widget() == widget_) {
+        // Its resize runs the app, which may close the window, and this with it.
+        each->LeaveFullScreen();
+        return;
+      }
+    }
+  }
+
   // x11::EventObserver:
   void OnEvent(const x11::Event& event) override {
+    if (auto* property = event.As<x11::PropertyNotifyEvent>()) {
+      if (property->window == window() && property->atom == x11::GetAtom("_NET_WM_STATE")) {
+        WindowManagerStateChanged();
+      }
+      return;
+    }
     if (auto* focus = event.As<x11::FocusEvent>()) {
+      if (focus->opcode == x11::FocusEvent::Out) {
+        SendEarlyKeys();
+      }
       // An overlay with the keyboard lent has the input focus, which leaves the page's untouched.
       if (focus->event != window() || focus->mode == x11::NotifyMode::Grab ||
           focus->mode == x11::NotifyMode::Ungrab || overlay_has_keyboard_) {
@@ -552,6 +746,8 @@ class WindowViews : public views::WidgetObserver,
       if (focus->detail != x11::NotifyDetail::Inferior) {
         retook_ = false;
       }
+      // GPUI taking the input focus, told after a page took it back from that press, is over.
+      const bool ui_took = IsWithin(InputFocus(), ui_);
       switch (focus->detail) {
         // Out: GPUI took the input focus into the UI's window, as it does on a click. In: it came
         // back up to the window's own, as a window manager focusing the window may move it, which
@@ -560,7 +756,9 @@ class WindowViews : public views::WidgetObserver,
         // up each time, and the two would go on without end (#628).
         case x11::NotifyDetail::Inferior:
           if (!in) {
-            UITakesKeyboard();
+            if (ui_took) {
+              UITakesKeyboard();
+            }
           } else if (ui_has_keyboard_ && !retook_) {
             retook_ = true;
             UITakesKeyboard();
@@ -569,7 +767,7 @@ class WindowViews : public views::WidgetObserver,
         // GPUI took the input focus into the UI's window from another's.
         case x11::NotifyDetail::Virtual:
         case x11::NotifyDetail::NonlinearVirtual:
-          if (in) {
+          if (in && ui_took) {
             UITakesKeyboard();
           }
           break;
@@ -596,12 +794,48 @@ class WindowViews : public views::WidgetObserver,
     }
   }
 
- private:
+  // Whether |window| is a page or DevTools a slot holds, or in one.
   bool InSlot(aura::Window* window) const {
     auto holds = [window](const Slot& slot) {
       return slot.holder && slot.holder->Contains(window);
     };
-    return std::ranges::any_of(panes_, holds) || holds(side_panel_);
+    return std::ranges::any_of(panes_, holds) || holds(side_panel_) || holds(preview_);
+  }
+
+  // Sends the keys typed before the overlay with the keyboard had the input focus to the window
+  // that has it, unless that's still this one or the UI's. A bar is a child of this one.
+  void SendEarlyKeys() {
+    if (early_keys_.empty()) {
+      return;
+    }
+    const x11::Window focus = InputFocus();
+    if (focus == x11::Window::None || focus == window() || IsWithin(focus, ui_)) {
+      return;
+    }
+    x11::Connection* connection = x11::Connection::Get();
+    for (x11::KeyEvent& key : early_keys_) {
+      key.event = focus;
+      connection->SendEvent(key, focus, x11::EventMask::NoEvent);
+    }
+    connection->Flush();
+    fprintf(stderr, "browser: sent %zu key events typed before the overlay had the input focus\n",
+            early_keys_.size());
+    early_keys_.clear();
+  }
+
+ private:
+  // The page a window of Chromium's took the keyboard from has it back, if it's still shown and the
+  // window still has it.
+  void PageTakesBackKeyboard() {
+    if (page_lent_.windows().empty()) {
+      return;
+    }
+    aura::Window* page = page_lent_.Pop();
+    aura::client::FocusClient* client = aura::client::GetFocusClient(content());
+    aura::Window* focused = client ? client->GetFocusedWindow() : nullptr;
+    if (client && !ui_has_keyboard_ && (!focused || focused == content()) && InSlot(page)) {
+      client->FocusWindow(page);
+    }
   }
 
   // Sizes the UI to the window's content.
@@ -633,16 +867,32 @@ class WindowViews : public views::WidgetObserver,
   x11::Window ui_;
   std::vector<Slot> panes_;
   Slot side_panel_;
+  // A link preview's page, over the panes, and the colour where it hasn't drawn: the one under the
+  // window's page, as the app's card is, else a page's white, as the hole would show the pages
+  // under it.
+  Slot preview_;
+  SkColor4f preview_color_ = SkColors::kWhite;
   // After the slots, so it leaves its holder before that goes.
   FocusRing ring_;
   double corner_radius_ = 0;
   // The pages stay where they are as the window resizes, until ShowPages (HoldPagesForResize).
   bool held_ = false;
+  // Whether the window manager's state for the window last said full screen.
+  bool window_manager_full_screen_ = false;
   bool ui_has_keyboard_ = false;
   bool overlay_has_keyboard_ = false;
+  // The UI has the keyboard while no page shows, for the next page shown (KeyboardForPage).
+  bool ui_holds_for_page_ = false;
+  // A window of Chromium's own has the keyboard the UI or a page had, and gives it back as it goes.
+  bool ui_lent_ = false;
+  aura::WindowTracker page_lent_;
+  // The keys typed while the overlay with the keyboard didn't have the input focus yet.
+  std::vector<x11::KeyEvent> early_keys_;
   // Whether the core took the input focus back down to the UI's window since the focus last left or
   // entered the window.
   bool retook_ = false;
+  // ⌥ is down with no other key or click since it went down, while the page has the keyboard.
+  bool option_alone_ = false;
   x11::Window ui_main_ = x11::Window::None;
   // Off Wayland, which the app never tells of a field, the UI's own input method composes for it.
   UITextInput ui_text_input_;
@@ -744,6 +994,12 @@ void ShowPages(views::Widget* widget,
     staying.push_back(side_panel->page);
   }
 
+  // A link preview's page kept as a tab shows in a pane now.
+  Slot& preview = views->preview();
+  if (preview.page && std::ranges::contains(staying, preview.page.get())) {
+    views->Empty(preview, staying);
+  }
+
   std::vector<Slot>& slots = views->panes();
   // Pages that stay in the same pane keep their slot.
   for (size_t i = panes.size(); i < slots.size(); ++i) {
@@ -771,10 +1027,15 @@ void ShowPages(views::Widget* widget,
       }
     }
     views->Keep(slot, pane.page, devtools);
-    holder->layer()->AsSolidColor()->SetColor(
-        pane.color ? SkColor4f::FromColor(SkColorSetRGB(*pane.color >> 16, *pane.color >> 8 & 0xff,
-                                                        *pane.color & 0xff))
-                   : SkColors::kTransparent);
+    SkColor4f color = SkColors::kTransparent;
+    if (pane.color) {
+      color = SkColor4f::FromColor(
+          SkColorSetRGB(*pane.color >> 16, *pane.color >> 8 & 0xff, *pane.color & 0xff));
+      if (i == 0) {
+        views->set_preview_color(color);
+      }
+    }
+    holder->layer()->AsSolidColor()->SetColor(color);
     slot.insets = InsetsOf(pane.frame, size);
     hidden ? holder->Hide() : holder->Show();
   }
@@ -810,6 +1071,11 @@ void HoldPagesForResize(views::Widget* widget) {
   }
 }
 
+bool PagesHeldForResize(views::Widget* widget) {
+  WindowViews* views = ViewsOf(widget);
+  return views && views->held();
+}
+
 void HidePages(views::Widget* widget) {
   WindowViews* views = ViewsOf(widget);
   if (!views) {
@@ -834,8 +1100,19 @@ base::ScopedClosureRunner DrawUnseen(views::Widget* widget, gfx::NativeView page
   return views->DrawUnseen(page);
 }
 
-// The app's host has no view for a link preview's page here yet, so nothing calls it with one.
-void ShowPageIn(gfx::NativeView, void*, const gfx::Rect&, double) {}
+// The app's view for a link preview is an overlay of its own over the window, which can't hold a
+// page, so the page shows in the window over its pages, where the overlay leaves a hole, and the
+// card the app draws round that.
+void ShowPageIn(views::Widget* widget,
+                gfx::NativeView page,
+                void*,
+                const gfx::Rect& frame,
+                double corner_radius) {
+  WindowViews* views = widget ? ViewsOf(widget) : nullptr;
+  if (views && page) {
+    views->ShowPreview(page, frame, corner_radius);
+  }
+}
 
 std::optional<gfx::Rect> FocusRingFrame(views::Widget* widget) {
   WindowViews* views = ViewsOf(widget);
@@ -850,10 +1127,16 @@ std::optional<gfx::Rect> FocusRingFrame(views::Widget* widget) {
   return std::nullopt;
 }
 
+bool PageDialogsInOwnWindow() {
+  // Chrome's default, which hasn't been looked at here.
+  return false;
+}
+
 bool KeyboardForPage(views::Widget* widget) {
   WindowViews* views = ViewsOf(widget);
+  // The UI's, unless it only holds it while no page shows.
   if (views && views->ui_has_keyboard()) {
-    return false;
+    return views->ui_holds_for_page();
   }
   aura::client::FocusClient* client = aura::client::GetFocusClient(widget->GetNativeView());
   aura::Window* focused = client ? client->GetFocusedWindow() : nullptr;
@@ -866,8 +1149,9 @@ bool KeyboardForPage(views::Widget* widget) {
       return !slot.devtools || !slot.devtools->Contains(focused);
     }
   }
-  // The side panel.
-  return false;
+  // A link preview's, or else the side panel or a window of Chromium's own, such as an
+  // extension's popup.
+  return views->preview().holder && views->preview().holder->Contains(focused);
 }
 
 void ReleaseKeyboard(views::Widget* widget) {
@@ -903,8 +1187,9 @@ void KeepKeyboard(views::Widget* widget, base::OnceClosure change) {
   }
 }
 
-void StartMove(views::Widget* widget) {
-  ui::WmMoveResizeHandler* handler = ui::GetWmMoveResizeHandler(*PlatformWindowOf(widget));
+void StartMove(views::Widget* widget, std::optional<gfx::Point> press) {
+  ui::PlatformWindow* platform_window = PlatformWindowOf(widget);
+  ui::WmMoveResizeHandler* handler = ui::GetWmMoveResizeHandler(*platform_window);
   if (!handler) {
     return;
   }
@@ -912,22 +1197,71 @@ void StartMove(views::Widget* widget) {
   // A compositor takes it from the press, which Chromium heard too (its serial).
   gfx::Point pointer;
   if (!OnWayland()) {
-    if (auto reply = x11::Connection::Get()->QueryPointer({XWindowOf(widget)}).Sync()) {
+    if (press) {
+      pointer = platform_window->GetBoundsInPixels().origin() +
+                gfx::ScaleToRoundedPoint(*press, ScaleOf(widget)).OffsetFromOrigin();
+    } else if (auto reply = x11::Connection::Get()->QueryPointer({XWindowOf(widget)}).Sync()) {
       pointer = gfx::Point(reply->root_x, reply->root_y);
     }
   }
   handler->DispatchHostWindowDragMovement(HTCAPTION, pointer);
 }
 
-void UITakesKeyboard(views::Widget* widget) {
+void UITakesKeyboard(views::Widget* widget, bool until_page) {
   if (WindowViews* views = ViewsOf(widget)) {
-    views->UITakesKeyboard();
+    views->UITakesKeyboard(until_page ? WindowViews::Asked::kToHold : WindowViews::Asked::kToKeep);
   }
 }
 
 bool KeyboardIsUI(views::Widget* widget) {
   WindowViews* views = ViewsOf(widget);
   return views && views->ui_has_keyboard();
+}
+
+bool KeyboardInChild(views::Widget* widget) {
+  WindowViews* views = ViewsOf(widget);
+  if (!views || views->ui_has_keyboard()) {
+    return false;
+  }
+  aura::client::FocusClient* client = aura::client::GetFocusClient(widget->GetNativeView());
+  aura::Window* focused = client ? client->GetFocusedWindow() : nullptr;
+  return focused && focused != widget->GetNativeView() && !views->InSlot(focused);
+}
+
+std::optional<gfx::Rect> KeyboardPageFrame(views::Widget* widget) {
+  WindowViews* views = ViewsOf(widget);
+  if (!views || views->ui_has_keyboard()) {
+    return std::nullopt;
+  }
+  aura::client::FocusClient* client = aura::client::GetFocusClient(widget->GetNativeView());
+  aura::Window* focused = client ? client->GetFocusedWindow() : nullptr;
+  if (!focused) {
+    return std::nullopt;
+  }
+  // A pane's page, not the DevTools docked in it.
+  for (Slot& slot : views->panes()) {
+    if (slot.holder && slot.holder->Contains(focused) &&
+        !(slot.devtools && slot.devtools->Contains(focused))) {
+      return slot.holder->bounds();
+    }
+  }
+  return std::nullopt;
+}
+
+std::u16string ChildTitle(views::Widget* widget) {
+  if (!KeyboardInChild(widget)) {
+    return {};
+  }
+  // The focused window is the child widget's own or one in it, as a dialog's button.
+  aura::client::FocusClient* client = aura::client::GetFocusClient(widget->GetNativeView());
+  for (aura::Window* window = client->GetFocusedWindow();
+       window && window != widget->GetNativeView(); window = window->parent()) {
+    views::Widget* child = views::Widget::GetWidgetForNativeView(window);
+    if (child && child != widget && child->widget_delegate()) {
+      return child->widget_delegate()->GetWindowTitle();
+    }
+  }
+  return {};
 }
 
 void OverlayTakesKeyboard(views::Widget* widget, bool takes) {
@@ -942,8 +1276,47 @@ void SetUITextInput(views::Widget* widget, std::optional<gfx::Rect> caret) {
   }
 }
 
+std::optional<gfx::Rect> DialogFrame(views::Widget* widget) {
+  // A tab's dialog is a widget the window owns, an aura window in it, which the X server and the
+  // compositor don't see.
+  for (views::Widget* dialog : views::Widget::GetAllOwnedWidgets(widget->GetNativeView())) {
+    if (dialog->IsVisible()) {
+      // Inside its border and shadow, which its window's bounds take in: what Chromium puts at the
+      // page's top (UpdateWidgetModalDialogPosition), as a Mac's sheet's frame is.
+      gfx::Rect frame = dialog->GetWindowBoundsInScreen();
+      frame.Offset(-widget->GetClientAreaBoundsInScreen().OffsetFromOrigin());
+      if (dialog->non_client_view() && dialog->non_client_view()->frame_view()) {
+        frame.Inset(dialog->non_client_view()->frame_view()->GetInsets());
+      }
+      return frame;
+    }
+  }
+  return std::nullopt;
+}
+
 void StretchOnResize(content::RenderWidgetHostView*, bool) {
   // shortcut: no stretch on Linux; the page shows its last frame unscaled until it redraws.
+}
+
+void AnswerClipboardRequests() {
+  if (OnWayland()) {
+    return;
+  }
+  x11::Connection* connection = x11::Connection::Get();
+  connection->ReadResponses();
+  // The rest wait their turn in the queue: dispatched inside the UI's read, they could call the UI.
+  // Taken out first, as answering one can read more into the queue.
+  std::vector<x11::Event> requests;
+  for (x11::Event& event : connection->events()) {
+    if (event.As<x11::SelectionRequestEvent>()) {
+      requests.push_back(std::move(event));
+      event = x11::Event();
+    }
+  }
+  for (const x11::Event& request : requests) {
+    connection->DispatchEvent(request);
+  }
+  connection->Flush();
 }
 
 }  // namespace browser_core::platform

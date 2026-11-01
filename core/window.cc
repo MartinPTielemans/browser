@@ -43,6 +43,7 @@
 #include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/extensions/api/side_panel/side_panel_service.h"
 #include "chrome/browser/extensions/extension_action_runner.h"
+#include "chrome/browser/lifetime/application_lifetime_desktop.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -77,7 +78,6 @@
 #include "extensions/common/extension.h"
 #include "extensions/common/mojom/api_permission_id.mojom-shared.h"
 #include "extensions/common/permissions/permissions_data.h"
-#include "third_party/blink/public/common/input/web_input_event.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/codec/png_codec.h"
@@ -178,6 +178,8 @@ struct DeletedSpace {
   std::vector<bc_id> today;
   // The tab or favorite the window showed there, or 0.
   bc_id shown = 0;
+  // Its place among the Spaces, which it comes back to.
+  size_t at = 0;
 };
 
 // The Spaces deleted, newest last, as many as the closed tabs.
@@ -529,11 +531,28 @@ void Window::LayOutShowing(bc_id tab) {
 }
 
 // static
+void Window::PageCommittedInNewView(bc_id tab) {
+  for (Window* window : All()) {
+    if (window->selected_ == tab) {
+      window->FocusPageSoon();
+    }
+  }
+}
+
+// static
 void Window::OnPageClicked(bc_id tab) {
   for (auto& [id, window] : Windows()) {
     if (window->selected_ != tab && std::ranges::contains(window->panes_, tab)) {
       window->Select(tab);
     }
+  }
+}
+
+// static
+void Window::ActivateContents(content::WebContents* contents) {
+  const bc_id tab = Tab::IdOf(contents);
+  if (Window* window = tab ? Holding(tab) : nullptr) {
+    window->Select(tab);
   }
 }
 
@@ -559,7 +578,7 @@ void Window::TrimPageMenu(BrowserWindowInterface* browser, ui::SimpleMenuModel& 
   }
   // Arc's menu is Chrome's without Lens, Reading Mode, Listen, QR Code, Send to Your Devices, Copy
   // Link Text and the items whose UI is Chrome's side panel or Gemini's (ux-spec.md › Page menu).
-  // Cast and Translate wait for the browser to have them.
+  // Translate waits for the browser to have it. Cast… opens the app's card (CastDialog).
   static constexpr int kTrimmed[] = {
       IDC_CONTENT_CONTEXT_SEARCHLENSFORIMAGE,
       IDC_CONTENT_CONTEXT_SEARCHLENSFORVIDEOFRAME,
@@ -578,7 +597,6 @@ void Window::TrimPageMenu(BrowserWindowInterface* browser, ui::SimpleMenuModel& 
       IDC_CONTENT_CONTEXT_GLICSHAREIMAGE,
       IDC_CONTENT_CONTEXT_RELOAD_GLIC,
       IDC_CONTENT_CONTEXT_ARCHIVE_GLIC,
-      IDC_ROUTE_MEDIA,
       IDC_CONTENT_CONTEXT_TRANSLATE,
       IDC_CONTENT_CONTEXT_PARTIAL_TRANSLATE,
   };
@@ -628,13 +646,10 @@ void Window::AdjustNavigate(NavigateParams& params) {
             ProfileId(DirOf(profile->GetOriginalProfile())), private_window));
     return;
   }
-  // ⌥⌘-click on a link opens it beside its page in a split view, as Chrome's does, and so does
-  // ⌥⇧-click, as Dia's does, which the page asks for as a new window.
-  constexpr int kAltShift = blink::WebInputEvent::kAltKey | blink::WebInputEvent::kShiftKey;
+  // ⌥-click on a link opens it beside its page in a split view, as Arc's does, and so does
+  // ⌥⌘-click, as Chrome's does (chromium-core-alt-click-split.patch).
   Tab* source = params.source_contents ? Tab::FromWebContents(params.source_contents) : nullptr;
-  const bool split = source && (params.disposition == WindowOpenDisposition::NEW_SPLIT_VIEW ||
-                                (params.disposition == WindowOpenDisposition::NEW_WINDOW &&
-                                 (source->input_modifiers() & kAltShift) == kAltShift));
+  const bool split = source && params.disposition == WindowOpenDisposition::NEW_SPLIT_VIEW;
   window->split_with_ = split ? Tab::IdOf(params.source_contents) : 0;
   // Popups become tabs (decision 3). So do new windows: the app opens its own.
   if (split || params.disposition == WindowOpenDisposition::NEW_POPUP ||
@@ -881,13 +896,14 @@ void Window::CloseBelow(bc_id tab) {
 }
 
 // static
-void Window::MoveToSpace(bc_id tab, bc_id space) {
+void Window::MoveToSpace(bc_id tab, bc_id space, bool to_agent) {
   Space* from = Space::Holding(tab);
   Space* to = Space::FromId(space);
-  // No tab moves into an agent's Space, which would put it in the agent's reach, and Chrome never
-  // moves a page between incognito and regular windows.
-  if (!from || !to || from == to || to->agent() || from->off_the_record() ||
-      to->off_the_record() || DeletingSpaces().contains(space)) {
+  // No tab moves into an agent's Space, which would put it in the agent's reach, unless the user
+  // gives it, and Chrome never moves a page between incognito and regular windows.
+  if (!from || !to || from == to || to->agent().has_value() != to_agent ||
+      from->off_the_record() || to->off_the_record() ||
+      DeletingSpaces().contains(space)) {
     return;
   }
   // A page can't take its cookies and logins to another profile, so it opens there again.
@@ -938,6 +954,8 @@ bool Window::DeleteSpace(bc_id space) {
   // Before the windows leave it, so it keeps the tab the one active last showed there.
   DeletedSpace& deleted = DeletedSpaces().emplace_back();
   deleted.id = space;
+  const std::vector<Space*> all = Space::All();
+  deleted.at = static_cast<size_t>(std::ranges::find(all, space, &Space::id) - all.begin());
   deleted.shown = Order().empty() ? 0 : FromId(Order().front())->SelectedIn(space);
   deleted.saved = SaveSpace(**it, deleted.shown, &deleted.today);
   if (DeletedSpaces().size() > kMaxClosedTabs) {
@@ -985,7 +1003,7 @@ Window::Window(bc_id id, const gfx::Rect& bounds, void* ui_view, bool behind)
                                    views::Widget::InitParams::TYPE_WINDOW);
   params.delegate = delegate_.get();
   params.native_widget = platform::NewNativeWidget(
-      widget_.get(), base::BindRepeating(&Window::LeavingFullScreen, weak_factory_.GetWeakPtr()));
+      widget_.get(), base::BindRepeating(&Window::LeaveFullScreen, weak_factory_.GetWeakPtr()));
   params.bounds = bounds;
   params.name = "BrowserCoreWindow";
 #if BUILDFLAG(IS_LINUX)
@@ -1038,16 +1056,7 @@ BrowserWindowInterface* Window::BrowserFor(Profile* profile) {
   if (auto* elements = BrowserElements::From(browser)->AsA<BrowserElementsViewsImpl>()) {
     elements->Init(widget_->GetRootView());
   }
-  browsers_[profile] = Held{
-      browser, browser->RegisterBrowserCloseCancelled(base::BindRepeating(
-                   [](base::WeakPtr<Window> window, BrowserWindowInterface*,
-                      BrowserWindowInterface::ClosingStatus) {
-                     // A page's beforeunload handler or the user kept it open.
-                     if (window) {
-                       window->closing_ = false;
-                     }
-                   },
-                   weak_factory_.GetWeakPtr()))};
+  browsers_[profile] = Held{browser};
   return browser;
 }
 
@@ -1151,6 +1160,7 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
   const bc_id freed = left && Picturing(left) ? left : 0;
   PasswordOffer::Moving moving(freed);
   HoldPictured();
+  // A full-screen page's tab leaving takes the window out with it, within ActivateTabAt.
   tabs->ActivateTabAt(tabs->GetIndexOfWebContents(contents));
   const bc_id tab = Tab::IdOf(contents);
   Space* space = Space::Holding(tab);
@@ -1168,8 +1178,11 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
     g_left_size = focused_frame_.size();
   }
   // If the page it replaces had the keyboard, the window has it once that page leaves, and the
-  // new page takes it.
-  LayOutPage();
+  // new page takes it. Not at a frame for a window that has just left full screen, whose pages
+  // wait for its new size: the app lays them out once it has it (LeaveFullScreen).
+  if (!platform::PagesHeldForResize(widget_.get())) {
+    LayOutPage();
+  }
   if (freed) {
     LogHandover("giver let go", Handing(id_, freed));
   }
@@ -1257,7 +1270,14 @@ void Window::LayOutPage() {
       gfx::Rect devtools_frame;
       ApplyDevToolsContentsResizingStrategy(strategy, gfx::Rect(pane.frame.size()),
                                             &devtools_frame, &docked.page_frame);
-      pane.devtools = docked;
+      // DevTools in a window of their own leave their toolbox in the tab, under the page, where it
+      // draws only around a page device mode makes smaller. Under one filling the frame it would
+      // show nothing, so it stays out, and its renderer hidden, until device mode leaves it room.
+      const bool toolbox = !DevToolsWindow::AsDevToolsWindow(devtools);
+      const bool covered = !docked.page_under && docked.page_frame == gfx::Rect(pane.frame.size());
+      if (!toolbox || !covered) {
+        pane.devtools = docked;
+      }
     }
   }
   SidePanel* side_panel = ShownSidePanel();
@@ -1366,8 +1386,15 @@ void Window::ShowNothing() {
 void Window::SetPageFrame(const gfx::Rect& frame, double corner_radius) {
   page_frame_ = frame;
   page_corner_radius_ = corner_radius;
-  if (shown_) {
-    Show(shown_.get(), frame);
+  if (!shown_) {
+    return;
+  }
+  // The app's frame at the window's size, so pages held for its resize are laid out here, which
+  // lets them go, though a tab switch's Show leaves them waiting for it.
+  const bool held = platform::PagesHeldForResize(widget_.get());
+  Show(shown_.get(), frame);
+  if (held) {
+    LayOutPage();
   }
 }
 
@@ -1663,7 +1690,7 @@ bc_id Window::UndoDeleteSpace(bc_id id) {
     above = true;
   }
   space.saved.today = std::move(today);
-  RestoreSpace(*this, profile, space.saved, space.id);
+  RestoreSpace(*this, profile, space.saved, space.id, space.at);
   // Not one of the Space's own, which closed with it and came back as other tabs.
   if (Favorites::Has(space.shown) && !Favorites::SpaceOf(space.shown)) {
     SetSelectedIn(space.id, space.shown);
@@ -1930,6 +1957,33 @@ bc_id Window::Duplicate(bc_id tab) {
   return id;
 }
 
+bc_id Window::OpenHistory(bc_id tab, int offset) {
+  const Tab* from = Tab::Get(tab);
+  Space* space = Favorites::Has(tab) ? Space::FromId(space_) : Space::Holding(tab);
+  if (!from || !from->profile() || !space || DirOf(from->profile()) != space->profile() ||
+      OffTheRecord(from) != off_the_record_) {
+    return 0;
+  }
+  // A system page's history is WebKit's, of which the saved tab keeps only the page.
+  if (offset != 0 && from->system_page()) {
+    return 0;
+  }
+  // As the tab would come back after a quit, at the other page: Chrome's background tab loads
+  // at once, but here a page loads once it's shown.
+  SavedTab saved = from->Save();
+  saved.current += offset;
+  if (saved.current < 0 || saved.current >= static_cast<int>(saved.history.size())) {
+    return 0;
+  }
+  const bc_id id = Tab::Restore(from->profile(), saved);
+  if (!id) {
+    return 0;
+  }
+  // Opened behind by |tab|, so it goes under it and closing it goes back there, as a link's does.
+  space->Add(id, tab, /*foreground=*/false);
+  return id;
+}
+
 bc_id Window::CloneInto(BrowserWindowInterface& browser, content::WebContents& contents) {
   TabStripModel* tabs = browser.GetTabStripModel();
   // With its session storage, as Chrome's duplicate.
@@ -2028,6 +2082,10 @@ void Window::Close() {
     HandOver(*to);
   }
   closing_ = true;
+  // Not Chrome's close-cancelled callback: it fires too as the pages' unload handlers hold the
+  // close, which then goes on, and the tabs it closed were archived and the window stayed (#870).
+  close_stopped_ = chrome::AddClosingAllBrowsersCallback(
+      base::BindRepeating(&Window::OnCloseStopped, base::Unretained(this)));
   if (hand_over) {
     AdoptFreedPages();
   }
@@ -2042,6 +2100,16 @@ void Window::Close() {
   for (BrowserWindowInterface* browser : browsers) {
     browser->GetWindow()->Close();
   }
+}
+
+void Window::OnCloseStopped(bool closing) {
+  if (closing || browsers_.empty() || std::ranges::any_of(browsers_, [](const auto& entry) {
+        return entry.second.browser->capabilities()->IsAttemptingToCloseBrowser();
+      })) {
+    return;
+  }
+  closing_ = false;
+  close_stopped_ = {};
 }
 
 bool Window::KeepsBrowsers() const {
@@ -2064,7 +2132,39 @@ void Window::OnBrowserGone(BrowserWindowInterface* browser) {
   }
 }
 
+void Window::AskAboutDownloads(int count,
+                               bool last_private,
+                               base::OnceCallback<void(bool)> answer) {
+  // Chrome stops the quit or close that asked before, which is asked again.
+  if (downloads_answer_) {
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(std::move(downloads_answer_), false));
+  }
+  // With no app to ask, it goes on, cancelling them.
+  if (!Host().window_downloads_question) {
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(std::move(answer), true));
+    return;
+  }
+  downloads_answer_ = std::move(answer);
+  Host().window_downloads_question(Host().context, id_, count, last_private);
+}
+
+void Window::AnswerDownloads(bool cancel) {
+  if (!downloads_answer_) {
+    return;
+  }
+  // Posted, as a yes closes windows, which the app hears of, from inside its own call.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(downloads_answer_), cancel));
+}
+
 void Window::Destroy() {
+  // Chrome isn't left waiting for an answer no one can give.
+  if (downloads_answer_) {
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(std::move(downloads_answer_), false));
+  }
   // The last regular window stays in the session at its frame, saved while it's listed, for the
   // next window to open there. One that had tabs was kept as they closed (OnTabClosing).
   const bool last_regular = std::ranges::none_of(Windows(), [this](const auto& entry) {
@@ -2132,6 +2232,11 @@ gfx::Size Window::GetMaximumDialogSize() {
   return focused_frame_.size();
 }
 
+bool Window::ShouldConstrainDialogBoundsByHost() {
+  // Unconstrained, Chrome gives the dialog a window of its own (constrained_window_views.cc).
+  return !platform::PageDialogsInOwnWindow();
+}
+
 void Window::AddObserver(web_modal::ModalDialogHostObserver* observer) {
   dialog_observers_.AddObserver(observer);
 }
@@ -2183,6 +2288,9 @@ void Window::OnWidgetActivationChanged(views::Widget* widget, bool active) {
       SessionChanged();
     }
     UnloadIdleTabsSoon();
+    if (Host().window_activated) {
+      Host().window_activated(Host().context, id_);
+    }
   }
   ReportActiveBrowser();
 }
@@ -2235,11 +2343,46 @@ void Window::OnWidgetVisibilityChanged(views::Widget* widget, bool visible) {
   platform::HidePages(widget_.get());
 }
 
-void Window::LeavingFullScreen() {
+void Window::LeaveFullScreen() {
+  // The app lays a page leaving out once, at the window's new size, which off the Mac it hears of
+  // after the window has resized.
+  if (FullScreenForPage()) {
+    platform::HoldPagesForResize(widget_.get());
+  }
+#if !BUILDFLAG(IS_MAC)
+  // The page hears it's out before the window resizes, as on the Mac. Each Browser found again:
+  // the controller's calls reach code that may change them.
+  std::vector<Profile*> profiles;
+  for (const auto& [profile, held] : browsers_) {
+    profiles.push_back(profile);
+  }
+  base::WeakPtr<Window> letting_go = weak_factory_.GetWeakPtr();
+  for (Profile* profile : profiles) {
+    const auto held = browsers_.find(profile);
+    if (held == browsers_.end()) {
+      continue;
+    }
+    static_cast<BrowserWindowStandIn*>(held->second.browser->GetWindow())->LetGoOfPage();
+    if (!letting_go) {
+      return;
+    }
+  }
+  // Off the Mac the window is out as SetFullscreen returns. The window manager's own way out has
+  // taken it out already, which Chromium's X11 window ignores, still counting itself full screen.
+  if (widget_->IsFullscreen()) {
+    base::WeakPtr<Window> alive = weak_factory_.GetWeakPtr();
+    widget_->SetFullscreen(false);
+    // The window's resize runs the app, which may close it.
+    if (!alive) {
+      return;
+    }
+  }
+#endif
   // Chrome's controller keeps a page full screen until it hears the window is out, ignoring the
   // page's own exit meanwhile, so a window AppKit took out (its green button, ⌃⌘F, its display
-  // going) without finishing kept the page full screen in a window that wasn't. Chrome lets go of
-  // the page before leaving when it asks itself, so only the window's own exit gets here with one.
+  // going) without finishing kept the page full screen in a window that wasn't. On the Mac Chrome
+  // lets go of the page before leaving when it asks itself, so only the window's own exit gets
+  // here with one; off the Mac the stand-ins have let go of it above.
   for (const auto& [profile, held] : browsers_) {
     ExclusiveAccessManager* manager = ExclusiveAccessManager::From(held.browser);
     FullscreenController* controller = manager ? manager->fullscreen_controller() : nullptr;
@@ -2270,8 +2413,11 @@ void Window::OnWidgetBoundsChanged(views::Widget* widget, const gfx::Rect& new_b
 
 void Window::GiveKeyboardToPage() {
   // Held by the window, the keyboard is the page's (KeyboardForPage), as when the page shown before
-  // left with it, so FocusPage gives it to the page shown.
+  // left with it, so FocusPage gives it to the page shown. Given now, as a closing command bar
+  // leaves it with the page: a key that came first would reach the window, where nothing takes it.
+  // A page still loading has no view to take it yet, and takes it once its view comes.
   platform::ReleaseKeyboard(widget_.get());
+  FocusPage();
   FocusPageSoon();
 }
 
@@ -2283,8 +2429,11 @@ void Window::OverlayTakesKeyboard(bool takes) {
   // The overlay showed another tab, as the command bar does going to a page: its page takes the
   // keyboard, as a press that shows a tab gives it. On X11 the window isn't active while the
   // overlay has the input focus, so FocusPage passed the page over as it showed, and the window
-  // holds the keyboard for it until it's active again.
-  if (std::exchange(selected_under_overlay_, 0) != selected_ && shown_) {
+  // holds the keyboard for it until it's active again. Not when the tab it showed closed, as a
+  // Space the dialog deleted did: what shows then comes of that, and the UI keeps the keyboard, as
+  // the Mac's does.
+  const bc_id under = std::exchange(selected_under_overlay_, 0);
+  if (under != selected_ && shown_ && (!under || Tab::Get(under))) {
     page_had_keyboard_ = true;
     GiveKeyboardToPage();
   }

@@ -25,31 +25,38 @@ if [ "$(git -C .deps/zed rev-parse HEAD)" != "$ZED_REV" ]; then
 fi
 # One patch a crate: gpui_macos's, gpui_windows's and gpui_linux's embed GPUI in Chromium's window
 # and loop, gpui's scales what's painted, lets the tests stand in for an assistive app and adds the
-# Edit menu's Paste and Match Style, and gpui_wgpu's draws with Vulkan alone on Linux.
+# Edit menu's Paste and Match Style, and gpui_wgpu's draws with Vulkan alone on Linux and builds
+# its pipelines once for all windows.
 git -C .deps/zed apply "$PWD/patches/gpui-macos-embedded.patch" "$PWD/patches/gpui-windows-embedded.patch" \
   "$PWD/patches/gpui-linux-embedded.patch" "$PWD/patches/gpui-scale.patch" \
   "$PWD/patches/gpui-wgpu-vulkan.patch"
 
-# GPUI's macOS accessibility adapter, at the version Cargo.lock has, with VoiceOver's menu action
-# and a folder's open state, which upstream lacks. A repository of its own, so a change to it
-# becomes the patch again with `git -C .deps/accesskit_macos diff`.
-ACCESSKIT_MACOS=0.26.3
-ACCESSKIT_MACOS_SHA256=ce02dc63b43f0c9296af9ac946312a2dc8814427d7a64d2d600971dac55b6076
-crate=.deps/accesskit_macos-$ACCESSKIT_MACOS.crate
+# GPUI's accessibility adapters for the Mac and for AT-SPI, at the versions Cargo.lock has, with
+# what upstream lacks: VoiceOver's menu action and a folder's open state, and AT-SPI's expanded
+# state. Each a repository of its own, so a change to one becomes its patch again with
+# `git -C .deps/<crate> diff`.
 # Git for Windows has sha256sum but no shasum, which the Mac has alone.
 sha256() { if command -v shasum >/dev/null; then shasum -a 256 "$@"; else sha256sum "$@"; fi; }
-if ! echo "$ACCESSKIT_MACOS_SHA256  $crate" | sha256 -c --status 2>/dev/null; then
-  curl -sSfL "https://static.crates.io/crates/accesskit_macos/accesskit_macos-$ACCESSKIT_MACOS.crate" -o "$crate"
-  echo "$ACCESSKIT_MACOS_SHA256  $crate" | sha256 -c --status
-fi
-rm -rf .deps/accesskit_macos "${crate%.crate}"
-tar xzf "$crate" -C .deps
-mv "${crate%.crate}" .deps/accesskit_macos
-git -C .deps/accesskit_macos init -q
-git -C .deps/accesskit_macos config core.autocrlf false
-git -C .deps/accesskit_macos add -A
-git -C .deps/accesskit_macos -c user.name=setup -c user.email=setup@localhost commit -qm upstream
-git -C .deps/accesskit_macos apply "$PWD/patches/accesskit-macos-actions.patch"
+# The crate $1 at version $2, whose .crate has the SHA-256 $3, in .deps/$1 with patches/$4 applied.
+vendor() {
+  crate=.deps/$1-$2.crate
+  if ! echo "$3  $crate" | sha256 -c --status 2>/dev/null; then
+    curl -sSfL "https://static.crates.io/crates/$1/$1-$2.crate" -o "$crate"
+    echo "$3  $crate" | sha256 -c --status
+  fi
+  rm -rf ".deps/$1" "${crate%.crate}"
+  tar xzf "$crate" -C .deps
+  mv "${crate%.crate}" ".deps/$1"
+  git -C ".deps/$1" init -q
+  git -C ".deps/$1" config core.autocrlf false
+  git -C ".deps/$1" add -A
+  git -C ".deps/$1" -c user.name=setup -c user.email=setup@localhost commit -qm upstream
+  git -C ".deps/$1" apply "$PWD/patches/$4"
+}
+vendor accesskit_macos 0.26.3 ce02dc63b43f0c9296af9ac946312a2dc8814427d7a64d2d600971dac55b6076 \
+  accesskit-macos-actions.patch
+vendor accesskit_atspi_common 0.19.1 \
+  023da0e5097f46df7092d5280b02efb9bbf8d93298daeced42652463e357d636 accesskit-atspi-expanded.patch
 
 # Sparkle, the Mac's updater: its headers for platform/mac/updates.mm, the framework a release
 # build carries, and generate_keys and generate_appcast for tools/appcast.sh.

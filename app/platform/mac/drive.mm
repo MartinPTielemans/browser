@@ -14,7 +14,9 @@
 //   doubleclickkey <x> <y>                two left clicks in the key window, as doubleclick
 //   rightclickkey <x> <y>                 a right click in the key window
 //   drag <x> <y> <x2> <y2>                presses at (x, y), moves to (x2, y2) and lets go
-//   press <x> <y>                         presses at (x, y), for a drag in steps
+//   dragkey <x> <y> <x2> <y2>             as drag, in the key window, such as Settings
+//   press <x> <y> [cmd] [shift] [alt]     presses at (x, y), for a drag in steps, with those keys
+//                                         held, as dragto and release take them too
 //   rightpress, rightdragto, rightrelease <x> <y>
 //                                         as press, dragto and release, with the right button,
 //                                         as a press-drag-release through a context menu
@@ -66,6 +68,11 @@
 //   hide                                  hides the app, as ⌘H does, or brings it back
 //   place <x> <y> <width> <height>        moves and resizes the window to that frame, in points
 //                                         from the main display's top-left corner
+//   screen                                logs the screen the app opens windows on, the main
+//                                         display or with BROWSER_DISPLAY=builtin the Mac's own
+//                                         (host_screens), as "browser: screen at <x> <y> <width>
+//                                         <height>" in place's terms, so a check places windows
+//                                         there and not on the main display it may be kept off
 //   order                                 logs the browser windows on screen front to back and
 //                                         the key one, as "browser: order window <n> window <m>
 //                                         …, key window <n>|none", numbered as window numbers
@@ -74,11 +81,26 @@
 //                                         in place's terms
 //   layout                                logs the frames of the window's views and child
 //                                         windows, the centres of its close, minimize and
-//                                         zoom buttons, and whether it's full screen, as
+//                                         zoom buttons, the frame of the page that has the
+//                                         keyboard, as "browser: layout keyboard <x>,<y>
+//                                         <w>x<h>" or "none", and whether it's full screen, as
 //                                         "browser: layout full screen <0|1>"
 //   state                                 nothing, for the done line's report
-//   title                                 logs the key window's title, as "browser: key window
-//                                         titled <title>", such as a window of Chrome's
+//   title [<text>]                        logs the key window's title, as "browser: key window
+//                                         titled <title>", such as a window of Chrome's. With
+//                                         <text>, once the title has it, for up to 10 s, as a
+//                                         window Chrome opens takes the keyboard and its title a
+//                                         moment after the command that opens it; else "browser:
+//                                         no key window titled <text>, windows <title> | <title>",
+//                                         the app's windows shown, the key one marked "(key)"
+//   pasteboard                            logs the text on the run's pasteboard, which stands in
+//                                         for the clipboard, as "browser: pasteboard text <text>"
+//   savepanel <path>                      picks <path> in the save panel the app began, once it
+//                                         has, through the panel's completion handler, logging
+//                                         "browser: save panel answered", or "browser: no save
+//                                         panel" if none begins within 5 s. The driver keeps each
+//                                         save panel the app begins off screen, logging "browser:
+//                                         save panel offers <name> in <folder>"
 //   front                                 logs which of the app's windows other apps take for
 //                                         the one in front, as "browser: front <first>, main
 //                                         <window>, key <window>, ax focused <window>, ax main
@@ -248,11 +270,11 @@ const std::map<std::string, unsigned short> kKeyCodes = {
     {"0", 29}, {"-", 27}, {"+", 27}, {"[", 33}, {"]", 30}, {"up", 126}, {"down", 125},
     {"left", 123}, {"right", 124}, {"backspace", 51}, {",", 43}, {"delete", 117},
     {"pageup", 116}, {"pagedown", 121}, {"/", 44}, {"?", 44}, {"=", 24}, {"&", 26}, {"_", 27},
-    {":", 41}, {"@", 19}, {"f12", 111}, {"f10", 109},
+    {":", 41}, {"@", 19}, {"f12", 111}, {"f10", 109}, {"f6", 97},
 };
 // AppKit's characters for the arrows are NSUpArrowFunctionKey to NSRightArrowFunctionKey, and for
-// the others NSDeleteFunctionKey, NSPageUpFunctionKey, NSPageDownFunctionKey, NSF12FunctionKey and
-// NSF10FunctionKey.
+// the others NSDeleteFunctionKey, NSPageUpFunctionKey, NSPageDownFunctionKey, NSF12FunctionKey,
+// NSF10FunctionKey and NSF6FunctionKey.
 const std::map<std::string, std::string> kCharacters = {
     {"return", "\r"},
     {"tab", "\t"},
@@ -268,6 +290,7 @@ const std::map<std::string, std::string> kCharacters = {
     {"pagedown", "\xEF\x9C\xAD"},
     {"f12", "\xEF\x9C\x8F"},
     {"f10", "\xEF\x9C\x8D"},
+    {"f6", "\xEF\x9C\x89"},
 };
 
 // Marks the end of a command's events. AppKit handles events in the order they were posted.
@@ -551,7 +574,7 @@ bool Key(NSWindow* window,
   if (key == "up" || key == "down" || key == "left" || key == "right") {
     flags |= NSEventModifierFlagFunction | NSEventModifierFlagNumericPad;
   } else if (key == "delete" || key == "pageup" || key == "pagedown" || key == "f12" ||
-             key == "f10") {
+             key == "f10" || key == "f6") {
     flags |= NSEventModifierFlagFunction;
   }
   for (NSEventType type : types) {
@@ -817,6 +840,124 @@ void OrderFrontCharacterPalette(id, SEL, id) {
   fprintf(stderr, "browser: character palette shown\n");
 }
 
+// The run's pasteboard, which stands in for the clipboard, so a page's or DevTools' copy and paste
+// never touch the owner's. Chromium asks for the clipboard both ways.
+NSPasteboard* g_pasteboard;
+IMP g_pasteboard_with_name;
+
+// The save panel the app began and its completion handler, which the driver answers as the user
+// would pick in it. A save panel runs out of process, where its -ok: raises "not implemented" and
+// its window can't be driven, so the driver keeps it off screen and ends it the way the panel
+// itself does, through the handler, with the URL it says the user picked.
+NSSavePanel* g_save_panel;
+void (^g_save_panel_done)(NSModalResponse);
+NSURL* g_save_panel_url;
+IMP g_save_panel_class;
+IMP g_begin_panel;
+IMP g_panel_url;
+
+void BeginPanel(NSSavePanel* self, SEL selector, void (^done)(NSModalResponse)) {
+  // An open panel, such as the import's, is the user's to answer as before.
+  if ([self isKindOfClass:NSOpenPanel.class]) {
+    ((void (*)(id, SEL, void (^)(NSModalResponse)))g_begin_panel)(self, selector, done);
+    return;
+  }
+  g_save_panel = self;
+  g_save_panel_done = done;
+  fprintf(stderr, "browser: save panel offers %s in %s\n",
+          self.nameFieldStringValue.UTF8String ?: "", self.directoryURL.path.UTF8String ?: "");
+}
+
+NSURL* PanelURL(NSSavePanel* self, SEL selector) {
+  if (self == g_save_panel && g_save_panel_url) {
+    return g_save_panel_url;
+  }
+  return ((NSURL * (*)(id, SEL)) g_panel_url)(self, selector);
+}
+
+// The panel's class may be one AppKit picks for it, so it's hooked as the app makes its first.
+NSSavePanel* SavePanel(id self, SEL selector) {
+  NSSavePanel* panel = ((NSSavePanel * (*)(id, SEL)) g_save_panel_class)(self, selector);
+  Class kind = object_getClass(panel);
+  IMP begin = method_setImplementation(
+      class_getInstanceMethod(kind, @selector(beginWithCompletionHandler:)), (IMP)BeginPanel);
+  if (begin != (IMP)BeginPanel) {
+    g_begin_panel = begin;
+  }
+  IMP url = method_setImplementation(class_getInstanceMethod(kind, @selector(URL)), (IMP)PanelURL);
+  if (url != (IMP)PanelURL) {
+    g_panel_url = url;
+  }
+  return panel;
+}
+
+// Logs the key window's title once it has |text|, for up to 10 s, or the app's windows if none
+// does: a window Chrome opens, such as undocked DevTools, takes the keyboard a moment after the
+// command that opens it, and its page's title after that.
+void AwaitKeyTitle(NSString* text, int tries, void (^done)(void)) {
+  NSString* title = NSApp.keyWindow.title ?: @"";
+  if (text.length == 0 || [title containsString:text]) {
+    fprintf(stderr, "browser: key window titled %s\n", title.UTF8String);
+    done();
+    return;
+  }
+  if (tries == 0) {
+    NSMutableArray<NSString*>* shown = [NSMutableArray array];
+    for (NSWindow* window in NSApp.windows) {
+      if (window.visible) {
+        [shown addObject:[NSString stringWithFormat:@"%@%@", window.title,
+                                                    window.keyWindow ? @" (key)" : @""]];
+      }
+    }
+    fprintf(stderr, "browser: no key window titled %s, windows %s\n", text.UTF8String,
+            [shown componentsJoinedByString:@" | "].UTF8String);
+    done();
+    return;
+  }
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC), dispatch_get_main_queue(),
+                 ^{
+                   AwaitKeyTitle(text, tries - 1, done);
+                 });
+}
+
+// Picks |path| in the save panel the app began, once it has, which may be a moment after the app
+// asked for it: for up to 5 s.
+void AnswerSavePanel(NSString* path, int tries, void (^done)(void)) {
+  if (g_save_panel_done) {
+    void (^answer)(NSModalResponse) = g_save_panel_done;
+    g_save_panel_done = nil;
+    g_save_panel_url = [NSURL fileURLWithPath:path isDirectory:NO];
+    fprintf(stderr, "browser: save panel answered\n");
+    // The app's handler reads the panel's URL as it runs.
+    answer(NSModalResponseOK);
+    g_save_panel = nil;
+    g_save_panel_url = nil;
+    done();
+    return;
+  }
+  if (tries == 0) {
+    fprintf(stderr, "browser: no save panel\n");
+    done();
+    return;
+  }
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC), dispatch_get_main_queue(),
+                 ^{
+                   AnswerSavePanel(path, tries - 1, done);
+                 });
+}
+
+NSPasteboard* GeneralPasteboard(id, SEL) {
+  return g_pasteboard;
+}
+
+NSPasteboard* PasteboardWithName(id self, SEL selector, NSPasteboardName name) {
+  if ([name isEqualToString:NSPasteboardNameGeneral]) {
+    return g_pasteboard;
+  }
+  return ((NSPasteboard * (*)(id, SEL, NSPasteboardName)) g_pasteboard_with_name)(self, selector,
+                                                                                  name);
+}
+
 // Frames are in points from the content view's bottom-left corner. A plain NSView and the core's
 // window view only hold others, so the views in them are listed instead.
 void AppendViews(NSMutableString* line, NSView* content, NSView* parent) {
@@ -903,6 +1044,20 @@ void Layout(NSWindow* window) {
     [line appendFormat:@"\nbrowser: layout child %.0f,%.0f %.0fx%.0f",
                        NSMinX(frame) - NSMinX(bounds), NSMaxY(bounds) - NSMaxY(frame),
                        NSWidth(frame), NSHeight(frame)];
+  }
+  // The page whose view has the keyboard, by its frame as the views' above, which tells a split
+  // view's pages apart where the done line's class can't.
+  NSResponder* responder = window.firstResponder;
+  NSView* page = [responder isKindOfClass:NSView.class] ? (NSView*)responder : nil;
+  while (page && ![NSStringFromClass(page.class) isEqual:@"WebContentsViewCocoa"]) {
+    page = page.superview;
+  }
+  if (page) {
+    NSRect frame = [page.superview convertRect:page.frame toView:content];
+    [line appendFormat:@"\nbrowser: layout keyboard %.0f,%.0f %.0fx%.0f", NSMinX(frame),
+                       NSMinY(frame), NSWidth(frame), NSHeight(frame)];
+  } else {
+    [line appendString:@"\nbrowser: layout keyboard none"];
   }
   [line appendFormat:@"\nbrowser: layout full screen %d",
                      (window.styleMask & NSWindowStyleMaskFullScreen) != 0];
@@ -1119,6 +1274,20 @@ bool Run(const std::string& line, void (^done)(void)) {
     done();
     return true;
   }
+  if (action == "dragkey") {
+    double x, y, x2, y2;
+    NSWindow* key = NSApp.keyWindow;
+    if (!key || !(words >> x >> y >> x2 >> y2)) {
+      return false;
+    }
+    // Halfway first, so the view sees the drag start before it ends.
+    PostMouse(key, NSEventTypeLeftMouseDown, x, y, 1);
+    PostMouse(key, NSEventTypeLeftMouseDragged, (x + x2) / 2, (y + y2) / 2, 1);
+    PostMouse(key, NSEventTypeLeftMouseDragged, x2, y2, 1);
+    PostMouse(key, NSEventTypeLeftMouseUp, x2, y2, 1);
+    done();
+    return true;
+  }
   if (action == "drag") {
     double x, y, x2, y2;
     if (!(words >> x >> y >> x2 >> y2)) {
@@ -1168,7 +1337,7 @@ bool Run(const std::string& line, void (^done)(void)) {
     NSEventType type = action == "press"    ? NSEventTypeLeftMouseDown
                        : action == "dragto" ? NSEventTypeLeftMouseDragged
                                             : NSEventTypeLeftMouseUp;
-    PostMouse(target, type, x, y, 1);
+    PostMouse(target, type, x, y, 1, Modifiers(words));
     if (action == "release") {
       pressed = nil;
     }
@@ -1300,6 +1469,27 @@ bool Run(const std::string& line, void (^done)(void)) {
     done();
     return true;
   }
+  if (action == "screen") {
+    double visible[4];
+    if (host_screens(visible, 1) < 1) {
+      return false;
+    }
+    // host_screens gives the screen's visible area, from the main display's top-left; the screen
+    // holding its middle is the one.
+    const CGFloat top = NSHeight(NSScreen.screens.firstObject.frame);
+    const NSPoint middle =
+        NSMakePoint(visible[0] + visible[2] / 2, top - visible[1] - visible[3] / 2);
+    for (NSScreen* screen in NSScreen.screens) {
+      const NSRect frame = screen.frame;
+      if (NSPointInRect(middle, frame)) {
+        fprintf(stderr, "browser: screen at %.0f %.0f %.0f %.0f\n", NSMinX(frame),
+                top - NSMaxY(frame), NSWidth(frame), NSHeight(frame));
+        done();
+        return true;
+      }
+    }
+    return false;
+  }
   if (action == "order") {
     NSMutableString* order = [NSMutableString string];
     const CGFloat top = NSHeight(NSScreen.screens.firstObject.frame);
@@ -1419,7 +1609,16 @@ bool Run(const std::string& line, void (^done)(void)) {
     return true;
   }
   if (action == "title") {
-    fprintf(stderr, "browser: key window titled %s\n", NSApp.keyWindow.title.UTF8String ?: "");
+    AwaitKeyTitle(@(line.substr(std::min(line.size(), action.size() + 1)).c_str()), 100, done);
+    return true;
+  }
+  if (action == "savepanel") {
+    AnswerSavePanel(@(line.substr(std::min(line.size(), action.size() + 1)).c_str()), 50, done);
+    return true;
+  }
+  if (action == "pasteboard") {
+    fprintf(stderr, "browser: pasteboard text %s\n",
+            [g_pasteboard stringForType:NSPasteboardTypeString].UTF8String ?: "");
     done();
     return true;
   }
@@ -1650,6 +1849,14 @@ void drive_start(void) {
   method_setImplementation(class_getInstanceMethod(NSApplication.class,
                                                    @selector(orderFrontCharacterPalette:)),
                            (IMP)OrderFrontCharacterPalette);
+  g_pasteboard = [NSPasteboard pasteboardWithUniqueName];
+  method_setImplementation(class_getClassMethod(NSPasteboard.class, @selector(generalPasteboard)),
+                           (IMP)GeneralPasteboard);
+  g_pasteboard_with_name = method_setImplementation(
+      class_getClassMethod(NSPasteboard.class, @selector(pasteboardWithName:)),
+      (IMP)PasteboardWithName);
+  g_save_panel_class = method_setImplementation(
+      class_getClassMethod(NSSavePanel.class, @selector(savePanel)), (IMP)SavePanel);
   // A window leaving full screen tells AppKit it has before the desktop's Space slides back, and
   // until it has, the window server still orders the window over the others and drops clicks.
   [NSWorkspace.sharedWorkspace.notificationCenter

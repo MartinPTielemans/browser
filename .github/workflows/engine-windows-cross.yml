@@ -4,17 +4,21 @@
 # recompiles only what changed. Microsoft's compiler and SDK come from a zip the owner packaged on a
 # Windows machine, which Microsoft's licence lets no one redistribute: it stays on that machine, in
 # $ILO_ENGINE_ROOT/windows-toolchain, and nothing here uploads it (engine/README.md, Windows). Run
-# by hand, and on main when the pin, the series, the core or the cross build's scripts change.
+# by hand, nightly on main, and on main when the pin, the series or the cross build's scripts
+# change. Not for each core change: that rebuilt it on every merge, on the one runner the Linux
+# engines wait for, so a Windows lane that needs today's core from main dispatches it by hand.
 # Never on branches or pull requests, as the repository is public. engine-windows.yml builds the
 # same engine on GitHub's Windows runners, by hand only.
 name: Engine on Windows (cross-compiled)
 
 on:
   workflow_dispatch:
+  # Main's core, once a day, at 02:00 UTC.
+  schedule:
+    - cron: '0 2 * * *'
   push:
     branches: [main]
     paths:
-      - core/**
       - engine/pins.ini
       - engine/series
       - engine/patches/**
@@ -32,7 +36,9 @@ concurrency:
 jobs:
   build:
     if: github.repository == 'MartinPTielemans/browser'
-    runs-on: [self-hosted, linux, x64, ilo-engine]
+    # Microsoft's toolchain zip stays on the owner's machine, so a second Linux engine runner must
+    # never take this job.
+    runs-on: [self-hosted, linux, x64, ilo-engine, ilo-engine-windows]
     # As long as the Linux engine's first build, or longer: the first build compiles all of Chrome.
     timeout-minutes: 1440
     permissions:
@@ -83,8 +89,9 @@ jobs:
         run: |
           tag=engine-windows-${GITHUB_SHA::12}
           tag_ucw=$(git config -f engine/pins.ini ungoogled-chromium-windows.tag)
+          # Never GitHub's Latest, which releases/latest/download/<name> links mean as ilo's own (#804).
           gh release view "$tag" >/dev/null 2>&1 ||
-            gh release create "$tag" --target "$GITHUB_SHA" --title "Windows engine ${GITHUB_SHA::12}" \
+            gh release create "$tag" --target "$GITHUB_SHA" --title "Windows engine ${GITHUB_SHA::12}" --latest=false \
               --notes "The Windows engine (ungoogled-chromium-windows $tag_ucw, x64, cross-compiled) built from $GITHUB_SHA, which holds its source."
           gh release upload "$tag" --clobber "$RUNNER_TEMP"/Chromium-windows-x64.zip "$RUNNER_TEMP"/Chromium-windows-x64.zip.sha256 \
             "$RUNNER_TEMP"/Chromium-windows-x64-symbols.zip "$RUNNER_TEMP"/Chromium-windows-x64-symbols.zip.sha256

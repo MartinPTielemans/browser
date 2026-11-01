@@ -1,9 +1,10 @@
 # The menu bar's Extensions menu lists the turned-on extensions of the shown Space's profile, by
 # name, over Pin to URL Field and Manage Extensions…. Choosing one runs its action on the tab shown,
-# as a click on its toolbar button does in Chrome: one without a popup hears the click, and one
-# with a popup opens it with the keyboard, which escape closes, giving the browser window the
-# keyboard back. Pin to URL Field's items pin an extension's action at the URL field's end, in the
-# order pinned, showing its badge for the tab shown as it changes. A click on a pinned action runs
+# as a click on its toolbar button does in Chrome: one without a popup hears the click, and a
+# pop-up window it opens is a window of its own, not a tab, and one with a popup opens it with the
+# keyboard, which escape closes, giving the browser window the keyboard back. Pin to URL Field's
+# items pin an extension's action at the URL field's end, in the order pinned, showing its badge
+# for the tab shown as it changes. A click on a pinned action runs
 # it, its popup hanging from it, and its right-click menu unpins it, opens its options or its
 # details on Chrome's extensions page, or removes it once the user confirms. The actions that don't
 # fit are behind an overflow button in the last place, whose menu runs them. Manage Extensions…
@@ -19,7 +20,9 @@
 # a new tab.
 
 # Four unpacked extensions of the check's own, loaded as a developer loads one. A click on the
-# first gives the tab it's on a badge, then opens its page, and its command ⇧⌘Y opens another. The
+# first gives the tab it's on a badge, then opens its page, which opens a pop-up window of its own
+# as MetaMask's confirmations do and closes it once it has seen it's a window with one tab, saying
+# so in its title, and its command ⇧⌘Y opens another. The
 # second's popup gives it a badge on every tab, and ⌥⇧P opens it. The third has a popup and
 # options, and suggests ⌘J, Jump to Selection's key, which Chrome gives away, for a command. The
 # check removes it, and the next loads it again, as Chrome leaves an unpacked extension's folder.
@@ -32,7 +35,8 @@ script='chrome.action.onClicked.addListener(async tab => {
 });
 chrome.commands.onCommand.addListener(() => chrome.tabs.create({url: "command.html"}));'
 # Chrome keeps running the script it first registered for an extension, so a changed script is a
-# new extension, in a folder of its own.
+# new extension, in a folder of its own. In a profile the check ran in before, the old one still
+# holds ⇧⌘Y and the new one gets no key, so what changes goes in its page's script instead.
 clicked_dir="$extensions/clicked-$(printf %s "$script" | cksum | cut -d' ' -f1)"
 mkdir -p "$clicked_dir" "$extensions/popup" "$extensions/third" "$extensions/panel"
 printf '%s\n' "$script" > "$clicked_dir/background.js"
@@ -41,12 +45,24 @@ cat > "$clicked_dir/manifest.json" << 'EOF'
  "background": {"service_worker": "background.js"},
  "commands": {"hello": {"suggested_key": {"default": "Ctrl+Shift+Y"}, "description": "Hello"}}}
 EOF
-echo '<title>clicked</title>' > "$clicked_dir/clicked.html"
+echo '<title>clicked</title><script src="clicked.js"></script>' > "$clicked_dir/clicked.html"
+cat > "$clicked_dir/clicked.js" << 'EOF'
+(async () => {
+  const made = await chrome.windows.create(
+    {type: "popup", url: "made.html", width: 360, height: 240, focused: false});
+  const tabs = await chrome.tabs.query({windowId: made.id});
+  await chrome.windows.remove(made.id);
+  document.title = `clicked ${made.type}-${tabs.length}`;
+})();
+EOF
+echo '<title>made</title>' > "$clicked_dir/made.html"
 echo '<title>command</title>' > "$clicked_dir/command.html"
+# Off the Mac Chrome keeps Alt+Shift+P (New Tab Group) and Ctrl+J (Downloads) for itself and gives
+# no extension a key of its own, so there they suggest others.
 cat > "$extensions/popup/manifest.json" << 'EOF'
 {"manifest_version": 3, "name": "Check Popup", "version": "1",
  "action": {"default_popup": "popup.html"},
- "commands": {"_execute_action": {"suggested_key": {"default": "Alt+Shift+P"}}}}
+ "commands": {"_execute_action": {"suggested_key": {"default": "Alt+Shift+O", "mac": "Alt+Shift+P"}}}}
 EOF
 echo '<body style="width:240px;height:120px;display:grid;place-items:center;font:16px system-ui">
 the popup<script src="popup.js"></script></body>' > "$extensions/popup/popup.html"
@@ -54,7 +70,7 @@ echo 'chrome.action.setBadgeText({text: "1"});' > "$extensions/popup/popup.js"
 cat > "$extensions/third/manifest.json" << 'EOF'
 {"manifest_version": 3, "name": "Check Third", "version": "1",
  "action": {"default_popup": "popup.html"}, "options_ui": {"page": "options.html"},
- "commands": {"jump": {"suggested_key": {"default": "Ctrl+J"}, "description": "Jump"}}}
+ "commands": {"jump": {"suggested_key": {"default": "Alt+Shift+J", "mac": "Ctrl+J"}, "description": "Jump"}}}
 EOF
 echo '<body style="width:240px;height:120px;display:grid;place-items:center;font:16px system-ui">
 the third popup</body>' > "$extensions/third/popup.html"
@@ -84,7 +100,7 @@ log="$out/extensions.log"
 step=0
 rm -f "$saved" "$launch_frame"
 BROWSER_DRIVE=1 BROWSER_URL="$page" "$browser" \
-  --load-extension="$clicked_dir,$extensions/popup,$extensions/third,$extensions/panel" \
+  --load-extension="$(app_path "$clicked_dir"),$(app_path "$extensions/popup"),$(app_path "$extensions/third"),$(app_path "$extensions/panel")" \
   < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
@@ -117,6 +133,13 @@ for _ in $(seq 10); do
   done
 done
 none_since "$heard" && fail "Check Clicked didn't hear its click: it didn't open its page"
+# Its pop-up window is a window of its own, in its profile, as Chrome makes one, and not a tab.
+await '^browser: title [0-9]* clicked [a-z]*-[0-9]*$' ||
+  fail "Check Clicked's page didn't open its pop-up window"
+grep -q '^browser: title [0-9]* clicked popup-1$' "$log" ||
+  fail "Check Clicked's pop-up window wasn't a window with its one tab: $(grep 'title [0-9]* clicked ' "$log")"
+grep -q "chrome-extension://$clicked/made.html" "$log" &&
+  fail "Check Clicked's pop-up window opened as a tab"
 # Pinned in the order pinned, on the extension's page's tab, where Check Clicked has no badge.
 send menu "Pin to URL Field › Check Popup"
 expect "^browser: pin extension $popup\$" "Pin to URL Field › Check Popup didn't reach the UI"
@@ -141,19 +164,38 @@ expect "^browser: run extension $popup ran\$" "a click on Check Popup's action d
 expect "^browser: extension popup $popup\$" "Check Popup's popup didn't show"
 expect "^browser: extension actions $popup:1 $clicked:7\$" \
   "the badge Check Popup's popup gave it didn't show at once"
-send state
-[ "$key" != BrowserCoreNSWindow ] || fail "the extension's popup didn't take the keyboard"
 ../tools/window-screenshot.sh "$pid" "$out/extension-popup.png" || fail "no window to capture"
-send key escape
-expect '^browser: extension popup none$' "escape didn't close the extension's popup"
-send state
-[ "$key" = BrowserCoreNSWindow ] ||
-  fail "the browser window didn't get the keyboard back from the popup: it's in $key"
+# Closes the popup: escape, where it has the keyboard. On Linux the core gives the keyboard to a
+# page alone, not to a popup (#708), so a click on its action again closes it, as in Chrome, or
+# on the page, $1, where it has none.
+close_popup() {
+  if [ "$(uname)" = Linux ] && [ -n "${1:-}" ]; then
+    send click $1
+    how="a click on the page"
+  elif [ "$(uname)" = Linux ]; then
+    send click $first_place
+    how="a click on its action"
+  else
+    send key escape
+    how=escape
+  fi
+  expect '^browser: extension popup none$' "$how didn't close the extension's popup"
+}
+if [ "$(uname)" = Linux ]; then
+  echo "skip: the extension's popup taking the keyboard and escape closing it: on Linux the core gives the keyboard to a page alone (#708)."
+  close_popup
+else
+  send state
+  [ "$key" != BrowserCoreNSWindow ] || fail "the extension's popup didn't take the keyboard"
+  close_popup
+  send state
+  [ "$key" = BrowserCoreNSWindow ] ||
+    fail "the browser window didn't get the keyboard back from the popup: it's in $key"
+fi
 # The Extensions menu runs a pinned one too, its popup hanging from its action.
 send menu "Check Popup"
 expect "^browser: extension popup $popup\$" "Check Popup's popup didn't show from the menu"
-send key escape
-expect '^browser: extension popup none$' "escape didn't close the extension's popup"
+close_popup
 # A right-click on an action shows its menu: Manage Extension opens its details, and Unpin
 # unpins it. Check Clicked has no options.
 post rightclick $second_place
@@ -176,8 +218,8 @@ expect "^browser: run extension $third ran\$" "Check Third didn't run from the o
 expect "^browser: extension popup $third\$" "Check Third's popup didn't show"
 ../tools/window-screenshot.sh "$pid" "$out/extension-overflow-popup.png" ||
   fail "no window to capture"
-send key escape
-expect '^browser: extension popup none$' "escape didn't close Check Third's popup"
+# Its action is behind the overflow button, so on Linux a click on the page closes it.
+close_popup "$page_point"
 # Check Clicked unpinned, Check Third has a place of its own, where a right-click unpins it.
 send menu "Pin to URL Field › Check Clicked"
 expect "^browser: unpin extension $clicked\$" "Pin to URL Field › Check Clicked didn't unpin it"
@@ -199,10 +241,16 @@ expect "^browser: extension actions $popup:1\$" "Unpin didn't take Check Third's
 send menu "Pin to URL Field › Check Popup"
 expect "^browser: unpin extension $popup\$" "Pin to URL Field › Check Popup didn't unpin it"
 expect '^browser: extension actions $' "unpinning the last action left it in the URL field"
-# Their keys, as Chrome gave them: those the extensions suggested, as no one set any.
+# Their keys, as Chrome gave them: those the extensions suggested, as no one set any. Off the Mac
+# Alt is ⌃ in the Mac's names (docs/ux-spec.md › Keyboard).
+if [ "$(uname)" = Darwin ]; then
+  popup_key="p alt shift" popup_named=alt-shift-p popup_said=⌥⇧P third_named=cmd-j
+else
+  popup_key="o alt shift" popup_named=ctrl-shift-o popup_said=Alt+Shift+O third_named=ctrl-shift-j
+fi
 grep -q "^browser: extension keys $clicked hello=shift-cmd-y suggested\$" "$log" &&
-  grep -q "^browser: extension keys $popup _execute_action=alt-shift-p suggested\$" "$log" &&
-  grep -q "^browser: extension keys $third jump=cmd-j suggested\$" "$log" ||
+  grep -q "^browser: extension keys $popup _execute_action=$popup_named suggested\$" "$log" &&
+  grep -q "^browser: extension keys $third jump=$third_named suggested\$" "$log" ||
   fail "the extensions' keys weren't the ones they suggested: $(grep 'extension keys' "$log")"
 # Keyboard commands, on the first tab's page.
 index=$(today | tr ' ' '\n' | grep -n "^$first\$" | cut -d: -f1)
@@ -224,21 +272,19 @@ expect "^browser: extension command $clicked hello ran via ui\$" \
 expect "^browser: loaded [0-9]* chrome-extension://$clicked/command.html\$" \
   "Check Clicked didn't hear its command from the UI"
 # An action's key runs it as a click on its button does, its popup with the keyboard.
-send key p alt shift
+send key $popup_key
 expect "^browser: extension command $popup _execute_action ran via ui\$" \
-  "⌥⇧P with the UI focused didn't run Check Popup's action"
-expect "^browser: extension popup $popup\$" "⌥⇧P with the UI focused didn't show the popup"
-send key escape
-expect '^browser: extension popup none$' "escape didn't close the extension's popup"
+  "$popup_said with the UI focused didn't run Check Popup's action"
+expect "^browser: extension popup $popup\$" "$popup_said with the UI focused didn't show the popup"
+close_popup "$page_point"
 send click $page_point
 in_browser RenderWidgetHostViewCocoa "after a click on the command page"
-send key p alt shift
+send key $popup_key
 expect "^browser: extension command $popup _execute_action ran via page\$" \
-  "⌥⇧P with the page focused didn't run Check Popup's action"
-expect "^browser: extension popup $popup\$" "⌥⇧P with the page focused didn't show the popup"
+  "$popup_said with the page focused didn't run Check Popup's action"
+expect "^browser: extension popup $popup\$" "$popup_said with the page focused didn't show the popup"
 ../tools/window-screenshot.sh "$pid" "$out/extension-key-popup.png" || fail "no window to capture"
-send key escape
-expect '^browser: extension popup none$' "escape didn't close the extension's popup"
+close_popup "$page_point"
 send menu "Manage Extensions…"
 expect '^browser: command manage-extensions via ui$' "Manage Extensions… didn't reach the UI"
 expect '^browser: loaded [0-9]* chrome://extensions/$' \
@@ -420,7 +466,7 @@ expect '^browser: side panel none$' "Close Side Panel didn't close the side pane
 quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't quit"
 exited
-echo "ok: the Extensions menu lists the profile's extensions by name, and choosing one runs its action on the tab shown: one without a popup hears the click, and one with a popup shows it with the keyboard, which escape closes, giving the browser window the keyboard back. Pin to URL Field pins and unpins them, and the pinned actions show at the URL field's end in the order pinned, with their badges for the tab shown as they change. A click on one runs it, with its popup hanging from it, and its right-click menu unpins it, opens its options and its details, and removes it after asking. The ones that don't fit are behind the overflow button, whose menu runs them. Manage Extensions… opens Chrome's extensions page. The Site Controls list the unpinned extensions by name, and a click on one's tile runs it, its popup hanging from the tile, and its right-click menu moves it to the top, pinning it, unpins it, and asks before removing it. Their keyboard commands and their actions' keys run from the page and the UI, but one they suggest that's the browser's stays the browser's. An extension's side panel opens from its action as a card right of the page with its page loaded, its page takes the keyboard, its edge drags it narrower, its header's ✕ and ⋯ menu close it, and a tab's own panel goes on a switch to a tab without one and comes back with it at the width given. Windows: $out/extension-actions.png, $out/extension-popup.png, $out/extension-overflow.png, $out/extension-overflow-popup.png, $out/extension-key-popup.png, $out/extensions.png, $out/extension-remove.png, $out/site-controls-extensions.png, $out/site-controls-extension-popup.png, $out/site-controls-move-to-top.png, $out/site-controls-remove.png, $out/side-panel.png, $out/side-panel-resized.png"
+echo "ok: the Extensions menu lists the profile's extensions by name, and choosing one runs its action on the tab shown: one without a popup hears the click, and opens a pop-up window of its own, not a tab, and one with a popup shows it with the keyboard, which escape closes, giving the browser window the keyboard back. Pin to URL Field pins and unpins them, and the pinned actions show at the URL field's end in the order pinned, with their badges for the tab shown as they change. A click on one runs it, with its popup hanging from it, and its right-click menu unpins it, opens its options and its details, and removes it after asking. The ones that don't fit are behind the overflow button, whose menu runs them. Manage Extensions… opens Chrome's extensions page. The Site Controls list the unpinned extensions by name, and a click on one's tile runs it, its popup hanging from the tile, and its right-click menu moves it to the top, pinning it, unpins it, and asks before removing it. Their keyboard commands and their actions' keys run from the page and the UI, but one they suggest that's the browser's stays the browser's. An extension's side panel opens from its action as a card right of the page with its page loaded, its page takes the keyboard, its edge drags it narrower, its header's ✕ and ⋯ menu close it, and a tab's own panel goes on a switch to a tab without one and comes back with it at the width given. Windows: $out/extension-actions.png, $out/extension-popup.png, $out/extension-overflow.png, $out/extension-overflow-popup.png, $out/extension-key-popup.png, $out/extensions.png, $out/extension-remove.png, $out/site-controls-extensions.png, $out/site-controls-extension-popup.png, $out/site-controls-move-to-top.png, $out/site-controls-remove.png, $out/side-panel.png, $out/side-panel-resized.png"
 
 # A desktop app's native messaging host that only another Chromium browser's folder has, as
 # 1Password writes its own only for the browsers it knows. The launch has a profile without one and
@@ -429,7 +475,10 @@ echo "ok: the Extensions menu lists the profile's extensions by name, and choosi
 # the real home.) A click on the extension's action asks the host, whose answer opens a page.
 home="$PWD/$out/native-home"
 rm -rf "$home"
-host_dir="$home/browsers/Google/Chrome Beta/NativeMessagingHosts"
+# Chrome Beta's folder is google-chrome-beta in ~/.config off the Mac.
+beta="Google/Chrome Beta"
+[ "$(uname)" = Darwin ] || beta=google-chrome-beta
+host_dir="$home/browsers/$beta/NativeMessagingHosts"
 mkdir -p "$host_dir" "$home/extension" "$home/profile"
 cat > "$home/host.sh" << 'EOF'
 #!/bin/sh
@@ -459,8 +508,10 @@ BROWSER_DRIVE=1 BROWSER_URL="$page" BROWSER_PROFILE_DIR="$home/profile" \
 pid=$!
 exec 3> "$out/drive"
 await_load
-await '^browser: extensions menu [a-p]*$' || fail "the Extensions menu didn't list Check Native"
-native=$(grep -m1 '^browser: extensions menu [a-p]*$' "$log" | cut -d' ' -f4)
+# Check Native, then uBlock Origin, last by name, which no longer reloads itself away (#954).
+await "^browser: extensions menu [a-p]* $ublock\$" ||
+  fail "the Extensions menu didn't list Check Native"
+native=$(grep -m1 "^browser: extensions menu [a-p]* $ublock\$" "$log" | cut -d' ' -f4)
 # The host allows only the extension, whose id comes from its folder.
 printf '{"name": "dev.browser.check", "description": "Check", "path": "%s", "type": "stdio",
  "allowed_origins": ["chrome-extension://%s/"]}\n' "$home/host.sh" "$native" \

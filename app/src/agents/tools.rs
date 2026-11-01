@@ -175,10 +175,11 @@ pub fn list() -> Value {
                                 "key": { "type": "string", "enum": page::KEYS },
                                 "url": { "type": "string" },
                                 "direction": { "type": "string", "enum": ["down", "up"] },
+                                "seconds": { "type": "number", "exclusiveMinimum": 0, "maximum": MAX_WAIT },
                             },
                             "required": ["action"],
                         },
-                        "description": "Each step is an action and what that tool takes: click and scroll a ref, type a ref and text, press_key a key, navigate a url.",
+                        "description": "Each step is an action and what that tool takes: click and scroll a ref, type a ref and text, press_key a key, navigate a url. wait waits for text to show in the page, up to seconds (5 if not given), or without text, waits the seconds.",
                     },
                     "tab": tab,
                 },
@@ -217,10 +218,13 @@ pub fn list() -> Value {
     ])
 }
 
-/// The actions run_steps takes: those of the tools that act in a tab, not a screenshot.
-pub const STEPS: [&str; 6] = ["navigate", "snapshot", "click", "type", "press_key", "scroll"];
+/// The actions run_steps takes: those of the tools that act in a tab, not a screenshot, and wait.
+pub const STEPS: [&str; 7] = ["navigate", "snapshot", "click", "type", "press_key", "scroll", "wait"];
 /// The steps one run_steps takes at most.
 pub const MAX_STEPS: usize = 20;
+/// How long a wait step waits for its text, in seconds, unless it says, and at most.
+pub const WAIT: f64 = 5.0;
+pub const MAX_WAIT: f64 = 30.0;
 
 /// list_tabs' answer.
 pub fn tab_list(tabs: &[TabInfo], current: Option<u64>) -> String {
@@ -287,6 +291,7 @@ pub fn describe(action: &str) -> &'static str {
         "released" => "Let go of the tab",
         "taken back" => "You took the tab over",
         "handed back" => "You handed the tab back",
+        "given" => "You gave it a tab",
         "stopped" => "You stopped it",
         "hand_off" => "Handed you a tab",
         "close_tab" => "Closed a tab",
@@ -294,6 +299,7 @@ pub fn describe(action: &str) -> &'static str {
         "ask_for_tab" => "Asked for a tab back",
         "kept" => "You kept the tab",
         "run_steps" => "Ran steps",
+        "wait" => "Waited for the page",
         "revoked" => "You revoked its permission",
         "revoked all" => "You revoked all its permissions",
         _ => "Acted",

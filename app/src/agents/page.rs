@@ -59,6 +59,11 @@ impl Refs {
         self.by_ref.get(&number)
     }
 
+    /// The number of the ref naming the element whose DOM node is `node`.
+    pub fn number(&self, node: i64) -> Option<u32> {
+        self.by_node.get(&node).copied()
+    }
+
     fn name(&mut self, element: Element) -> u32 {
         let number = *self.by_node.entry(element.node).or_insert_with(|| {
             self.next += 1;

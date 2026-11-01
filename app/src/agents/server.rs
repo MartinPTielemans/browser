@@ -1,7 +1,7 @@
 //! The MCP server: JSON-RPC a message a line, as MCP's stdio transport has it, on a Unix socket in
-//! the profile directory that only the user can open (decision 8). An MCP client launches the
-//! bridge (`bridge.rs`), which hands over the agent's token as its first line, then carries the
-//! client's stdio to the socket and back. A thread waits in `accept`, and one for each connection
+//! the profile directory that only the user can open (decision 8), or on Windows a named pipe only
+//! they can open (pipe.rs). An MCP client launches the bridge (`bridge.rs`), which hands over the
+//! agent's token as its first line, then carries the client's stdio to the socket and back. A thread waits in `accept`, and one for each connection
 //! waits in `read`, so an idle server wakes nothing. The threads answer what needs no browser
 //! themselves, and send the rest to the UI thread as events.
 //!
@@ -23,6 +23,20 @@ use super::{Call, Event, ToolResult, tools};
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 
+#[cfg(windows)]
+use super::pipe;
+
+/// One end of a connection to the server.
+#[cfg(unix)]
+pub(super) type Stream = UnixStream;
+#[cfg(windows)]
+pub(super) type Stream = pipe::Pipe;
+
+/// The line the bridge sends where it can't close its end for writing alone, as a named pipe
+/// can't, once its client has closed its end: the server ends the session as it would at the end
+/// of the stream, then closes the connection once it has answered what it read.
+pub(super) const END: &str = r#"{"end":true}"#;
+
 /// Agents' tokens, each to the id of the agent it's for, which the UI thread changes as the user
 /// connects and disconnects agents.
 pub type Tokens = Arc<Mutex<HashMap<String, String>>>;
@@ -37,6 +51,10 @@ const MAX_CONNECTIONS: usize = 32;
 /// The server, running until it's dropped.
 pub struct Server {
     shared: Arc<Shared>,
+    /// The thread waiting for connections, which a stopping server waits for, so its pipe is gone
+    /// once it has stopped, as the socket file is.
+    #[cfg(windows)]
+    accepting: Option<thread::JoinHandle<()>>,
 }
 
 struct Shared {
@@ -50,8 +68,7 @@ struct Shared {
 }
 
 struct Connection {
-    #[cfg(unix)]
-    stream: UnixStream,
+    stream: Stream,
     /// Its agent's id, once its token has said, and whether it began a session with initialize.
     agent: String,
     initialized: bool,
@@ -93,13 +110,27 @@ impl Server {
         Ok(Server { shared })
     }
 
-    /// Windows has no Unix sockets in Rust's library; its server is a named pipe, still to come.
-    #[cfg(not(unix))]
-    pub fn start(_: &Path, _: Tokens, _: UnboundedSender<Event>) -> io::Result<Server> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "agents don't run on this system yet",
-        ))
+    /// Makes the named pipe at `path`, which only the user can open, unless it's there already.
+    #[cfg(windows)]
+    pub fn start(
+        path: &Path,
+        tokens: Tokens,
+        events: UnboundedSender<Event>,
+    ) -> io::Result<Server> {
+        let listener = pipe::Listener::bind(path)?;
+        let shared = Arc::new(Shared {
+            path: path.into(),
+            stopped: AtomicBool::new(false),
+            tokens,
+            connections: Mutex::default(),
+            next_connection: AtomicU64::new(0),
+            events,
+        });
+        let accepting = shared.clone();
+        let accepting = thread::Builder::new()
+            .name("agents-server".into())
+            .spawn(move || accept(listener, accepting))?;
+        Ok(Server { shared, accepting: Some(accepting) })
     }
 
     pub fn path(&self) -> &Path {
@@ -121,6 +152,8 @@ impl Connection {
         {
             _ = self.stream.shutdown(std::net::Shutdown::Both);
         }
+        #[cfg(windows)]
+        self.stream.close();
     }
 }
 
@@ -130,16 +163,51 @@ impl Drop for Server {
         // Closed here, on the UI thread, which its task's wake then is, not on the last server
         // thread to let go of it.
         self.shared.events.close_channel();
-        // `accept` returns for a connection, which then finds the server stopped.
-        #[cfg(unix)]
-        {
-            _ = UnixStream::connect(&self.shared.path);
+        // `accept` returns for a connection, which then finds the server stopped. Held until the
+        // accept thread is gone, since a pipe client that left before ConnectNamedPipe is lost.
+        let _wake = connect(&self.shared.path);
+        #[cfg(windows)]
+        if let Some(accepting) = self.accepting.take() {
+            _ = accepting.join();
         }
         for (_, connection) in self.shared.connections.lock().unwrap().drain() {
             connection.close();
         }
-        _ = std::fs::remove_file(&self.shared.path);
+        #[cfg(unix)]
+        {
+            _ = std::fs::remove_file(&self.shared.path);
+        }
     }
+}
+
+/// Where the server for the profile in `folder` listens: its socket, or on Windows its pipe.
+#[cfg(unix)]
+pub fn address(folder: &Path) -> PathBuf {
+    folder.join("Agents.sock")
+}
+#[cfg(windows)]
+pub use pipe::address;
+
+/// Connects to the server at `path`, as the bridge does.
+#[cfg(unix)]
+pub(super) fn connect(path: &Path) -> io::Result<Stream> {
+    UnixStream::connect(path)
+}
+#[cfg(windows)]
+pub(super) fn connect(path: &Path) -> io::Result<Stream> {
+    pipe::Pipe::connect(path)
+}
+
+/// Tells the server the client closed its end, which it ends the session at, then closes the
+/// connection once it has answered.
+#[cfg(unix)]
+pub(super) fn close_write(stream: &mut Stream) -> io::Result<()> {
+    stream.shutdown(std::net::Shutdown::Write)
+}
+#[cfg(windows)]
+pub(super) fn close_write(stream: &mut Stream) -> io::Result<()> {
+    // After a line of its own, in case the client's last didn't end.
+    write!(stream, "\n{END}\n")
 }
 
 #[cfg(unix)]
@@ -148,39 +216,54 @@ fn accept(listener: UnixListener, shared: Arc<Shared>) {
         if shared.stopped.load(Ordering::SeqCst) {
             return;
         }
-        let Ok(stream) = stream else { continue };
-        let number = shared.next_connection.fetch_add(1, Ordering::SeqCst);
-        {
-            let mut connections = shared.connections.lock().unwrap();
-            if connections.len() >= MAX_CONNECTIONS {
-                continue;
-            }
-            let Ok(kept) = stream.try_clone() else {
-                continue;
-            };
-            let connection = Connection {
-                stream: kept,
-                agent: String::new(),
-                initialized: false,
-            };
-            connections.insert(number, connection);
-        }
-        let serving = shared.clone();
-        let spawned = thread::Builder::new()
-            .name("agents-connection".into())
-            .spawn(move || {
-                serve(stream, number, &serving);
-                end(&serving, number);
-            });
-        if spawned.is_err() {
-            shared.connections.lock().unwrap().remove(&number);
+        if let Ok(stream) = stream {
+            welcome(stream, &shared);
         }
     }
 }
 
+#[cfg(windows)]
+fn accept(mut listener: pipe::Listener, shared: Arc<Shared>) {
+    while let Ok(stream) = listener.accept() {
+        if shared.stopped.load(Ordering::SeqCst) {
+            return;
+        }
+        welcome(stream, &shared);
+    }
+}
+
+/// Keeps a new connection and serves it on a thread of its own, unless there are too many.
+fn welcome(stream: Stream, shared: &Arc<Shared>) {
+    let number = shared.next_connection.fetch_add(1, Ordering::SeqCst);
+    {
+        let mut connections = shared.connections.lock().unwrap();
+        if connections.len() >= MAX_CONNECTIONS {
+            return;
+        }
+        let Ok(kept) = stream.try_clone() else {
+            return;
+        };
+        let connection = Connection {
+            stream: kept,
+            agent: String::new(),
+            initialized: false,
+        };
+        connections.insert(number, connection);
+    }
+    let serving = shared.clone();
+    let spawned = thread::Builder::new()
+        .name("agents-connection".into())
+        .spawn(move || {
+            serve(stream, number, &serving);
+            end(&serving, number);
+        });
+    if spawned.is_err() {
+        shared.connections.lock().unwrap().remove(&number);
+    }
+}
+
 /// Takes the connection's token, then answers its messages in turn until it closes.
-#[cfg(unix)]
-fn serve(stream: UnixStream, number: u64, shared: &Shared) {
+fn serve(stream: Stream, number: u64, shared: &Shared) {
     let Ok(mut writer) = stream.try_clone() else {
         return;
     };
@@ -235,6 +318,9 @@ fn serve(stream: UnixStream, number: u64, shared: &Shared) {
             if shared.stopped.load(Ordering::SeqCst)
                 || shared.agent(&token).as_ref() != Some(&agent)
             {
+                break;
+            }
+            if line == END {
                 break;
             }
             if !line.trim().is_empty() && requests.send(line).is_err() {
@@ -371,5 +457,5 @@ fn error(id: Value, code: i64, message: &str) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests;

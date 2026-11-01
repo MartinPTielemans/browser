@@ -349,6 +349,7 @@ fn a_drag_is_undone_to_where_the_tab_was_in_its_folder(cx: &mut TestAppContext) 
     let folders = Folders {
         folders: HashMap::from([(5, ("Reading".into(), true))]),
         parents: HashMap::from([(6, 5), (7, 5), (8, 5)]),
+        ..Default::default()
     };
     let (shell, host) = window(cx, vec![4, 5, 6, 7, 8], vec![9], folders, Vec::new());
     // 8 goes out of the folder to the top of Today.
@@ -365,7 +366,7 @@ fn moving_a_tab_to_a_space_of_the_same_profile_is_undone_but_not_to_another_prof
     cx: &mut TestAppContext,
 ) {
     let (shell, host) = plain(cx, vec![10, 11]);
-    shell.update(cx, |shell, cx| shell.send_to_space(11, 2, cx));
+    shell.update(cx, |shell, cx| shell.send_to_space(11, 2, false, cx));
     assert_eq!(host.take_edits(), ["space 11 2"]);
     assert_eq!(host.undo_toasts.borrow().as_slice(), ["Tab Moved to Space"]);
     report(&shell, cx, Vec::new(), vec![10]);
@@ -377,10 +378,78 @@ fn moving_a_tab_to_a_space_of_the_same_profile_is_undone_but_not_to_another_prof
 
     // Another profile's Space opens it there as a new tab, which has nothing to give back.
     let (shell, host) = plain(cx, vec![10, 11]);
-    shell.update(cx, |shell, cx| shell.send_to_space(11, 3, cx));
+    shell.update(cx, |shell, cx| shell.send_to_space(11, 3, false, cx));
     host.take_edits();
     assert!(!undo(&shell, cx));
     assert!(host.take_edits().is_empty());
+}
+
+#[gpui::test]
+fn pin_to_space_pins_the_tab_before_it_moves_and_one_undo_puts_it_back_in_today(
+    cx: &mut TestAppContext,
+) {
+    let (shell, host) = plain(cx, vec![10, 11]);
+    shell.update(cx, |shell, cx| shell.send_to_space(11, 2, true, cx));
+    assert_eq!(host.take_edits(), ["pinned 11 true", "space 11 2"]);
+    report(&shell, cx, Vec::new(), vec![10]);
+    shell.update(cx, |shell, cx| {
+        shell.set_tabs(2, vec![11], Vec::new(), Vec::new(), Folders::default(), cx)
+    });
+    undo(&shell, cx);
+    assert_eq!(host.take_edits(), ["space 11 1", "move 11 false 0 1"]);
+
+    // A pinned tab moves pinned already.
+    let (shell, host) = window(cx, vec![11], vec![10], Folders::default(), Vec::new());
+    shell.update(cx, |shell, cx| shell.send_to_space(11, 2, true, cx));
+    assert_eq!(host.take_edits(), ["space 11 2"]);
+}
+
+/// New Space… makes the Space right after the one shown, as Arc's does, not after the others.
+#[gpui::test]
+fn a_new_space_goes_right_after_the_space_shown(cx: &mut TestAppContext) {
+    let (shell, host) = plain(cx, vec![10]);
+    shell.update(cx, |shell, cx| shell.set_space(2, cx));
+    host.take();
+    shell.update(cx, |shell, cx| shell.run(Command::NewSpace, "ui", cx));
+    assert!(host.take().contains(&"create space Space 4 after 2".to_string()));
+}
+
+/// The command bar finds each other Space by its name, to focus it, pin the tab in it or move the
+/// tab to it, Focus first as in Arc's, and the Space shown's closed folders, to open one with the
+/// folders it's in.
+#[gpui::test]
+fn the_command_bar_finds_spaces_and_closed_folders_by_name(cx: &mut TestAppContext) {
+    let folders = Folders {
+        folders: HashMap::from([(5, ("Reading".into(), false)), (6, ("Recipes".into(), false))]),
+        parents: HashMap::from([(6, 5), (7, 6)]),
+        ..Default::default()
+    };
+    let (shell, host) = window(cx, vec![5, 6, 7], vec![10], folders, Vec::new());
+    shell.update(cx, |shell, cx| shell.set_selected(10, cx));
+    let found = |typed: &str, cx: &mut TestAppContext| {
+        shell.read_with(cx, |shell, _| {
+            let found = Vec::new();
+            let keys = crate::shell::UserKeys::default();
+            let rows = crate::shell::with_named_rows(found, typed, &shell.named_bar_rows(), &keys);
+            rows.into_iter().map(|row| (row.name.to_string(), row.command)).collect::<Vec<_>>()
+        })
+    };
+    assert_eq!(
+        found("two", cx),
+        [
+            ("Focus Two".to_string(), Command::SelectSpace(1)),
+            ("Pin to Two".to_string(), Command::PinToSpace(2)),
+            ("Move to Two".to_string(), Command::MoveToSpace(2)),
+        ]
+    );
+    // Nothing typed lists none, and the Space shown has none.
+    assert!(found("", cx).is_empty());
+    assert!(found("one", cx).iter().all(|(name, _)| !name.ends_with("One")));
+    let recipes = found("recipes", cx);
+    assert_eq!(recipes, [("Open Recipes".to_string(), Command::OpenFolder(6))]);
+    host.take();
+    shell.update(cx, |shell, cx| shell.run(Command::OpenFolder(6), "command-bar", cx));
+    assert_eq!(host.take(), ["folder open 6 true", "folder open 5 true"]);
 }
 
 #[gpui::test]
@@ -390,6 +459,7 @@ fn a_deleted_folder_is_made_again_with_what_it_held_and_deleted_again_by_its_new
     let folders = Folders {
         folders: HashMap::from([(5, ("Reading".into(), false))]),
         parents: HashMap::from([(6, 5), (7, 5)]),
+        ..Default::default()
     };
     let (shell, host) = window(cx, vec![4, 5, 6, 7], Vec::new(), folders, Vec::new());
     shell.update(cx, |shell, cx| shell.delete_folder_now(5, cx));
@@ -409,6 +479,7 @@ fn a_deleted_folder_is_made_again_with_what_it_held_and_deleted_again_by_its_new
     let folders = Folders {
         folders: HashMap::from([(1001, ("Reading".into(), true))]),
         parents: HashMap::from([(6, 1001), (7, 1001)]),
+        ..Default::default()
     };
     shell.update(cx, |shell, cx| {
         shell.set_tabs(1, vec![4, 1001, 6, 7], Vec::new(), Vec::new(), folders, cx)
@@ -455,6 +526,142 @@ fn leaving_a_split_is_undone_by_joining_the_tab_beside_it(cx: &mut TestAppContex
     report(&shell, cx, Vec::new(), vec![10, 11, 12]);
     undo(&shell, cx);
     assert_eq!(host.take_edits(), ["split 10 11 true"]);
+}
+
+/// The core reports the first Space's Today tabs with one split view.
+fn report_split(
+    shell: &Entity<Shell>,
+    cx: &mut TestAppContext,
+    today: Vec<u64>,
+    tabs: Vec<u64>,
+    stacked: bool,
+) {
+    let split = Split {
+        tabs,
+        stacked,
+        ..Default::default()
+    };
+    shell.update(cx, |shell, cx| {
+        shell.set_tabs(1, Vec::new(), today, vec![split], Folders::default(), cx)
+    });
+}
+
+#[gpui::test]
+fn joining_a_split_is_undone_to_the_tabs_row_with_the_page_shown_and_done_again(
+    cx: &mut TestAppContext,
+) {
+    let (shell, host) = plain(cx, vec![10, 11, 12]);
+    shell.update(cx, |shell, cx| shell.join_split(12, 10, false, false, cx));
+    assert_eq!(host.take_edits(), ["split 12 10 false"]);
+    assert_eq!(titles(&shell, cx), (Some("Split View"), None));
+    // The core moved 12 into 10's place, and the user clicked 10's page.
+    report_split(&shell, cx, vec![10, 12, 11], vec![10, 12], false);
+    shell.update(cx, |shell, cx| shell.set_selected(10, cx));
+    host.take();
+
+    assert!(undo(&shell, cx));
+    assert_eq!(host.take_edits(), ["separate 12", "move 12 false 0 2"]);
+    assert!(host.take().contains(&"select 10".to_string()));
+    assert_eq!(titles(&shell, cx), (None, Some("Split View")));
+
+    report(&shell, cx, Vec::new(), vec![10, 11, 12]);
+    assert!(redo(&shell, cx));
+    assert_eq!(host.take_edits(), ["split 12 10 false"]);
+}
+
+#[gpui::test]
+fn a_tab_that_left_one_split_for_another_goes_back_to_the_first(cx: &mut TestAppContext) {
+    let splits = vec![
+        Split {
+            tabs: vec![10, 11],
+            ..Default::default()
+        },
+        Split {
+            tabs: vec![12, 13],
+            ..Default::default()
+        },
+    ];
+    let (shell, host) = window(cx, Vec::new(), vec![10, 11, 12, 13], Folders::default(), splits);
+    shell.update(cx, |shell, cx| shell.join_split(11, 12, true, false, cx));
+    assert_eq!(host.take_edits(), ["split 11 12 true"]);
+    report_split(&shell, cx, vec![10, 11, 12, 13], vec![11, 12, 13], false);
+    assert!(undo(&shell, cx));
+    // Joining 10 again takes it out of the other split: no separate first.
+    assert_eq!(host.take_edits(), ["split 11 10 false"]);
+}
+
+#[gpui::test]
+fn a_drop_that_stacks_a_new_split_is_one_step(cx: &mut TestAppContext) {
+    let (shell, host) = plain(cx, vec![10, 11]);
+    shell.update(cx, |shell, cx| shell.join_split(11, 10, true, true, cx));
+    assert_eq!(host.take_edits(), ["split 11 10 true"]);
+    assert!(host.take().contains(&"split stacked 10 true".to_string()));
+    report_split(&shell, cx, vec![11, 10], vec![11, 10], true);
+
+    assert!(undo(&shell, cx));
+    assert_eq!(host.take_edits(), ["separate 11", "move 11 false 0 1"]);
+    report(&shell, cx, Vec::new(), vec![10, 11]);
+    host.take();
+    assert!(redo(&shell, cx));
+    assert_eq!(host.take_edits(), ["split 11 10 true"]);
+    assert!(host.take().contains(&"split stacked 10 true".to_string()));
+}
+
+#[gpui::test]
+fn a_split_that_is_full_or_has_the_tab_keeps_nothing(cx: &mut TestAppContext) {
+    let split = Split {
+        tabs: vec![10, 11, 12],
+        ..Default::default()
+    };
+    let today = vec![10, 11, 12, 13];
+    let (shell, host) = window(cx, Vec::new(), today, Folders::default(), vec![split]);
+    shell.update(cx, |shell, cx| {
+        shell.join_split(13, 10, false, false, cx);
+        shell.join_split(12, 10, false, false, cx);
+    });
+    host.take_edits();
+    assert_eq!(titles(&shell, cx), (None, None));
+}
+
+#[gpui::test]
+fn a_tab_opened_for_a_split_is_closed_by_undo(cx: &mut TestAppContext) {
+    let (shell, host) = plain(cx, vec![10]);
+    shell.update(cx, |shell, cx| shell.split_opened(20, cx));
+    assert_eq!(titles(&shell, cx).0, Some("Split View"));
+    report_split(&shell, cx, vec![10, 20], vec![10, 20], false);
+    assert!(undo(&shell, cx));
+    assert_eq!(host.take_edits(), ["close 20"]);
+    report(&shell, cx, Vec::new(), vec![10]);
+    assert!(redo(&shell, cx));
+    assert_eq!(host.take_edits(), ["reopen 20 as 1001"]);
+}
+
+#[gpui::test]
+fn a_change_of_orientation_is_its_own_step(cx: &mut TestAppContext) {
+    let split = Split {
+        tabs: vec![10, 11],
+        ..Default::default()
+    };
+    let (shell, host) = window(cx, Vec::new(), vec![10, 11], Folders::default(), vec![split]);
+    shell.update(cx, |shell, cx| shell.stack_split(10, true, cx));
+    assert!(host.take().contains(&"split stacked 10 true".to_string()));
+    assert_eq!(titles(&shell, cx).0, Some("Change Orientation"));
+    report_split(&shell, cx, vec![10, 11], vec![10, 11], true);
+    assert!(undo(&shell, cx));
+    assert!(host.take().contains(&"split stacked 10 false".to_string()));
+}
+
+#[gpui::test]
+fn a_private_window_keeps_no_split_to_undo(cx: &mut TestAppContext) {
+    let host = Rc::new(Recorder::default());
+    let shell = cx.new(|cx| Shell::private_window(host.clone(), 9, "Private".into(), 1, cx));
+    shell.update(cx, |shell, cx| {
+        shell.set_tabs(9, Vec::new(), vec![10, 11], Vec::new(), Folders::default(), cx);
+        shell.join_split(11, 10, false, false, cx);
+        shell.split_opened(12, cx);
+    });
+    assert_eq!(host.take_edits(), ["split 11 10 false"]);
+    assert_eq!(titles(&shell, cx), (None, None));
 }
 
 #[gpui::test]
@@ -819,4 +1026,22 @@ fn command_z_and_the_edit_menu_undo_and_redo_with_the_ui_focused(cx: &mut TestAp
     });
     cx.dispatch_action(crate::text_input::Redo);
     assert_eq!(host.take_edits(), ["move 10 true 0 0"]);
+}
+
+#[gpui::test]
+fn a_folders_icon_goes_back_to_what_it_was(cx: &mut TestAppContext) {
+    let folders = Folders {
+        folders: HashMap::from([(5, ("Reading".into(), true))]),
+        parents: HashMap::from([(6, 5)]),
+        icons: HashMap::from([(5, "📚".into())]),
+        ..Default::default()
+    };
+    let (shell, host) = window(cx, vec![4, 5, 6], Vec::new(), folders, Vec::new());
+    shell.update(cx, |shell, cx| {
+        shell.change(Prop::FolderIcon(5), Value::Text("🌱".into()), cx)
+    });
+    assert_eq!(host.take_edits(), ["folder icon 5 🌱"]);
+    assert_eq!(titles(&shell, cx).0, Some("Change Icon"));
+    undo(&shell, cx);
+    assert_eq!(host.take_edits(), ["folder icon 5 📚"]);
 }

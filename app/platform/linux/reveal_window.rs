@@ -31,10 +31,9 @@ pub extern "C" fn host_add_reveal(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn host_show_reveal(ui_view: *mut c_void, width: f64) {
-    let Some(view) = REVEALS.with_borrow_mut(|all| {
+    let Some((view, was_shown)) = REVEALS.with_borrow_mut(|all| {
         let reveal = all.iter_mut().find(|(each, ..)| *each == ui_view)?;
-        reveal.2 = true;
-        Some(reveal.1)
+        Some((reveal.1, std::mem::replace(&mut reveal.2, true)))
     }) else {
         return;
     };
@@ -43,6 +42,10 @@ pub extern "C" fn host_show_reveal(ui_view: *mut c_void, width: f64) {
     };
     let bounds = Bounds::new(point(px(0.), px(0.)), size(px(width as f32), content.height));
     gpui_linux::show_overlay(view, ui_view, bounds, px(0.), false, ignore_left);
+    if !was_shown {
+        // check.sh reads it, as the Mac's host says it.
+        eprintln!("browser: reveal window shown");
+    }
 }
 
 #[unsafe(no_mangle)]

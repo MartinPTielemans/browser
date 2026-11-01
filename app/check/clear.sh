@@ -13,11 +13,17 @@
 # Library… and the footer's button open the Library, which pushes the page right at its width, and
 # its back button closes it. A right-click on an archived tab shows its menu, whose Copy URL copies
 # its URL and Delete from Archive takes it out. A click on one reopens it at the top of Today with
-# its history, and Clear Archive asks, then empties the archive. A page's question about a
+# its history, and Clear Archive, from the Archive menu and a right-click on the Archived Tabs
+# section, asks, then empties the archive, which ⌘Z brings back. A page's question about a
 # permission shows under the URL field while its tab is shown, bringing out a hidden sidebar, and
 # its ×, Block and Allow answer it. The URL field's Site Controls button and the command bar's Site
 # Controls, from the page, open a panel under the field that lists the site's permissions as
 # Chrome's page info does. A value changed there sticks, and its Reset permissions sets them back.
+# Their Developer Mode row lists localhost on by itself, and turns it off and on for the tab, as the
+# command bar's Turn off and Turn on Developer Mode for this site do, View › Developer's and ⌃D,
+# from the page and the UI, which the page's text field and the command bar's keep as forward
+# delete. In it the URL field says the whole URL, the tab's row has its outline, and the field's
+# DevTools button docks DevTools in the card and closes them.
 # Escape, a click outside and the button close it. A page that asks for Widevine brings a note under
 # the field, which ClearKey doesn't. From macOS 14 its button shows the page in Safari's engine, in
 # the tab, and the profile keeps the site for it: the site's cookies, HttpOnly too, and its
@@ -97,12 +103,17 @@ expect "^browser: title $a cookie none cache 2\$" \
 ../tools/window-screenshot.sh "$pid" "$out/clear-site.png" || fail "no window to capture"
 send key left cmd
 expect "^browser: page $a back 0 forward 1 loading 0 $site\$" "⌘← didn't go back to the served page"
-# Clear on the divider, which sits under the one pinned tab, the URL field's Copy URL and Site
-# Controls buttons, and the served page's text field, along the bottom of the 800 pt tall window.
+# Clear on the divider, which sits under the one pinned tab, the URL field's DevTools button in
+# Developer Mode, Copy URL and Site Controls buttons, and the served page's text field, along the
+# bottom of the 800 pt tall window.
 clear_point="200 185"
+devtools_point="150 64"
 copy_point="178 64"
 site_controls_point="206 64"
 field_point="600 760"
+# Windows' runner has a 768 pixel tall screen, which leaves the window shorter, with the page's
+# bottom 679 pt down.
+if windows; then field_point="600 650"; fi
 open_from_bar example.com
 b=$tab
 open_from_bar example.org
@@ -117,6 +128,8 @@ switch "2 cmd" "$c"
 send key c cmd shift
 expect '^browser: command copy-url via page$' "⇧⌘C with the page focused didn't reach the UI"
 expect '^browser: copied https://example.org/$' "⇧⌘C didn't copy the tab's URL"
+clipboard_holds https://example.org/ ||
+  fail "⇧⌘C left the clipboard holding \"$(WAYLAND_DISPLAY="$BROWSER_HEADLESS" wl-paste -n)\""
 # The toast says so, 8 inside the card's top right corner.
 expect '^browser: toast shown Copied Current URL$' "⇧⌘C's toast didn't say it copied the URL"
 expect '^browser: toast settled$' "⇧⌘C's toast didn't settle"
@@ -126,6 +139,8 @@ send key c cmd shift alt
 expect '^browser: command copy-markdown-link via ui$' "⌥⇧⌘C with the UI focused didn't run"
 expect '^browser: copied \[Example Domain](https://example.org/)$' \
   "⌥⇧⌘C didn't copy a Markdown link to the tab"
+clipboard_holds '[Example Domain](https://example.org/)' ||
+  fail "⌥⇧⌘C left the clipboard holding \"$(WAYLAND_DISPLAY="$BROWSER_HEADLESS" wl-paste -n)\""
 
 # Clear and the URL field's button fade in while the pointer is over the sidebar, and out when it
 # leaves. The button copies the URL, and doesn't open the command bar as the rest of the field does.
@@ -322,7 +337,7 @@ none_since "^browser: selected" || fail "Undo after ⇧⌘T showed another tab"
 d=$(today | cut -d' ' -f3)
 t=$(today | cut -d' ' -f1)
 post rightclick $(row 2)
-expect "^browser: menu shown $(cased "Copy Link$share, Change Icon…, Remove Icon, Rename…, Unmute, Add Split View, Duplicate, Move to › [^,]* (checked), Move to › New Space…, Archive Tab, Archive Tabs Below")\$" "a right-click on a Today row didn't show Arc's tab menu"
+expect "^browser: menu shown $(cased "Copy Link$share, Change Icon…, Remove Icon, Rename…, Unmute, Add Split View, Duplicate, Add to Folder › New Folder, Move to › [^,]* (checked), Move to › New Space…, Archive Tab, Archive Tabs Below")\$" "a right-click on a Today row didn't show Arc's tab menu"
 ../tools/window-screenshot.sh "$pid" "$out/tab-menu.png" || fail "no window to capture"
 send choose Duplicate
 expect '^browser: command duplicate-tab via tab menu$' "Duplicate didn't run"
@@ -332,18 +347,19 @@ expect "^browser: selected $tab\$" "Duplicate didn't show the copy"
 expect "^browser: page $tab icon 🌟\$" "Duplicate didn't copy the tab's icon"
 expect_page example.org 1 0 "the copy Duplicate made"
 # The window is titled by the tab shown, which the Window menu lists it by. The menu bar names its
-# items as Arc's, by what they'd do now. Edit has Paste and Match Style, which no check chooses.
+# items as Arc's, by what they'd do now. Edit has Paste and Match Style, which no check chooses,
+# then Paste URL as New Tab.
 send title
 expect '^browser: key window titled Example Domain$' "the window isn't titled by the tab shown"
 maybe='\( (disabled)\)\{0,1\}'
 send menubar Edit
-expect "^browser: menu bar Edit: .*, Paste$maybe, Paste and Match Style$maybe, Select All" \
-  "the Edit menu has no Paste and Match Style after Paste"
+expect "^browser: menu bar Edit: .*, Paste$maybe, Paste and Match Style$maybe, Paste URL as New Tab$maybe, Select All" \
+  "the Edit menu has no Paste and Match Style and Paste URL as New Tab after Paste"
 send menubar View
-expect "^browser: menu bar View: Hide Sidebar$maybe, " "View doesn't name ⌘S Hide Sidebar"
+expect "^browser: menu bar View: \(Appearance › [^,]*, \)*Hide Sidebar$maybe, " "View doesn't name ⌘S Hide Sidebar"
 send menubar Tabs
-expect "^browser: menu bar Tabs: .*, Pin Tab$maybe, .*, Reveal Tab in Sidebar$maybe, Clear Today" \
-  "Tabs doesn't name ⌘D Pin Tab for a Today tab, or lacks Reveal Tab in Sidebar or Clear Today"
+expect "^browser: menu bar Tabs: .*, Pin Tab$maybe, .*, Reveal Tab in Sidebar$maybe, Focus Sidebar, Clear Today" \
+  "Tabs doesn't name ⌘D Pin Tab for a Today tab, or lacks Reveal Tab in Sidebar, Focus Sidebar or Clear Today"
 send menubar Spaces
 expect "^browser: menu bar Spaces: New Space…$maybe, Rename Space$maybe, Change Profile › Default (checked)$maybe, Change Profile › New Profile (disabled), Next Space" \
   "Spaces has no Change Profile after Rename Space, with the Space's profile checked"
@@ -352,9 +368,27 @@ expect "^browser: menu bar Archive: .*, View Archive…$maybe, " "Archive has no
 send menubar Window
 expect "^browser: menu bar Window: .*, Open Library…$maybe, View Downloads…" \
   "Window has no Open Library… and View Downloads…"
+# Help has Arc's help, the shortcuts and Report a Problem…, and Troubleshooting's Copy Build Info
+# copies this copy's version, the system's and the chip, read from the computer.
+if [ "$(uname)" = Darwin ]; then
+  send menubar Help
+  expect "^browser: menu bar Help: Welcome to [^,]*, Help Center$maybe, What's New$maybe, Essential Keyboard Shortcuts$maybe, Report a Problem…$maybe, \(Restore Earlier Sidebar.*, \)\?Troubleshooting › Copy Build Info$maybe, Troubleshooting › Open Task Manager" \
+    "Help lacks Help Center, What's New, the shortcuts, Report a Problem… or Troubleshooting"
+  post openmenu Help
+  expect '^browser: menu tracked Welcome to ' "the Help menu didn't open"
+  ../tools/window-screenshot.sh "$pid" "$out/help-menu.png" || fail "no window to capture"
+  post dismiss
+  send menu "Troubleshooting › Copy Build Info"
+  expect '^browser: command copy-build-info via ui$' "Copy Build Info didn't run"
+  info=$(grep -A3 '^browser: copied [^ ]* [0-9][0-9.]*' "$log" | tail -4)
+  echo "$info" | grep -q '^macOS [0-9][0-9]*\.[0-9]' || fail "Copy Build Info has no macOS version: $info"
+  echo "$info" | grep -q '^Apple ' || fail "Copy Build Info has no chip: $info"
+  echo "ok: Help lists Help Center, What's New, the shortcuts, Report a Problem… and" \
+    "Troubleshooting, $out/help-menu.png. Copy Build Info copied: $(echo "$info" | sed 's/^browser: copied //' | tr '\n' ';')"
+fi
 # Archive Tabs Below shows the tab right-clicked first, so none below it loads on the way out.
 post rightclick $(row 1)
-expect "^browser: menu shown $(cased "Copy Link$share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › [^,]* (checked), Move to › New Space…, Archive Tab, Archive Tabs Below")\$" "a right-click on the top Today row didn't show Arc's tab menu"
+expect "^browser: menu shown $(cased "Copy Link$share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Add to Folder › New Folder, Move to › [^,]* (checked), Move to › New Space…, Archive Tab, Archive Tabs Below")\$" "a right-click on the top Today row didn't show Arc's tab menu"
 send choose "$(cased 'Archive Tabs Below')"
 expect '^browser: command close-tabs-below via tab menu$' "Archive Tabs Below didn't run"
 expect_lists "$a" "$t" "after Archive Tabs Below"
@@ -384,7 +418,7 @@ send key t cmd shift
 expect "^browser: today $t [0-9][0-9]*\$" "⇧⌘T after Archive Tabs Below didn't reopen the tab under the one right-clicked: Today is \"$(today)\""
 # A pinned tab's menu unpins it, and goes back to its pinned URL only when it's away from it.
 post rightclick $(pinned_row 0)
-expect "^browser: menu shown $(cased 'Unpin Tab, Add to Favorites, Back to Pinned URL (disabled), Pinned URL › Replace Pinned URL with Current (disabled), Pinned URL › Edit…, Rename Tab, Change Icon…, Duplicate Tab, Move to Space (disabled), Close Tab')\$" "a right-click on a pinned row didn't show its tab's menu"
+expect "^browser: menu shown $(cased 'Unpin Tab, Add to Favorites, Back to Pinned URL (disabled), Pinned URL › Replace Pinned URL with Current (disabled), Pinned URL › Edit…, Rename Tab, Change Icon…, Duplicate Tab, Add to Folder › New Folder, Move to Space (disabled), Close Tab')\$" "a right-click on a pinned row didn't show its tab's menu"
 send choose "$(cased 'Unpin Tab')"
 expect '^browser: command toggle-pin via tab menu$' "Unpin Tab didn't run"
 expect "^browser: today $a $t [0-9][0-9]*\$" "Unpin Tab didn't move the tab to the top of Today: Today is \"$(today)\""
@@ -451,11 +485,31 @@ send choose "$(cased 'Delete from Archive')"
 expect '^browser: remove archived [0-9][0-9]*$' "Delete from Archive didn't run"
 expect "^browser: archive $((archived - 1)) tabs\$" "Delete from Archive didn't take the tab out"
 none_since '^browser: library hidden$' || fail "Delete from Archive closed the Library"
+# A right-click on the Archived Tabs section offers Clear Archive, as Arc's does, which asks as
+# the menu's does, and ⌘Z brings the tabs back. It's the last of four, 100 apart and centred 5
+# above the column's middle.
+archive_section="56 $((height / 2 + 145))"
+post rightclick $archive_section
+expect "^browser: menu shown $(cased 'Clear Archive')\$" \
+  "a right-click on the Archived Tabs section didn't offer Clear Archive"
+../tools/window-screenshot.sh "$pid" "$out/archive-section-menu.png" || fail "no window to capture"
+send choose "$(cased 'Clear Archive')"
+expect '^browser: command clear-archive via library$' "Clear Archive from the section didn't run"
+expect '^browser: dialog shown Clear the archive?$' "Clear Archive from the section didn't ask first"
+send key return
+expect '^browser: archive 0 tabs$' "Clear Archive from the section didn't empty the archive"
+send key z cmd
+expect "^browser: archive $((archived - 1)) tabs\$" "⌘Z didn't bring back the tabs Clear Archive took"
 send menu Clear Archive
 expect '^browser: dialog shown Clear the archive?$' "Clear Archive didn't ask first"
 send key return
 expect '^browser: archive 0 tabs$' "Clear Archive didn't empty the archive"
 ../tools/window-screenshot.sh "$pid" "$out/library-empty.png" || fail "no window to capture"
+# With nothing in the archive, the section's Clear Archive has nothing to do.
+post rightclick $archive_section
+expect "^browser: menu shown $(cased 'Clear Archive (disabled)')\$" \
+  "the section's Clear Archive wasn't dimmed with the archive empty"
+send dismiss
 send click 24 $((height - 24))
 expect '^browser: command view-library via library$' "the Library's back button didn't run"
 expect '^browser: library hidden$' "the back button didn't close the Library"
@@ -510,6 +564,9 @@ asks "${site%/}" "the site couldn't ask again after ×"
 send move 600 400
 none_since '^browser: reveal hidden$' || fail "the pointer leaving sent the question away"
 ../tools/window-screenshot.sh "$pid" "$out/question-reveal.png" || fail "no window to capture"
+# The pointer comes over the panel to Block, as a hand's does: on Linux the panel hears the pointer
+# leave only once it has had it moving over it.
+send move $((qx + qw / 4)) $((qy + qh - 26))
 send click $((qx + qw / 4)) $((qy + qh - 26))
 expect "^browser: page $r asks nothing\$" "Block didn't take the question down"
 expect "^browser: title $r refused NotAllowedError\$" "Block didn't refuse the page"
@@ -572,14 +629,36 @@ send choose Block
 expect '^browser: site controls set Window management Block$' "Block in the menu didn't run"
 expect "${controls}[^;]*; .*Window management Block" \
   "the Site Controls didn't show Window management as blocked"
+# Developer Mode is on by itself for localhost, and its row turns it off and on for the site, which
+# the tab draws each time.
+listed | grep -qx 'Developer Mode On' ||
+  fail "the Site Controls didn't list localhost in Developer Mode"
+grep -q "^browser: page $r developer mode 1\$" "$log" ||
+  fail "the localhost tab wasn't in Developer Mode"
+i=$(listed | grep -n '^Developer Mode ' | cut -d: -f1)
+send click 207 $(row_y $((i - 1)))
+expect '^browser: site controls set developer mode off$' \
+  "a click on Developer Mode didn't turn it off"
+expect "${controls}[^;]*; .*Developer Mode Off" "the Site Controls didn't show Developer Mode off"
+expect "^browser: page $r developer mode 0\$" "the tab didn't leave Developer Mode"
+send click 207 $(row_y $((i - 1)))
+expect '^browser: site controls set developer mode on$' \
+  "a second click on Developer Mode didn't turn it on"
+expect "^browser: page $r developer mode 1\$" "the tab didn't go back to Developer Mode"
 # http has no certificate to show, so the lock doesn't take the click.
 send click 120 $(footer_y)
 none_since '^browser: site controls run certificate' || fail "the lock ran without a certificate"
-# Share closes them and hangs the system's share menu from its tile, at 122 118.
-send click 122 118
-expect '^browser: site controls run share$' "a click on Share didn't run it"
-expect "^browser: share http://localhost:$port/index.html\$" "Share didn't share the page"
-expect '^browser: site controls hidden$' "the Site Controls didn't leave for Share"
+# Share closes them and hangs the system's share menu from its tile, at 122 118. Linux has no share
+# menu, so no Share tile, and escape closes them there instead.
+if [ "$(uname)" = Darwin ]; then
+  send click 122 118
+  expect '^browser: site controls run share$' "a click on Share didn't run it"
+  expect "^browser: share http://localhost:$port/index.html\$" "Share didn't share the page"
+  expect '^browser: site controls hidden$' "the Site Controls didn't leave for Share"
+else
+  send key escape
+  expect '^browser: site controls hidden$' "escape didn't close the Site Controls"
+fi
 # Hover still works once they've closed: the pointer out to the page hides the URL field's buttons,
 # and back over the sidebar shows them. While they were open the buttons stayed, as the pointer
 # over the sidebar keeps them.
@@ -592,6 +671,97 @@ expect '^browser: site controls settled$' "the Site Controls didn't open after S
 send click $site_controls_point
 expect '^browser: site controls closing (toggle)$' "Site Controls' second click didn't close them"
 expect '^browser: site controls hidden$' "the Site Controls didn't leave"
+# The command bar offers what would change the page's Developer Mode, and turns it off and on.
+# Out of it the URL field says the host alone and the tab's row loses its outline, and in it the
+# whole URL and the outline come back.
+bar_command toggle-developer-mode "Turn off Developer Mode for this site\$" "developer mode"
+expect "^browser: page $r developer mode 0\$" "the command bar didn't turn Developer Mode off"
+expect '^browser: url field localhost$' "out of Developer Mode the URL field didn't say the host"
+expect '^browser: developer outline none$' "out of Developer Mode the tab kept its outline"
+bar_command toggle-developer-mode "Turn on Developer Mode for this site\$" "developer mode"
+expect "^browser: page $r developer mode 1\$" "the command bar didn't turn Developer Mode on"
+expect "^browser: url field http://localhost:$port/index.html\$" \
+  "in Developer Mode the URL field didn't say the whole URL"
+expect "^browser: developer outline $r at " "in Developer Mode the tab drew no outline"
+# In Developer Mode the URL field has DevTools' button before Copy URL, under the pointer as those
+# are: a click docks DevTools in the card, as ⌥⌘I does, and another closes them.
+# Linux's driver lists the pages the UI lays out, and docked DevTools are an aura window in
+# Chromium's, which the X server doesn't see (drive.rs), so there it doesn't count them, as find.sh.
+if [ "$(uname)" = Linux ]; then
+  echo "skip: where DevTools' button docks DevTools: Linux's driver can't see aura windows."
+fi
+page_views() {
+  [ "$(uname)" != Linux ] || return 0
+  for _ in $(seq 50); do
+    send layout
+    views=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout content' |
+      grep -o 'WebContentsViewCocoa' | wc -l | tr -d ' ')
+    [ "$views" -eq "$1" ] && return 0
+  done
+  fail "$2: the window shows $views page views, not $1"
+}
+away
+send move $devtools_point
+expect '^browser: sidebar tools shown$' "the URL field's buttons didn't fade in in Developer Mode"
+send click $devtools_point
+expect '^browser: command devtools via sidebar$' "a click on DevTools' button didn't run DevTools"
+page_views 2 "after a click on DevTools' button"
+../tools/window-screenshot.sh "$pid" "$out/developer-devtools.png" || fail "no window to capture"
+send click $devtools_point
+expect '^browser: command devtools via sidebar$' "a second click on DevTools' button didn't run"
+page_views 1 "after a second click on DevTools' button"
+# So does View › Developer's last item, named by what it would do.
+developer="Developer › JavaScript Console$maybe, Developer › Turn"
+send menubar View
+expect "^browser: menu bar View: .*, $developer off Developer Mode for this site$maybe, " \
+  "View › Developer doesn't end with Turn off Developer Mode for this site"
+send menu Developer › Turn off Developer Mode for this site
+expect '^browser: command toggle-developer-mode via ui$' "View's Turn off Developer Mode didn't run"
+expect "^browser: page $r developer mode 0\$" "View › Developer didn't turn Developer Mode off"
+send menubar View
+expect "^browser: menu bar View: .*, $developer on Developer Mode for this site$maybe, " \
+  "View › Developer didn't name Turn on Developer Mode for this site once it was off"
+send menu Developer › Turn on Developer Mode for this site
+expect "^browser: page $r developer mode 1\$" "View › Developer didn't turn Developer Mode on"
+# Off the Mac ⌃D is pressed as Alt+D, Chrome's for the address bar, so Developer Mode has no key
+# there (commands.rs), and fields don't delete forward on it.
+if [ "$(uname)" = Linux ]; then
+  echo "skip: ⌃D for Developer Mode and forward delete: off the Mac it's Alt+D, the address bar's."
+else
+  # So does ⌃D, which the page gets first: in its text field it deletes forward, as in any Mac
+  # field, and so it does in the command bar's, and with the page's keyboard elsewhere, or the
+  # UI's, it turns Developer Mode off and on.
+  send click $field_point
+  send key a cmd
+  send type ab
+  expect "^browser: title $r value ab\$" "typing didn't reach the localhost page's text field"
+  send key left
+  send key d ctrl
+  expect "^browser: title $r value a\$" "⌃D in the page's text field didn't delete forward"
+  none_since '^browser: command toggle-developer-mode ' ||
+    fail "⌃D in the page's text field toggled Developer Mode"
+  send click $page_point
+  send key d ctrl
+  expect '^browser: command toggle-developer-mode via page$' \
+    "⌃D with the page focused didn't reach the UI"
+  expect "^browser: page $r developer mode 0\$" "⌃D from the page didn't turn Developer Mode off"
+  send key l cmd
+  expect '^browser: command bar shown$' "⌘L didn't open the command bar"
+  send type developer
+  expect '^browser: command bar commands "developer": ' "the command bar didn't find developer"
+  send key left
+  send key d ctrl
+  expect '^browser: command bar commands "develope": ' "⌃D in the command bar didn't delete forward"
+  none_since '^browser: command toggle-developer-mode ' ||
+    fail "⌃D in the command bar's field toggled Developer Mode"
+  send key escape
+  expect '^browser: command bar hidden$' "escape didn't close the command bar"
+  # The sidebar's empty space under its rows.
+  send click 120 650
+  send key d ctrl
+  expect '^browser: command toggle-developer-mode via ui$' "⌃D with the UI focused didn't run"
+  expect "^browser: page $r developer mode 1\$" "⌃D from the UI didn't turn Developer Mode on"
+fi
 # The page asks and is refused without a question.
 send click $page_point
 send key a
@@ -614,7 +784,11 @@ expect '^browser: site controls settled$' "the Site Controls didn't open from th
 send key escape
 expect '^browser: site controls closing (escape)$' "escape didn't close the Site Controls"
 expect '^browser: site controls hidden$' "the Site Controls didn't leave after escape"
-# Reset permissions sets the site back to asking, and a click outside closes them.
+# Reset permissions sets the site back to asking, and a click outside closes them. The button
+# shows only under the pointer, as it was last over the page.
+away
+send move $sidebar_point
+expect '^browser: sidebar tools shown$' "the URL field's buttons didn't fade in"
 send click $site_controls_point
 expect '^browser: site controls settled$' "the Site Controls didn't open again"
 send click 207 $(row_y $(listed | wc -l))
@@ -630,13 +804,16 @@ send click $((qx + qw * 3 / 4)) $((qy + qh - 26))
 expect "^browser: title $r granted\$" "Allow didn't grant the page after the reset"
 # The footer's … menu is Arc's without Boost's items, and All Site Settings… opens Chrome's for the
 # site.
+away
+send move $sidebar_point
+expect '^browser: sidebar tools shown$' "the URL field's buttons didn't fade in"
 send click $site_controls_point
 expect '^browser: site controls settled$' "the Site Controls didn't open for their … menu"
 send click 298 $(footer_y)
 more_menu=$(cased 'Clear Cache, Clear Cookies, Manage Extensions…, Add Extension…, All Site Settings…')
 expect "^browser: menu shown $more_menu\$" "the … menu didn't list Arc's items"
 send choose "$(cased 'All Site Settings…')"
-expect '^browser: site controls run All Site Settings…$' "All Site Settings… didn't run"
+expect "^browser: site controls run $(cased 'All Site Settings…')\$" "All Site Settings… didn't run"
 site_settings="chrome://settings/content/siteDetails?site=http%3A%2F%2Flocalhost%3A$port"
 expect "^browser: loaded [0-9]* $site_settings\$" "All Site Settings… didn't open them"
 
@@ -728,9 +905,14 @@ EOF
 # earlier run, as Clear Cookies and Refresh above does once this run has played. Read before the
 # click, whose page can say it loaded WebKit before the next line runs.
 early=$(grep '^browser: system engine loaded for ' "$log" | grep -v ' for clearing a site' || true)
-send click $((nx + nw / 2)) $((ny + nh - 26))
+# On Linux the note's button downloads Google's Widevine module from Google, which the widevine run
+# checks, so it isn't pressed here.
+[ "$(uname)" = Linux ] || send click $((nx + nw / 2)) $((ny + nh - 26))
 # Safari's engine keeps a store for each profile from macOS 14; before it, the note offers Safari.
-if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
+if [ "$(uname)" = Linux ]; then
+  drm_done="nothing, as on Linux it offers Google's Widevine module, the widevine run's"
+  echo "skip: the note's button: on Linux it downloads Google's Widevine module (the widevine run)."
+elif [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   drm_done="Safari's engine"
   [ -z "$early" ] || fail "WebKit loaded before its first page: $early"
   # Play in This Tab shows the page in Safari's engine, in the tab, and the note goes.
@@ -738,7 +920,7 @@ if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   expect "^browser: page $tab needs nothing\$" "the note stayed in Safari's engine"
   grep -q '^browser: system engine loaded for ' "$log" || fail "Safari's engine's page didn't say WebKit loaded"
   expect "^browser: loaded $tab http://127.0.0.1:$port/drm.html\$" "Safari's engine didn't load the page"
-  expect "^browser: title $tab drm asked\$" "Safari's engine didn't report the page's title"
+  expect_late "^browser: title $tab drm asked\$" "Safari's engine didn't report the page's title"
   # The site's session came first: the page's first request carried both cookies, and its script
   # found the item.
   copied="^browser: copied [0-9]* cookies and [0-9]* storage items for 127.0.0.1 into the system's engine\$"
@@ -831,7 +1013,7 @@ if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   send type abc
   expect "^browser: title $tab value abc\$" "typing didn't reach the text field in Safari's engine"
   for shortcut in "a select" "c copy"; do
-    read -r letter did <<<"$shortcut"
+    letter=${shortcut% *} did=${shortcut#* }
     send key "$letter" cmd
     expect "^browser: title $tab $did abc\$" \
       "⌘$(echo "$letter" | tr a-z A-Z) in Safari's engine's text field didn't $did its text"
@@ -1034,7 +1216,7 @@ if [ "$drm_done" = "Safari's engine" ]; then
   send choose On
   expect "^browser: site controls set Safari's engine On\$" "On in the menu didn't run"
   expect "^browser: system engine $tab on\$" "On didn't show the page in Safari's engine"
-  expect "^browser: title $tab drm asked\$" "Safari's engine didn't load the closed site's page"
+  expect_late "^browser: title $tab drm asked\$" "Safari's engine didn't load the closed site's page"
 else
   grep "$controls" "$log" | tail -1 | grep -q "Safari's engine" &&
     fail "the Site Controls offered Safari's engine where the note's button opens Safari"
@@ -1162,4 +1344,4 @@ for kind in ("sites", "listed_off"):
 ' "$listed_prefs" || fail "On didn't leave the listed host as listed"
 fi
 forget_engine_sites
-echo "ok: the pointer on a link shows its address in a plate that goes when the pointer leaves it, Clear Cache and Refresh from the View menu fetches the page's script again, keeping its cookie, and Clear Cookies and Refresh from the command bar deletes its cookie, keeping the cached script. ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it, without its tracking parameters, and ⇧⌘C's toast says Copied Current URL. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, but not from the page's text field, where it undoes typing. With only the tab shown left, Clear has an arrow before it and closes that tab too, and ⌘Z brings it back, shown. ⇧⌘T from the page and the UI reopens the tab closed last, where it was, with its history, muted if it was and with its icon, and ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu, Arc's for a Today tab: Duplicate copies the tab with its history and icon under it, Archive Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. ⌘W archives a Today tab, and ⇧⌘L, Window › Open Library… and the footer's button open the Library, which pushes the page right at its width; a click on an archived tab reopens it at the top of Today with its history and closes the Library, a right-click on one shows its menu, whose Copy URL copies its URL and Delete from Archive takes it out; and Clear Archive asks, then empties it. A page's question about a permission shows under the URL field while its tab is shown, and brings a hidden sidebar out until it's answered: × dismisses it, Block refuses the site now and later, and Allow grants. The URL field's Site Controls button and the command bar's Site Controls list the site's permissions as Chrome does; Block there sticks and refuses the site, Reset permissions has it ask again, Share shares the page, the lock does nothing without a certificate, the … menu lists Arc's items and opens the site's settings, and the button, escape and a click outside close them. A page that asks for Widevine brings a note under the URL field, while one that asks for ClearKey brings none. Its button used $drm_done: Safari's engine shows the page in the tab with the site's cookies, HttpOnly too, and localStorage from Chromium there before its first request and script, keeps the site for it until the Site Controls turn it off, which brings the cookies and the item its page stored back to Chromium, gives another site back to Chromium, keeps a link whose redirects pass through another site and come back, and gives back one whose redirects end there, opens a new tab from ⌘T at the site there, gives a private window's tab there a session of its own, which the regular window doesn't see and which ends with the window, and with its page focused ⌘T, ⌘L and ⌘W reach the UI, the click that closes the command bar reaches the page, as it does Chromium's, and in its text field ⌘A and ⌘C stay with the page and a Japanese composition commits; Safari opens the page there, leaving the note until the tab is at another site. The note's × closes it for the site, which leaves it closed after a reload, in another tab and after another site and back, while another site's note still shows; from macOS 14 the Site Controls offer Safari's engine for the site instead, and On shows the page there, as they do for a site turned off. From macOS 14 a listed streaming service opens in Safari's engine on its first load, without Chromium's first, in a private window too; the Site Controls show it on, and Off shows it in Chromium after a reload, in a new tab, after another site and back and after a relaunch, where On brings it back without keeping it as the user's. ⇧⌘Z redoes Clear, and Archive Tabs Below offers Undo, which brings back its tabs in place and shows the one that was shown, and ⇧⌘Z closes them again. Windows: $out/link-target.png, $out/clear-site.png, $out/url-toast.png, $out/sidebar-hovered.png, $out/row-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/clear-arrow.png, $out/clear-arrow-undone.png, $out/reopen.png, $out/tab-menu.png, $out/library.png, $out/archived-menu.png, $out/library-empty.png, $out/question.png, $out/question-reveal.png, $out/site-controls.png, $out/site-controls-blocked.png, $out/drm-note.png, and from macOS 14 $out/drm-engine.png, $out/engine-ime.png, $out/site-controls-engine.png, $out/site-controls-offered.png, $out/listed.png, $out/site-controls-listed-on.png and $out/site-controls-listed-off.png"
+echo "ok: the pointer on a link shows its address in a plate that goes when the pointer leaves it, Clear Cache and Refresh from the View menu fetches the page's script again, keeping its cookie, and Clear Cookies and Refresh from the command bar deletes its cookie, keeping the cached script. ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it, without its tracking parameters, and ⇧⌘C's toast says Copied Current URL. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, but not from the page's text field, where it undoes typing. With only the tab shown left, Clear has an arrow before it and closes that tab too, and ⌘Z brings it back, shown. ⇧⌘T from the page and the UI reopens the tab closed last, where it was, with its history, muted if it was and with its icon, and ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu, Arc's for a Today tab: Duplicate copies the tab with its history and icon under it, Archive Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. ⌘W archives a Today tab, and ⇧⌘L, Window › Open Library… and the footer's button open the Library, which pushes the page right at its width; a click on an archived tab reopens it at the top of Today with its history and closes the Library, a right-click on one shows its menu, whose Copy URL copies its URL and Delete from Archive takes it out; and Clear Archive, from a right-click on the Archived Tabs section and the Archive menu, asks, then empties it, ⌘Z bringing its tabs back, and the section's is dimmed once it's empty. A page's question about a permission shows under the URL field while its tab is shown, and brings a hidden sidebar out until it's answered: × dismisses it, Block refuses the site now and later, and Allow grants. The URL field's Site Controls button and the command bar's Site Controls list the site's permissions as Chrome does; Block there sticks and refuses the site, Reset permissions has it ask again, Share shares the page, the lock does nothing without a certificate, the … menu lists Arc's items and opens the site's settings, and the button, escape and a click outside close them. A page that asks for Widevine brings a note under the URL field, while one that asks for ClearKey brings none. Its button used $drm_done: Safari's engine shows the page in the tab with the site's cookies, HttpOnly too, and localStorage from Chromium there before its first request and script, keeps the site for it until the Site Controls turn it off, which brings the cookies and the item its page stored back to Chromium, gives another site back to Chromium, keeps a link whose redirects pass through another site and come back, and gives back one whose redirects end there, opens a new tab from ⌘T at the site there, gives a private window's tab there a session of its own, which the regular window doesn't see and which ends with the window, and with its page focused ⌘T, ⌘L and ⌘W reach the UI, the click that closes the command bar reaches the page, as it does Chromium's, and in its text field ⌘A and ⌘C stay with the page and a Japanese composition commits; Safari opens the page there, leaving the note until the tab is at another site. The note's × closes it for the site, which leaves it closed after a reload, in another tab and after another site and back, while another site's note still shows; from macOS 14 the Site Controls offer Safari's engine for the site instead, and On shows the page there, as they do for a site turned off. From macOS 14 a listed streaming service opens in Safari's engine on its first load, without Chromium's first, in a private window too; the Site Controls show it on, and Off shows it in Chromium after a reload, in a new tab, after another site and back and after a relaunch, where On brings it back without keeping it as the user's. ⇧⌘Z redoes Clear, and Archive Tabs Below offers Undo, which brings back its tabs in place and shows the one that was shown, and ⇧⌘Z closes them again. Windows: $out/link-target.png, $out/clear-site.png, $out/url-toast.png, $out/sidebar-hovered.png, $out/row-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/clear-arrow.png, $out/clear-arrow-undone.png, $out/reopen.png, $out/tab-menu.png, $out/library.png, $out/archived-menu.png, $out/archive-section-menu.png, $out/library-empty.png, $out/question.png, $out/question-reveal.png, $out/site-controls.png, $out/site-controls-blocked.png, $out/drm-note.png, and from macOS 14 $out/drm-engine.png, $out/engine-ime.png, $out/site-controls-engine.png, $out/site-controls-offered.png, $out/listed.png, $out/site-controls-listed-on.png and $out/site-controls-listed-off.png"

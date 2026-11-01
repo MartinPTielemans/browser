@@ -73,6 +73,10 @@ jobs:
             "$ILO_ENGINE_ROOT/linux/src/out/Default/.ninja_log")
           gb=$(awk '{ printf "%.1f", $1 / 1048576 }' "$peak")
           echo "chrome's last link: $link s, at most $gb GB" | tee -a "$GITHUB_STEP_SUMMARY"
+      # The core's tests that need no browser, such as which default search engine a policy
+      # outranks, with the test fonts they load, which never go in the package.
+      - name: Test the core
+        run: engine/linux/test.sh "$ILO_ENGINE_ROOT/linux"
       - name: Package
         run: engine/linux/package.sh "$ILO_ENGINE_ROOT/linux" "$RUNNER_TEMP/Chromium-linux-x64.tar.xz"
       # A release named after the commit, which holds the engine's source. fetch.sh takes the
@@ -83,8 +87,9 @@ jobs:
         run: |
           tag=engine-linux-${GITHUB_SHA::12}
           tag_ucl=$(git config -f engine/pins.ini ungoogled-chromium-portablelinux.tag)
+          # Never GitHub's Latest, which releases/latest/download/<name> links mean as ilo's own (#804).
           gh release view "$tag" >/dev/null 2>&1 ||
-            gh release create "$tag" --target "$GITHUB_SHA" --title "Linux engine ${GITHUB_SHA::12}" \
+            gh release create "$tag" --target "$GITHUB_SHA" --title "Linux engine ${GITHUB_SHA::12}" --latest=false \
               --notes "The Linux engine (ungoogled-chromium-portablelinux $tag_ucl, x64) built from $GITHUB_SHA, which holds its source."
           gh release upload "$tag" --clobber "$RUNNER_TEMP/Chromium-linux-x64.tar.xz" "$RUNNER_TEMP/Chromium-linux-x64.tar.xz.sha256"
           rm "$RUNNER_TEMP"/Chromium-linux-x64.tar.xz*

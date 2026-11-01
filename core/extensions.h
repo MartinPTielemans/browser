@@ -88,6 +88,13 @@ void ReportExtensions();
 // Pins extension |id|'s action in |profile|, or unpins it.
 void SetExtensionPinned(Profile* profile, const std::string& id, bool pinned);
 
+// The user was told the browser turned extension |id| off in |profile| as it crashed.
+void ExtensionCrashTold(Profile* profile, const std::string& id);
+
+// Turns extension |id| on again in |profile|, as Chrome's extensions page does. Returns whether
+// it's on.
+bool TurnOnExtension(Profile* profile, const std::string& id);
+
 // Removes extension |id| from |profile|, as the user does. Returns false if it can't be.
 bool RemoveExtension(Profile* profile, const std::string& id);
 

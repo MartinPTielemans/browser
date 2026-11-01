@@ -63,6 +63,7 @@ SavedTab SaveTab(content::WebContents& contents);
 // A folder of pinned tabs, as the session file keeps it.
 struct SavedFolder {
   std::string name;
+  std::string icon;
   bool open = true;
   // The folder it's in, among its Space's saved folders, which is saved before it, else -1.
   int folder = -1;
@@ -90,6 +91,8 @@ struct SavedSpace {
   // Each top to bottom.
   std::vector<SavedTab> pinned;
   std::vector<SavedFolder> folders;
+  // Whether its pinned tabs and folders showed, or were collapsed.
+  bool pinned_open = true;
   std::vector<SavedTab> today;
   // The tab the window showed there, counting the pinned tabs then the Today tabs, or -1.
   int shown = -1;
@@ -107,7 +110,11 @@ SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today 
 
 // Makes |saved| a Space, its tabs unloaded in |window| and |profile|, with the id |id|, a deleted
 // Space's, if it isn't 0. The window shows its shown tab there. Returns it.
-Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved, bc_id id = 0);
+Space* RestoreSpace(Window& window,
+                    Profile* profile,
+                    const SavedSpace& saved,
+                    bc_id id = 0,
+                    size_t at = SIZE_MAX);
 
 // The Spaces as the user left them: their names, their tabs with each tab's history, the tab each
 // showed and the Space the window showed, and the favorites. The core saves them a while after
@@ -148,6 +155,11 @@ struct Settings {
   bool haptics = true;
   // Whether the app asks before the user's Quit quits.
   bool warn_before_quitting = true;
+  // Whether the user has dismissed the note on the first tabs auto-archive took.
+  bool archive_noted = false;
+  // Whether a launch brings back the last session's windows with their Today tabs, else one window
+  // showing no tab (RestoreSession).
+  bool restore_windows = true;
   // Whether the app warns before moving a tab to another profile's Space, which it does once.
   bool warn_moving_profiles = true;
   // Who shares the favorites: a BC_FAVORITES_ value.
@@ -160,6 +172,13 @@ struct Settings {
   bool send_crash_reports = false;
   // Whether a link to another site in a pinned tab or a favorite opens in a link preview.
   bool link_previews = true;
+  // Whether a page may take its video or call into Picture in Picture as its tab is hidden, in
+  // every profile (ApplyAutoPictureInPicture).
+  bool auto_picture_in_picture = true;
+  // Whether ⌥ pressed alone brings the hidden sidebar out over the page.
+  bool option_reveals_sidebar = true;
+  // What the Library button's hover lists, as bc_hover_kinds' bits.
+  int hover_kinds = 15;
   // When the newest crash report the user was offered was written, in seconds since 1970, so no
   // report is offered twice, nor one older.
   double crash_report_offered = 0;

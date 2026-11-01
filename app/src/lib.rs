@@ -86,6 +86,7 @@ pub fn log_handover(stage: &str, detail: &str) {
 }
 
 pub mod agents;
+pub mod build_info;
 pub mod capture;
 pub mod command_bar;
 pub mod default_browser;
@@ -95,12 +96,16 @@ pub mod elevation;
 pub mod face;
 #[cfg(target_os = "linux")]
 pub mod flatpak;
+pub mod folder_preview;
 pub mod hover_card;
 pub mod icon_picker;
 pub mod import;
+pub mod launch;
 pub mod link_preview;
+pub mod link_rules;
 pub mod link_target;
 pub mod menu;
+pub mod notes;
 pub mod offer;
 pub mod palette;
 pub mod passwords;

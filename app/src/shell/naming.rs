@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use gpui::{Context, SharedString, Window, div, point, prelude::*, px};
+use gpui::{App, Context, Focusable, Point, SharedString, Window, div, point, prelude::*, px};
 
 use super::{
     undo::{Prop, Value},
@@ -19,6 +19,7 @@ use crate::{
     icon_picker::{self, Picked, Subject},
     space_icon::has_icon,
     text_input::TextInput,
+    theme_picker,
 };
 
 /// How long a picker waits for the name row it points at to stop moving.
@@ -149,10 +150,20 @@ impl Shell {
     /// Shows the icon picker under the tab's favicon, once its row has stopped moving, with the
     /// sidebar docked.
     pub(super) fn change_icon(&mut self, tab: u64, cx: &mut Context<Self>) {
+        self.pick_icon_from_row(Subject::Tab(tab), cx);
+    }
+
+    /// Shows the icon picker under the folder's folder, once its row has stopped moving, with the
+    /// sidebar docked: Arc's folder › Change Icon….
+    pub(super) fn change_folder_icon(&mut self, folder: u64, cx: &mut Context<Self>) {
+        self.pick_icon_from_row(Subject::Folder(folder), cx);
+    }
+
+    fn pick_icon_from_row(&mut self, subject: Subject, cx: &mut Context<Self>) {
         if !self.dock(cx) && self.sidebar_hidden {
             self.toggle_sidebar(cx);
         }
-        self.picker_pending = Some((Pending::Icon(Subject::Tab(tab)), Instant::now()));
+        self.picker_pending = Some((Pending::Icon(subject), Instant::now()));
         self.tab_row_drawn.set(None);
         self.name_row_before = None;
         cx.notify();
@@ -167,6 +178,92 @@ impl Shell {
     /// moving: Arc's Edit Theme Color…, whose picker opened from there isn't recorded.
     pub(super) fn edit_space_theme(&mut self, space: u64, cx: &mut Context<Self>) {
         self.open_picker(space, Pending::Theme(space), cx);
+    }
+
+    /// Hangs the icon picker from the icon slot of `space`'s card in the Library, which stays open
+    /// with the Space shown where it was, so several can be changed in a row, as in Arc (#1074).
+    /// The press closed a picker showing for another card, which on Linux hears so only after the
+    /// click, so it opens from this card once that one has closed.
+    pub(super) fn change_space_icon_in_card(&mut self, space: u64, cx: &mut Context<Self>) {
+        let showing = icon_picker::open_for(cx);
+        if let Some(other) = showing.filter(|&other| other != Subject::Space(space)) {
+            let picker = icon_picker::entity(cx);
+            self.card_move = picker.map(|picker| {
+                cx.observe(&picker, move |shell, _, cx| match icon_picker::open_for(cx) {
+                    Some(now) if now == other => {}
+                    None => {
+                        shell.card_move = None;
+                        shell.change_space_icon_in_card(space, cx);
+                    }
+                    Some(_) => shell.card_move = None,
+                })
+            });
+            return;
+        }
+        let Some(slot) = self.slot_frames.borrow().get(&space).copied() else {
+            return;
+        };
+        let anchor = point(f32::from(slot.center().x), f32::from(slot.center().y));
+        self.show_space_icon_picker(space, anchor, cx);
+        self.light_card_while_picking(space, cx);
+    }
+
+    /// Opens the theme picker beside the brush of `space`'s card in the Library, which stays open
+    /// under it, the card's gradient taking the theme as it's made (#1074), once a picker showing
+    /// for another card has closed, as the icon picker does.
+    pub(super) fn edit_space_theme_in_card(&mut self, space: u64, cx: &mut Context<Self>) {
+        if let Some(other) = theme_picker::open_for(cx).filter(|&other| other != space) {
+            let picker = theme_picker::entity(cx);
+            self.card_move = picker.map(|picker| {
+                cx.observe(&picker, move |shell, _, cx| match theme_picker::open_for(cx) {
+                    Some(now) if now == other => {}
+                    None => {
+                        shell.card_move = None;
+                        shell.edit_space_theme_in_card(space, cx);
+                    }
+                    Some(_) => shell.card_move = None,
+                })
+            });
+            return;
+        }
+        let Some(brush) = self.brush_frames.borrow().get(&space).copied() else {
+            return;
+        };
+        let anchor = point(f32::from(brush.right()), f32::from(brush.center().y));
+        self.show_theme_picker(space, anchor, cx);
+        self.light_card_while_picking(space, cx);
+    }
+
+    /// Keeps `space`'s card's field lit while a picker shows for it, as the pointer leaves the
+    /// field for the picker.
+    fn light_card_while_picking(&mut self, space: u64, cx: &mut Context<Self>) {
+        let showing = move |cx: &App| {
+            icon_picker::open_for(cx) == Some(Subject::Space(space))
+                || theme_picker::open_for(cx) == Some(space)
+        };
+        if !showing(cx) {
+            return;
+        }
+        let watch = move |shell: &mut Self, cx: &mut Context<Self>| {
+            if !showing(cx) {
+                shell.card_picker = None;
+                cx.notify();
+            }
+        };
+        let watch = if icon_picker::open_for(cx) == Some(Subject::Space(space)) {
+            let picker = icon_picker::entity(cx);
+            picker.map(|picker| cx.observe(&picker, move |shell, _, cx| watch(shell, cx)))
+        } else {
+            let picker = theme_picker::entity(cx);
+            picker.map(|picker| cx.observe(&picker, move |shell, _, cx| watch(shell, cx)))
+        };
+        self.card_picker = watch.map(|watch| (space, watch));
+        cx.notify();
+    }
+
+    /// Whether `space`'s card's field is held lit for a picker shown from it.
+    pub(super) fn card_picking(&self, space: u64) -> bool {
+        self.card_picker.as_ref().is_some_and(|(picking, _)| *picking == space)
     }
 
     fn open_picker(&mut self, space: u64, picker: Pending, cx: &mut Context<Self>) {
@@ -202,7 +299,9 @@ impl Shell {
             Pending::Icon(Subject::Space(space)) | Pending::Theme(space) => {
                 (self.name_row_drawn.get(), space == self.space)
             }
-            Pending::Icon(Subject::Tab(_)) => (self.tab_row_drawn.get(), true),
+            Pending::Icon(Subject::Tab(_) | Subject::Folder(_)) => {
+                (self.tab_row_drawn.get(), true)
+            }
         };
         // Not before the Library has gone and the sidebar has come in, as a frame of either can
         // leave the row where it was.
@@ -227,6 +326,19 @@ impl Shell {
             return;
         };
         let subject = match picker {
+            Pending::Icon(Subject::Space(space)) => {
+                let anchor = point(
+                    f32::from(row.left()) + SPACE_ICON_X + SPACE_ICON_SLOT / 2.,
+                    f32::from(row.center().y),
+                );
+                let iconless =
+                    self.spaces.iter().any(|each| each.id == space && !has_icon(&each.icon));
+                self.show_space_icon_picker(space, anchor, cx);
+                if iconless {
+                    self.hold_icon_place(space, cx);
+                }
+                return;
+            }
             Pending::Icon(subject) => subject,
             Pending::Theme(space) => {
                 let anchor = point(f32::from(row.right()), f32::from(row.center().y));
@@ -235,23 +347,8 @@ impl Shell {
         };
         let shell = cx.weak_entity();
         let (icon, anchor, picked) = match subject {
-            Subject::Space(space) => {
-                let Some(icon) = self.spaces.iter().find(|each| each.id == space) else {
-                    return;
-                };
-                let anchor = point(
-                    f32::from(row.left()) + SPACE_ICON_X + SPACE_ICON_SLOT / 2.,
-                    f32::from(row.center().y),
-                );
-                let picked: Picked = Rc::new(move |icon, cx| {
-                    shell
-                        .update(cx, |shell, cx| {
-                            shell.change(Prop::SpaceIcon(space), Value::Text(icon.to_string()), cx)
-                        })
-                        .ok();
-                });
-                (icon.icon.clone(), anchor, picked)
-            }
+            // Shown above.
+            Subject::Space(_) => return,
             Subject::Tab(tab) => {
                 // The favicon's middle: a tile's, else in from the row by the folders the tab is
                 // in.
@@ -274,14 +371,47 @@ impl Shell {
                 });
                 (self.page(tab).icon, anchor, picked)
             }
+            Subject::Folder(folder) => {
+                // The folder's middle, in from the row by the folders it's in.
+                let x = f32::from(row.left())
+                    + FAVICON_X
+                    + self.depth(folder) as f32 * FOLDER_INDENT
+                    + FAVICON_SIZE / 2.;
+                let anchor = point(x, f32::from(row.center().y));
+                let picked: Picked = Rc::new(move |icon, cx| {
+                    shell
+                        .update(cx, |shell, cx| {
+                            let icon = Value::Text(icon.to_string());
+                            shell.change(Prop::FolderIcon(folder), icon, cx)
+                        })
+                        .ok();
+                });
+                (self.folder_icon(folder), anchor, picked)
+            }
         };
-        let iconless = !has_icon(&icon);
+        // A card showing would stay under the picker, as rows' cards wait while it shows.
+        self.browser.hover_card(crate::hover_card::Hover::Close, cx);
         icon_picker::show(subject, icon, anchor, picked, cx);
-        if let Subject::Space(space) = subject
-            && iconless
-        {
-            self.hold_icon_place(space, cx);
-        }
+    }
+
+    /// Shows the icon picker for `space`, its arrow at `anchor` in the window, giving the Space
+    /// the icon picked.
+    fn show_space_icon_picker(&mut self, space: u64, anchor: Point<f32>, cx: &mut Context<Self>) {
+        let Some(icon) = self.spaces.iter().find(|each| each.id == space).map(|each| &each.icon)
+        else {
+            return;
+        };
+        let shell = cx.weak_entity();
+        let picked: Picked = Rc::new(move |icon, cx| {
+            shell
+                .update(cx, |shell, cx| {
+                    shell.change(Prop::SpaceIcon(space), Value::Text(icon.to_string()), cx)
+                })
+                .ok();
+        });
+        // As for a tab's or a folder's.
+        self.browser.hover_card(crate::hover_card::Hover::Close, cx);
+        icon_picker::show(Subject::Space(space), icon.clone(), anchor, picked, cx);
     }
 
     /// Holds the icon's place in `space`'s name row, which has no icon, with the placeholder, the
@@ -315,7 +445,7 @@ impl Shell {
         self.name_folder(folder, name, cx);
     }
 
-    fn name_folder(&mut self, folder: u64, name: SharedString, cx: &mut Context<Self>) {
+    pub(super) fn name_folder(&mut self, folder: u64, name: SharedString, cx: &mut Context<Self>) {
         let name = cx.new(|cx| {
             TextInput::new("Folder name", cx)
                 .placeholder_color(self.palette.text(FORM_PLACEHOLDER))
@@ -344,16 +474,46 @@ impl Shell {
         }
     }
 
+    /// Puts the new profile's name in the New Space form's Profile row, all selected, to type
+    /// another over, as Finder's New Folder does.
+    pub(super) fn name_profile(
+        &mut self,
+        profile: u64,
+        name: SharedString,
+        cx: &mut Context<Self>,
+    ) {
+        let name = cx.new(|cx| {
+            TextInput::new(name.clone(), cx)
+                .placeholder_color(self.palette.text(FORM_PLACEHOLDER))
+                .with_text(name)
+        });
+        self.renaming = Some(Renaming {
+            naming: Naming::Profile(profile),
+            name,
+            in_library: false,
+            _blur: None,
+        });
+        self.browser.focus_ui(cx);
+        self.focus_renaming = true;
+        cx.notify();
+    }
+
     /// The folder's name in the Space shown.
+    /// The emoji the user gave `folder`, else empty.
+    pub(super) fn folder_icon(&self, folder: u64) -> SharedString {
+        let space = self.spaces.iter().find(|space| space.is_folder(folder));
+        space.and_then(|space| space.folders.icons.get(&folder).cloned()).unwrap_or_default()
+    }
+
     pub(super) fn folder_name(&self, folder: u64) -> SharedString {
         let space = self.shown_space();
         let folder = space.and_then(|space| space.folders.folders.get(&folder));
         folder.map(|(name, _)| name.clone()).unwrap_or_default()
     }
 
-    /// Renames the Space, the tab or the folder to what the field holds, and closes the field. A
-    /// Space or a folder keeps its name rather than none, and a tab named nothing shows its page's
-    /// title again.
+    /// Renames the Space, the tab, the folder or the profile to what the field holds, and closes
+    /// the field. A Space, a folder or a profile keeps its name rather than none, and a tab named
+    /// nothing shows its page's title again.
     pub(super) fn keep_name(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(renaming) = self.renaming.take() else {
             return;
@@ -377,17 +537,36 @@ impl Shell {
                 self.change(Prop::FolderName(folder), Value::Text(name), cx)
             }
             Naming::Folder(_) => {}
+            Naming::Profile(profile) => {
+                let listed =
+                    self.profiles.iter().any(|(id, listed)| *id == profile && **listed == name);
+                if !name.is_empty() && !listed {
+                    // check.sh waits for this line.
+                    log!("browser: name profile {profile} {name}");
+                    self.browser.rename_profile(profile, &name, cx);
+                }
+            }
         }
-        window.focus(&self.focus_handle, cx);
-        cx.notify();
+        self.leave_name(&renaming, window, cx);
     }
 
     pub(super) fn cancel_name(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.renaming.take().is_some() {
+        if let Some(renaming) = self.renaming.take() {
             log!("browser: rename cancelled");
-            window.focus(&self.focus_handle, cx);
-            cx.notify();
+            self.leave_name(&renaming, window, cx);
         }
+    }
+
+    /// Gives the keyboard back from the closed field: to the New Space form's name from its
+    /// Profile row, unless a click put it elsewhere, else to the window.
+    fn leave_name(&mut self, renaming: &Renaming, window: &mut Window, cx: &mut Context<Self>) {
+        match renaming.naming {
+            Naming::Profile(_) => {
+                self.focus_form = renaming.name.focus_handle(cx).is_focused(window);
+            }
+            _ => window.focus(&self.focus_handle, cx),
+        }
+        cx.notify();
     }
 
     /// The field that renames a tab, in place of its title.

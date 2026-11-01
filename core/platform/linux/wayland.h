@@ -5,7 +5,9 @@
 #define BROWSER_CORE_PLATFORM_LINUX_WAYLAND_H_
 
 #include <optional>
+#include <string>
 
+#include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/views/widget/widget.h"
@@ -38,14 +40,26 @@ int ResizeEdgeOf(views::Widget* widget);
 
 // Has the window manager or compositor move |widget|'s window with the pointer, its button held
 // down after a press in the app's UI, as Chromium does for a press in its own title bar
-// (bc_window_start_move). In window_views.cc.
-void StartMove(views::Widget* widget);
+// (bc_window_start_move). With |press|, where the press was in |widget| in DIPs, X11's window
+// manager starts from there rather than from where the pointer is now, so the window keeps the
+// press under the pointer (mini_player.cc). In window_views.cc.
+void StartMove(views::Widget* widget, std::optional<gfx::Point> press = std::nullopt);
 
-// Gives the keyboard in |widget|'s window to the app's UI (bc_window_ui_takes_keyboard), and whether
-// the UI has it (bc_window_keyboard_is_ui). In window_views.cc, as on X11 the core follows the X
-// server's focus.
-void UITakesKeyboard(views::Widget* widget);
+// Whether the keys in |widget|'s window are the app's UI's (bc_window_keyboard_is_ui). In
+// window_views.cc, as on X11 the core follows the X server's focus.
 bool KeyboardIsUI(views::Widget* widget);
+
+// Whether a window of Chromium's own in |widget|'s window has the keyboard, such as an extension's
+// popup or a tab's dialog (bc_window_keyboard_in_child). In window_views.cc.
+bool KeyboardInChild(views::Widget* widget);
+
+// The frame of |widget|'s pane whose page has the keyboard, in its window's content, or none
+// (bc_window_keyboard_page). In window_views.cc.
+std::optional<gfx::Rect> KeyboardPageFrame(views::Widget* widget);
+
+// The title of the window of Chromium's own in |widget|'s with the keys (KeyboardInChild), such as
+// a tab's dialog, or an empty one. In window_views.cc.
+std::u16string ChildTitle(views::Widget* widget);
 
 // Lends the keyboard in |widget|'s window to an overlay of the app's, or takes it back
 // (bc_window_overlay_takes_keyboard).
@@ -54,6 +68,14 @@ void OverlayTakesKeyboard(views::Widget* widget, bool takes);
 // A text field of the app's UI in |widget|'s window, or of an overlay over it, is focused with its
 // caret at |caret|, in DIPs from the window's top left, or none is (bc_window_ui_text_input).
 void SetUITextInput(views::Widget* widget, std::optional<gfx::Rect> caret);
+
+// The frame of a tab's dialog, such as print preview, shown in |widget|'s window, from its content's
+// top-left, if one shows (bc_window_dialog). In window_views.cc.
+std::optional<gfx::Rect> DialogFrame(views::Widget* widget);
+
+// Answers on X11 the clipboard requests in Chromium's queue, and nothing else in it
+// (bc_answer_clipboard_requests). In window_views.cc.
+void AnswerClipboardRequests();
 
 }  // namespace browser_core::platform
 

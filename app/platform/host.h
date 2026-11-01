@@ -57,8 +57,8 @@ void* host_ui_view(void);
 // runs inside it (gpui_linux::embed).
 void host_watch_fd(int fd, void (*ready)(void));
 
-// Linux only: |window| is the core's id for the browser window of |ui_view|. The window is
-// Chromium's, so the calls below that act on it go through the core.
+// Linux and Windows: |window| is the core's id for the browser window of |ui_view|. The window is
+// Chromium's, so the calls that act on it, such as the driver's, go through the core.
 void host_window_opened(void* ui_view, uint64_t window);
 
 // Linux only: the browser window of |ui_view| has closed, for the watches below.
@@ -69,7 +69,8 @@ void host_window_closed(void* ui_view);
 // GPUI hears only of its own window's, which the page's taking the keyboard ends.
 void host_window_active(void* ui_view, bool active, bool whole_window);
 
-// Linux only: a capture's file name, as the Mac's save panel offers it.
+// A capture's file name for now, as macOS names a screenshot:
+// "Capture 2026-10-29 at 18.04.12.png".
 void host_capture_name(char* name, size_t capacity);
 
 // Shows the window holding |ui_view| in front, with its title bar over the UI, and makes the
@@ -113,6 +114,10 @@ void host_watch_full_screen(void (*changed)(void* ui_view, bool entered));
 // from the top left, in points; one it takes, by returning true, goes no further.
 void host_watch_swipes(bool (*swiped)(void* ui_view, double x, double y, bool back));
 
+// Calls |tapped| with the view of the browser window with the keyboard each time ⌥ is pressed and
+// let go with no other key, modifier, press or scroll between, the page's keyboard or the UI's.
+void host_watch_option_taps(void (*tapped)(void* ui_view));
+
 // Whether a menu is open, the menu bar's or a context menu, and if so calls |apply| once none is,
 // instead of any function an earlier call left waiting. AppKit can crash when the main menu is
 // replaced while it tracks one, and the core's callbacks still come in while it does.
@@ -140,12 +145,14 @@ double host_since_launch(void);
 // The browser window of |ui_view| has closed: what showed over it hides, and its windows go.
 void host_forget_window(void* ui_view);
 
-// The overlays: the command bar, and the Space's icon and theme pickers. One shows at a time.
+// The overlays: the command bar, the Space's icon and theme pickers, and a closed folder's preview.
+// One shows at a time.
 #define HOST_COMMAND_BAR 0
 #define HOST_ICON_PICKER 1
 #define HOST_THEME_PICKER 2
+#define HOST_FOLDER_PREVIEW 3
 // The Site Controls take the same elevation call, though they aren't one of the overlays.
-#define HOST_SITE_CONTROLS 3
+#define HOST_SITE_CONTROLS 4
 
 // Gives the |overlay| (or the Site Controls) the shadow its elevation level draws, in Core
 // Animation's terms: a black line round its shape and a black drop shadow, each with an opacity
@@ -208,9 +215,13 @@ void host_hide_overlay(int overlay);
 void host_dismiss_overlay(int overlay);
 
 // Holds the keys typed from now until the command bar or the find bar takes the keyboard, and then
-// gives them to it, or for 400 ms at most: for a shortcut that opens one but reaches the page
-// first, which may keep it. Showing either bar with the keyboard holds them by itself.
+// gives them to it: for a shortcut that opens one but reaches the page first, which may keep it.
+// Showing either bar with the keyboard holds them by itself. The core says when the page has
+// answered the shortcut and no bar opens (host_release_held_keys).
 void host_hold_keys(void);
+
+// No bar opens for the shortcut host_hold_keys held the keys after, so they go to the page now.
+void host_release_held_keys(void);
 
 // Makes the window of |find_bar_view| the find bar of |ui_view|'s window, floating over it when
 // shown, |right| and |top| points from the top right corner of the window's content. It starts
@@ -236,9 +247,9 @@ void host_show_offer(void* ui_view);
 // Hides |ui_view|'s offer. If it had the keyboard, its browser window gets it back.
 void host_hide_offer(void* ui_view);
 
-// Moves |ui_view|'s find bar, its offer and the HUD over it |right| points further in from the
-// window's right edge and |top| points further down, to the focused page's top right corner when a
-// split view's focused page isn't the top right one.
+// Moves |ui_view|'s find bar, its offer, and the HUD and the toast over it |right| points further
+// in from the window's right edge and |top| points further down, to the focused page's top right
+// corner when a split view's focused page isn't the top right one.
 void host_set_pane_corner(void* ui_view, double right, double top);
 
 // Makes the window of |hud_view| float over a browser window when shown, |right| and |top| points
@@ -315,8 +326,14 @@ void* host_add_link_preview(void* view, void (*dismissed)(void));
 void host_show_link_preview(void* ui_view);
 
 // The UI drew a frame of the link preview's motion, with its page at |left|, |top|, |width| by
-// |height| from the window's top left and at |opacity|, which the page's view follows.
-void host_link_preview_drew(double left, double top, double width, double height, double opacity);
+// |height| from the window's top left, with corners of |radius|, and at |opacity|, which the page's
+// view follows. Where the page shows under the preview's window, it's the hole the window has.
+void host_link_preview_drew(double left,
+                            double top,
+                            double width,
+                            double height,
+                            double radius,
+                            double opacity);
 
 // The link preview takes no more clicks or keys as it leaves: the mouse goes through it, and the
 // browser window gets the keyboard back, with the focus where it was, if it had it.
@@ -374,7 +391,8 @@ void host_toast_takes_clicks(bool takes);
 // Where the toast's plate is in its window, from the window's top left corner, in points.
 void host_set_toast_plate(double x, double y, double width, double height);
 
-// Shows the toast's window over |ui_view|'s window, as the UI draws it now.
+// Shows the toast's window over |ui_view|'s window, at its focused page's corner
+// (host_set_pane_corner), as the UI draws it now.
 void host_show_toast(void* ui_view);
 
 // Hides the toast's window.
@@ -445,6 +463,14 @@ void host_show_window_buttons(void* ui_view, bool shown);
 
 // Does what a click on the close (0), minimize (1) or zoom (2) button of |ui_view|'s window does.
 void host_press_window_button(void* ui_view, int button);
+
+#ifdef _WIN32
+// Windows' alone, whose browser window has no title bar for these: moves |ui_view|'s window with
+// the pointer until the button that's down comes up, as a drag on a title bar does, and whether
+// it's maximized. Linux has the core's (bc_window_start_move, bc_window_is_maximized).
+void host_start_window_move(void* ui_view);
+bool host_window_maximized(void* ui_view);
+#endif
 
 // Makes the window of |reveal_view| the sidebar reveal of |ui_view|'s window, which shows over its
 // left edge without taking the keyboard. It starts hidden. While it shows, |pointer_moved| hears,
@@ -524,13 +550,25 @@ bool host_trash(const char* path);
 bool host_drag_file(const char* path, void (*ended)(bool taken));
 
 // Looks up a preview of the file at |path|, a full path in UTF-8, off the main thread: for an
-// image, a thumbnail at most 96 pixels on its longer side, its aspect kept, else the system's icon
-// for the file, 52 pixels square. Then calls |done| on the main thread with |id|, the preview as a
-// PNG |size| bytes long, |width| by |height| pixels, and whether it's an image's thumbnail, or with
-// a null |png| if there's no file there.
+// image, or a video's first frame, a thumbnail at most 96 pixels on its longer side, its aspect
+// kept, else the system's icon for the file, 52 pixels square. Then calls |done| on the main thread
+// with |id|, the preview as a PNG |size| bytes long, |width| by |height| pixels, and whether it's a
+// thumbnail, or with a null |png| if there's no file there.
 void host_file_preview(const char* path, uint64_t id,
                        void (*done)(uint64_t id, const uint8_t* png, size_t size, double width,
                                     double height, bool image));
+
+// Plays the video at |path|, a full path in UTF-8, without sound and from its start again at its
+// end, for a tile |side| pixels square. Returns it for host_video_frame, or null if this platform
+// can't play one; a file that isn't a video the system plays gives no frames.
+void* host_video_open(const char* path, int side);
+
+// Copies the frame |video| shows now into |pixels|, |side| by |side| BGRA pixels with the frame's
+// middle filling them, and returns true, or returns false if there's no frame since the last.
+bool host_video_frame(void* video, uint8_t* pixels);
+
+// Stops |video| and frees it.
+void host_video_close(void* video);
 
 // Puts |text| on the clipboard. A driven run puts it on a pasteboard of its own instead, so checks
 // never touch the user's clipboard.
@@ -570,11 +608,13 @@ void host_day_starts(double starts[4]);
 // Updates: Sparkle on the Mac (platform/mac/updates.mm), WinSparkle on Windows
 // (platform/windows/updates.cc).
 
-// On the Mac, before Chromium starts: makes sure Chromium can read its cookie key, "<name> Safe Storage" in
-// the Keychain, when the app's signature is new, as after a move to another signing identity.
-// Where macOS asks and the user doesn't allow it, an alert offers Try Again until it can, or Quit,
-// when this returns false and the app quits before Chromium starts. Without the key, Chromium
-// can't read the profile's cookies and passwords.
+// On the Mac, before Chromium starts: makes sure Chromium can read its cookie key, "<name> Safe
+// Storage" in the Keychain, when the app's signature is new, as after a move to another signing
+// identity, and makes the item again so it's granted to the new signature (tools/requirement.sh
+// says why that carries over from Apple Development to Developer ID). Where macOS asks and the
+// user doesn't allow it, an alert offers Try Again until it can, or Quit, when this returns false
+// and the app quits before Chromium starts. Without the key, Chromium can't read the profile's
+// cookies and passwords.
 bool host_keep_keychain_key(void);
 
 // Whether this build updates itself: a release build that carries the updater, its feed and its

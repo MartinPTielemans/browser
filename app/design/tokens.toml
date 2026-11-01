@@ -11,12 +11,11 @@
 # Timings, springs and other motion stay in the code: the design file has no motion.
 
 [capture]
-# Arc's, measured at 1× (docs/ux-spec.md › Capture): the ring around what's chosen, the pill that
-# says how, and the menu. Their corners are ilo's own radii, the menu's concentric with its rows
-# (inset ROW_INSET, so 12 + 4) and its field (inset FIELD_INSET, so 6 + 10).
+# Arc's layout, measured at 1× (docs/ux-spec.md › Capture): the ring around what's chosen and the
+# pill that says how. Their look is ilo's: the ring in the Space's accent, and the pill and the
+# menu in ilo's menu's panel ([menu]), in the window's tone.
 ring = 4.0
 ring-radius = 6.0
-ring-color = 0x151c_2fff
 # The page around what's chosen is grey, Rec. 601's luma at this much of its brightness, which
 # gives Arc's grey to the level at each of the three measured.
 dim = 0.749
@@ -25,38 +24,11 @@ pill-height = 67.0
 pill-radius = 16.0
 pill-bottom = 35.5
 pill-text-size = 13.0
-pill-text = 0x471c_9dff
-# The pill's lilac glow, fitted by eye to its edge over the grey page (interim).
-glow = 0x825a_9666
-glow-blur = 90.0
+# The menu, 10 in from the ring's left, with a glyph before each row's title.
 menu-left = 10.0
-menu-width = 273.0
-menu-radius = 16.0
-menu-fill = 0x120f_2cff
-field-inset = 10.0
-field-top = 13.0
-field-height = 29.5
-field-fill = 0x2320_3bff
-field-text = 0xaaa9_b4ff
-field-text-left = 10.0
-rows-top = 7.5
-row = 40.0
 glyph = 14.0
-glyph-left = 18.0
-# Arc's glyphs are white 0.3, under 3:1 on the menu; ours are Paper at the least alpha, in
-# 25ths, at which they reach it there and on a hovered row (decision 6).
-glyph-color = 0.4
-text-left = 42.0
-text-size = 13.0
-separator = 9.0
-separator-color = 0xffff_ff0f
-menu-bottom = 6.0
-row-inset = 4.0
 # The menu keeps this far inside the page, where what's chosen reaches its edge (ours).
 margin = 8.0
-# The menu's words.
-menu-text = 0xffff_ffff
-pill-fill = 0xffff_ffff
 
 [command-bar]
 # The panel's measures, in points, from Arc's capture (docs/ux-spec.md › Command bar).
@@ -309,6 +281,10 @@ search-radius = 6.0
 search-padding = 8.0
 list-bottom = 6.0
 emoji-size = 20.0
+# The skin tone button at the search's right end, a hand in the tone the grid shows, which opens
+# the six tones along the field (ours: Arc's isn't recorded): a plate 4 short of the field's height.
+tone-plate = 20.0
+tone-emoji = 14.0
 # A group's header takes a row, its text on the plates' left edge and the row's bottom.
 header-text = 11.0
 header-left = 4.0
@@ -352,6 +328,29 @@ glyph = 16.0
 glyph-alpha = 0.7
 # The popover level's rim, as the tooltip's.
 rim = 0.5
+
+[folder-preview]
+# Resting on a closed folder shows a searchable list of its tabs beside its row (Arc's Folder
+# Preview, #690). Arc's isn't measured, so it takes the hover card's look: the panel radius in the
+# palette's overlay with the popover level's rim, and rows at the row radius inside its padding,
+# concentric: 16 - 4.
+width = 272.0
+radius = 16.0
+padding = 4.0
+rim = 0.5
+# The search, a line of body type after the magnifying glass, as tall as a sidebar row.
+search = 32.0
+search-glyph = 14.0
+# Each tab a row: its icon, then its title, at these alphas of the ink. The selected row has the
+# selected state's plate, a hovered one the hovered state's.
+row = 32.0
+row-radius = 12.0
+icon = 16.0
+icon-x = 10.0
+title-x = 34.0
+title-size = 13.0
+title = 0.9
+hint = 0.55
 
 [link-preview]
 # Ours, as nothing of Arc's preview is recorded yet (docs/ux-spec.md › Measurement plan, 8). The
@@ -435,6 +434,9 @@ pressed = 0x1614_0f2e
 # A Space's swatch in Move to (#320), before its name: its gradient, ringed by the palette's rule
 # for a swatch's ring (palette.rs) against the panel.
 swatch = 10.0
+# A page's favicon before its title in the back and forward buttons' menu of the tab's history
+# (#675), as Arc's and Chrome's show them: the engine's 16 pt favicon.
+favicon = 16.0
 
 [offer]
 width = 320.0
@@ -597,6 +599,15 @@ popup-end = 22.5
 chevrons = 14.0
 # Buttons under the boxes are 11 below them.
 buttons-top = 11.0
+# Ours: a checkbox, as the dialog's, 8 before its name, ticked in the accent with a white tick;
+# and a disclosure, such as the import's Choose folders, its chevron 4 after its words.
+check-box = 16.0
+check-radius = 6.0
+check-gap = 8.0
+check-glyph = 12.0
+check-tick = 0xffffff
+disclosure-gap = 4.0
+disclosure-glyph = 12.0
 # Ours, for the Shortcuts tab: a header 8 over each box, 20 below the box before, and keys in
 # chips as the command bar shows them, at least 56 wide so they line up, with a command's way
 # back to its default 6 before its chip.
@@ -610,6 +621,11 @@ chip-gap = 6.0
 profile-row = 40.0
 # Ours, for the Passwords tab: a login's username under its site, a size down, in its row.
 username-size = 11.0
+# Ours, for the Links tab: a rule's row holds the pop-up of what its URL does, the field of its
+# text, 6 in, an arrow and the pop-up of its Space, 8 apart, and − at its end.
+rule-condition = 135.0
+rule-gap = 8.0
+field-padding = 6.0
 bar = 0x282a2a
 bar-line = 0x303131
 background = 0x202222
@@ -628,6 +644,11 @@ knob = 0xe1e2e2
 knob-on = 0xe1ebfe
 haptics-tile = 0x3f8ff7
 link-previews-tile = 0x30b0c7
+# Ours: the Mini Player's, on System Settings' indigo.
+mini-player-tile = 0x5e5ce6
+# Ours: the sidebar's ⌥ switch, in System Settings' Desktop & Dock indigo.
+option-reveal-tile = 0x5e5ce6
+restore-windows-tile = 0x5856d6
 profile-tile = 0x8e8e93
 # Ours: System Settings' Passwords tile is grey too.
 password-tile = 0x8e8e93
@@ -635,6 +656,8 @@ password-tile = 0x8e8e93
 # client on the profiles' grey, as none is ours.
 agents-tile = 0x289054
 client-tile = 0x8e8e93
+# Ours: exporting the Spaces' links is a file, grey as the profiles' and passwords' tiles.
+export-tile = 0x8e8e93
 # A row's detail, such as a profile's Spaces, in the toolbar's grey.
 detail = 0x9e9f9f
 chip = 0xffff_ff14
@@ -696,6 +719,19 @@ tile-height = 41.0
 tile-gap = 6.0
 tile-min = 48.0
 tile-radius = 12.0
+# A favorite's mark in its tile's top right, while its page uses the camera or microphone, shares
+# or is shared, or plays sound (ours).
+tile-mark = 12.0
+tile-mark-inset = 4.0
+# The players at the sidebar's foot for tabs playing out of sight, as Arc's mini player and media
+# tray (ours: Arc's aren't measured): each a row's height on a tile's fill, 6 apart and over the
+# footer, its title 13 pt over its artist at 11, and buttons a row's ✕ square holding 14 pt glyphs.
+media-height = 40.0
+media-gap = 6.0
+media-title = 13.0
+media-artist = 11.0
+media-button = 24.0
+media-glyph = 14.0
 # Favorites taller than this much of the window scroll with the list instead of staying put
 # (Ardia), so they never leave the rows too little room.
 tall-favorites = 0.4
@@ -705,6 +741,11 @@ name-x = 41.0
 space-icon-slot = 20.0
 # The sidebar's icon takes clicks on Arc's frame, which lights with the header's plate (ours).
 space-icon-plate = 26.0
+# The chevron after the name that collapses the Space's pinned rows and expands them, on the
+# header's hover plate: down while they show, turned to point right while they're collapsed (ours).
+pinned-caret = 12.0
+pinned-caret-plate = 20.0
+pinned-caret-gap = 2.0
 icon-placeholder = 24.0
 icon-placeholder-radius = 6.0
 icon-placeholder-line = 1.0
@@ -725,6 +766,13 @@ drop-ring-x = 7.0
 drop-line-end = 2.0
 drop = 0xffff_ffe6
 plate-radius = 12.0
+# Around the row the keyboard acts on while the sidebar has it (Focus Sidebar), inside its plate,
+# in the ink at `keyed` (ours: Arc 1.170's isn't measured).
+keyed-ring = 2.0
+# While the selected tab's row is scrolled out past the list's top or bottom, a sliver of its plate
+# this tall shows at that edge, and a click this far in from the edge scrolls back to it (ours).
+shown-marker = 4.0
+shown-marker-hit = 14.0
 favicon-x = 17.0
 favicon-size = 18.0
 # The engine's favicons are 16 pt, drawn at 2×, so they sit in the middle of Arc's 18 pt slot
@@ -817,6 +865,9 @@ unselected-title = 0.78
 selected = 0.2
 # The selected row under the pointer: Arc's (113–116) over the dark Space's (37, 35, 53).
 selected-hovered = 0.36
+# A row chosen with ⌘- or ⇧-click besides the tab shown: Arc's secondary selection, P3 #FAFBFF
+# 0.10 over dark and black 0.10 over light (docs/ux-spec.md › Tokens).
+chosen = 0.1
 hovered = 0.12
 pressed = 0.065
 secondary = 0.62
@@ -843,8 +894,18 @@ sleeping-favicon = 0.5
 # the light theme is built (ours).
 tile = 0.1
 tile-ring = 0.45
+keyed = 0.45
 tile-unthemed = 0x0000_00ff
 tile-unthemed-light = 0xffff_ffff
+# A tab in Developer Mode (docs/ux-spec.md › Developer Mode; ours, as Arc's isn't recorded and its
+# yellow and black aren't ilo's). The one shown has a dashed outline, a work in progress, in the
+# ink, so it reads on every theme, over its row's fill, a step firmer than another tab's, or in
+# place of its tile's ring. Every tab in it keeps its title in the full ink, and a favorite's tile
+# rests a step firmer, so the sidebar sets them apart.
+developer-outline = 0.62
+developer-outline-width = 1.0
+developer-selected = 0.26
+developer-tile = 0.16
 # The header's glyphs (docs/ux-spec.md › Header and URL field): 0.60, and 0.26 for back or forward
 # with nowhere to go, over a hover plate of 0.077.
 nav = 0.6
@@ -854,6 +915,9 @@ nav-hovered = 0.077
 # and 0.35 for the others, 0.5 under the pointer (ours: Arc's isn't measured). The Space shown's
 # glyph is its accent instead, or the ink without a colour (#469); an emoji dims by these ratios.
 space-name = 0.62
+# Lit a step, to Clear's under the pointer, while its pinned tabs are collapsed: Arc turns its name
+# bold, and ours is at the scale's heaviest already.
+space-name-shut = 0.81
 space-shown = 0.6
 space-other = 0.35
 space-hovered = 0.5
@@ -878,6 +942,25 @@ window-button-glyph = 0x00000080
 window-button-close = 0xe0604f
 window-button-minimize = 0xf3bf12
 window-button-zoom = 0x58bb18
+
+[shell.agent-pointer]
+# Ours (#365), as Arc and Dia have no agents in pages: while an agent clicks or types in the page
+# the window shows, its pointer, Lucide's mouse-pointer-2, in the mark's Signal green with the
+# name of its Space beside it, and a Signal ring round the element, outset from its box, with the
+# ref the agent named it by in a chip on the ring's top left.
+color = 0x0e9f55
+text = 0xffffff
+pointer = 20.0
+label-size = 11.0
+label-height = 18.0
+label-inset = 7.0
+ring = 2.0
+ring-outset = 3.0
+ring-radius = 6.0
+tag-size = 10.0
+tag-height = 16.0
+tag-inset = 5.0
+tag-radius = 6.0
 
 [shell.assets]
 # Every Lucide outline's stroke, in its 24 grid: 1.5 pt in a 16 pt box, 1.3 at 14 and 1.69 at 18.
@@ -1046,6 +1129,9 @@ plus-size = 30.0
 plus-glyph = 14.0
 # The room after the +, to the Library's edge.
 plus-after = 37.0
+# Ours: a tab dragged over another Space's card rings it in that card's accent, this wide, inside
+# its edge (Arc's isn't recorded).
+card-drop-ring = 2.0
 # The search field, on the window buttons' row. Arc's Filter button is left out, and the field
 # takes its place.
 search-x = 120.0
@@ -1073,6 +1159,10 @@ archived-right = 3.0
 archived-favicon-x = 14.0
 archived-text-x = 44.0
 archived-radius = 12.0
+# Ours, as Arc's Media isn't measured: three tiles a row in the rows' width, 6 apart, at the
+# favorites' tiles' radius.
+media-gap = 6.0
+media-radius = 12.0
 # Ours: a running download's bar, under its text, and the footer button's, under its glyph.
 progress-height = 3.0
 progress-bottom = 6.0
@@ -1176,6 +1266,15 @@ close = 22.0
 close-inset = 7.0
 close-glyph = 12.0
 
+[shell.cast]
+# Ours, as Chrome's dialog has Chrome's look: the Cast card is the question's, and each device a
+# row in it, its glyph before its name over what it's doing.
+row = 40.0
+row-gap = 2.0
+glyph = 16.0
+name = 13.0
+status = 11.0
+
 [shell.picture]
 # Ours: the picture is fitted to this much of the card, which reads as a page that isn't live.
 rest = 0.8
@@ -1231,6 +1330,19 @@ picture-top = 18.0
 picture-inset = 4.0
 # The corners of the half-filled glyph a target shows.
 half-glyph-radius = 3.5
+
+[shell.split-controls]
+# Ours, as Arc's split controls aren't measured: the handle over each page of a split view, in
+# the window's margin over the card, or the gap under the page over it stacked. Its hover plate is
+# this wide, and its strip's height less twice the inset, at the radius of half that. Its three
+# dots are this wide and this far apart, at the ink's dots alpha, or dots-hovered under the
+# pointer.
+width = 32.0
+inset = 1.0
+dot = 2.5
+dot-gap = 3.0
+dots = 0.35
+dots-hovered = 0.8
 
 [shell.swap]
 check-box = 24.0

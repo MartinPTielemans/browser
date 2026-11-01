@@ -12,12 +12,15 @@ use gpui::{App, AppContext, TestAppContext};
 
 use super::arc;
 use super::chromium;
-use super::found::{Found, FromProfile, Node, Page, Tab};
+use super::extensions::{self, Extension};
+use super::suggested;
+use super::found::{Found, FromProfile, LinkRule, Node, Page, Tab};
 use super::plan::{self, Counts, Existing, ExistingSpace, Row};
 use super::read::{self, Kind, ReadError};
 use super::sources::{self, Os, Roots};
-use super::{Host, ImportEvent, ImportView, Look, Passwords};
+use super::{Exported, Host, ImportEvent, ImportView, Look, Passwords};
 use super::{firefox, safari};
+use crate::link_rules::{Condition, Rule};
 use crate::theme::{Appearance, Texture, Theme};
 
 fn fixture() -> PathBuf {
@@ -25,8 +28,10 @@ fn fixture() -> PathBuf {
 }
 
 fn sidebar() -> Found {
-    let path = fixture().join("Library/Application Support/Arc/StorableSidebar.json");
-    arc::parse(&fs::read_to_string(path).unwrap()).unwrap()
+    let arc = fixture().join("Library/Application Support/Arc");
+    let routing = fs::read_to_string(arc.join("StorableLinkRouting.json")).unwrap();
+    arc::parse(&fs::read_to_string(arc.join("StorableSidebar.json")).unwrap(), Some(&routing))
+        .unwrap()
 }
 
 /// The fixture's sidebar, with its Spaces or its favorites left out.
@@ -34,6 +39,7 @@ fn picked(spaces: bool, favorites: bool) -> Found {
     let mut found = sidebar();
     if !spaces {
         found.spaces.clear();
+        found.link_rules.clear();
     }
     if !favorites {
         found.favorites.clear();
@@ -149,7 +155,7 @@ fn arcs_appearance_comes_from_its_window_appearance_else_its_look() {
         let json = format!(
             r#"{{"sidebar": {{"containers": [{{"global": {{}}}}, {{"spaces": ["S", {{"id": "S", "title": "S", "customInfo": {{"windowTheme": {window_theme}}}}}], "items": []}}]}}}}"#
         );
-        arc::parse(&json).unwrap().spaces[0].theme.unwrap()
+        arc::parse(&json, None).unwrap().spaces[0].theme.unwrap()
     };
     let one = |color: &str, forced: &str| {
         theme_of(format!(r#"{{{forced} "background": {{"single": {{"_0": {}}}}}}}"#, look(color)))
@@ -170,8 +176,8 @@ fn arcs_appearance_comes_from_its_window_appearance_else_its_look() {
 
 #[test]
 fn a_file_that_isnt_arcs_sidebar_says_so() {
-    assert!(arc::parse("not json").is_err());
-    assert!(arc::parse(r#"{"sidebar": {"containers": [{"global": {}}]}}"#).is_err());
+    assert!(arc::parse("not json", None).is_err());
+    assert!(arc::parse(r#"{"sidebar": {"containers": [{"global": {}}]}}"#, None).is_err());
 }
 
 /// A folder the test makes, empty, for one test's browsers.
@@ -455,8 +461,10 @@ struct Browser {
     adding: RefCell<Vec<(usize, Box<dyn FnOnce(usize, &mut App)>)>>,
     /// What waits for the app to come back to the front.
     active: RefCell<Vec<Box<dyn FnOnce(&mut App)>>>,
-    /// The file the user picks in the open panel, or none to cancel it.
+    /// The file of passwords the user picks in the open panel, or none to cancel it.
     passwords_file: RefCell<Option<PathBuf>>,
+    /// The bookmarks file the user picks.
+    bookmarks_file: RefCell<Option<PathBuf>>,
     /// The passwords file the core is importing, and what waits to hear what came of it.
     importing: RefCell<Option<(PathBuf, Box<dyn FnOnce(Passwords, &mut App)>)>>,
 }
@@ -467,6 +475,7 @@ struct State {
     profiles: Vec<(u64, String)>,
     spaces: Vec<Space>,
     favorites: Vec<(u64, Tab)>,
+    link_rules: Vec<Rule>,
     /// Spaces put in a profile that hasn't loaded yet.
     loading: Vec<(u64, u64)>,
     /// Profiles made that haven't loaded yet.
@@ -475,6 +484,8 @@ struct State {
     history: Vec<(u64, String, i64)>,
     /// How many times the import showed System Settings' Full Disk Access.
     asked_access: usize,
+    /// The Web Store pages the import opened, for the user to add an extension.
+    store_pages: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -621,6 +632,7 @@ impl Host for Browser {
                 .iter()
                 .map(|(profile, tab)| (*profile, tab.url.clone()))
                 .collect(),
+            link_rules: state.link_rules.clone(),
         }
     }
 
@@ -676,6 +688,10 @@ impl Host for Browser {
         state.favorites.push((profile, tab.clone()));
     }
 
+    fn add_link_rules(&self, rules: &[Rule]) {
+        self.state.borrow_mut().link_rules.extend_from_slice(rules);
+    }
+
     fn profile_loaded(&self, profile: u64) -> bool {
         !self.state.borrow().unloaded.contains(&profile)
     }
@@ -720,12 +736,16 @@ impl Host for Browser {
     }
 
     /// As the system's panel answers, after the click that opened it.
-    fn choose_passwords_file(
+    fn choose_file(
         &self,
+        exported: Exported,
         then: Box<dyn FnOnce(Option<PathBuf>, &mut App)>,
         cx: &mut App,
     ) {
-        let file = self.passwords_file.borrow().clone();
+        let file = match exported {
+            Exported::Passwords => self.passwords_file.borrow().clone(),
+            Exported::Bookmarks => self.bookmarks_file.borrow().clone(),
+        };
         cx.defer(move |cx| then(file, cx));
     }
 
@@ -741,6 +761,10 @@ impl Host for Browser {
     fn passwords_profile(&self) -> Option<String> {
         let profiles = &self.state.borrow().profiles;
         (profiles.len() > 1).then(|| profiles[0].1.clone())
+    }
+
+    fn open_store_page(&self, url: &str) {
+        self.state.borrow_mut().store_pages.push(url.into());
     }
 }
 
@@ -819,6 +843,63 @@ fn an_import_brings_in_spaces_folders_and_favorites(cx: &mut TestAppContext) {
     );
 }
 
+/// Arc's link rules that match a link's URL and open it in one of its Spaces come in, in Arc's
+/// order, whichever way the file names the Space; one that matches the app a link came from, or
+/// goes to Little Arc, the Space in front or a Space that's gone, doesn't, nor does a file that
+/// can't be read.
+#[test]
+fn arcs_link_rules_read_as_ours() {
+    let rule = |condition, text: &str, space| LinkRule {
+        condition,
+        text: text.into(),
+        space,
+    };
+    let rules = [
+        rule(Condition::Contains, "work.example.com", 1),
+        rule(Condition::Is, "https://news.ycombinator.com/", 0),
+        rule(Condition::Is, "https://docs.example.com/", 1),
+    ];
+    assert_eq!(sidebar().link_rules, rules);
+    let arc = fixture().join("Library/Application Support/Arc");
+    let json = fs::read_to_string(arc.join("StorableSidebar.json")).unwrap();
+    assert!(arc::parse(&json, Some("not json")).unwrap().link_rules.is_empty());
+}
+
+/// Arc's link rules go after the user's, each to the Space its Arc Space became, and one the
+/// user has already, to the Space of that name here, doesn't come twice.
+#[gpui::test]
+fn arcs_link_rules_go_to_the_spaces_they_became(cx: &mut TestAppContext) {
+    let rule = |condition, text: &str, space| Rule {
+        condition,
+        text: text.into(),
+        space,
+    };
+    let browser = Browser::new(None);
+    let mine = rule(Condition::Contains, "mine.example.com", 2);
+    browser.state.borrow_mut().link_rules.push(mine.clone());
+    cx.update(|cx| import(&browser, &sidebar(), cx));
+    let state = browser.state.borrow();
+    let (personal, work) = (state.spaces[1].id, state.spaces[2].id);
+    let rules = [
+        mine,
+        rule(Condition::Contains, "work.example.com", work),
+        rule(Condition::Is, "https://news.ycombinator.com/", personal),
+        rule(Condition::Is, "https://docs.example.com/", work),
+    ];
+    assert_eq!(state.link_rules, rules);
+    drop(state);
+
+    let browser = Browser::new(None);
+    {
+        let mut state = browser.state.borrow_mut();
+        state.space(2).name = "Personal".into();
+        let hn = rule(Condition::Is, "https://news.ycombinator.com/", 2);
+        state.link_rules.push(hn);
+    }
+    let plan = plan::plan(&sidebar(), &profile_names(), &browser.existing());
+    assert_eq!(plan.counts().link_rules, 2);
+}
+
 /// Running it again finds everything there, so it adds nothing: no Space, profile, folder, tab
 /// or favorite twice.
 #[gpui::test]
@@ -859,6 +940,7 @@ fn a_space_already_here_gets_only_what_it_lacks(cx: &mut TestAppContext) {
     let counts = Counts {
         spaces: 1,
         pinned: 4,
+        link_rules: 3,
         ..Counts::default()
     };
     assert_eq!(plan.counts(), counts);
@@ -929,17 +1011,18 @@ fn the_view_imports_what_the_user_picks(cx: &mut TestAppContext) {
         };
         assert_eq!(
             said.as_ref(),
-            "2 Spaces, 6 pinned tabs and 3 favorites came in from Arc."
+            "2 Spaces, 6 pinned tabs, 3 favorites and 3 link rules came in from Arc."
         );
     });
     assert_eq!(browser.spaces()[2].rows.len(), 1);
     view.update(cx, |view, cx| view.done(cx));
     cx.run_until_parked();
-    let said = "2 Spaces, 6 pinned tabs and 3 favorites came in from Arc.";
+    let said = "2 Spaces, 6 pinned tabs, 3 favorites and 3 link rules came in from Arc.";
     assert_eq!(
         *events.borrow(),
         [
             ImportEvent::Started,
+            ImportEvent::Suggested,
             ImportEvent::Finished(said.into()),
             ImportEvent::Done
         ]
@@ -1155,7 +1238,7 @@ fn each_profile_of_a_browser_gets_a_space_named_after_it() {
         now,
     );
     let source = &super::importable(&Roots::under(&home, Os::Linux))[0];
-    assert_eq!(read::kinds(source), [Kind::Bookmarks, Kind::History]);
+    assert_eq!(read::kinds(source), [Kind::Bookmarks, Kind::History, Kind::Extensions]);
     let found = read::read(source, &[Kind::Bookmarks], now).unwrap();
     let spaces: Vec<_> = (found.spaces.iter())
         .map(|space| (space.name.as_str(), &space.profile))
@@ -1908,4 +1991,371 @@ fn the_passwords_summary_names_the_profile_and_what_it_skipped() {
     };
     let said = super::passwords_summary(Path::new("export.csv"), none, None);
     assert_eq!(said.as_ref(), "No passwords came in from export.csv.");
+}
+
+/// An extension in a made-up profile's `Extensions` folder: its id, the manifest of its version,
+/// and its messages in English, if any.
+fn extension(profile: &Path, id: &str, manifest: &str, messages: Option<&str>) {
+    let version = profile.join("Extensions").join(id).join("1.0_0");
+    write(version.join("manifest.json"), manifest);
+    if let Some(messages) = messages {
+        write(version.join("_locales/en/messages.json"), messages);
+    }
+}
+
+const STORE: &str = r#""update_url": "https://clients2.google.com/service/update2/crx""#;
+const UBLOCK: &str = "cjpalhdlnbpafiamejdnhcphjbkeiagm";
+
+/// Gives Chrome's default profile under `home` a pinned extension named by its messages, one not
+/// pinned, uBlock Origin, a theme and one from outside the Web Store.
+fn chrome_extensions(home: &Path) -> PathBuf {
+    let profile = home.join(".config/google-chrome/Default");
+    let pinned = r#"{"extensions": {"pinned_extensions": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]}}"#;
+    write(profile.join("Preferences"), pinned);
+    let named = format!(r#"{{"name": "__MSG_appName__", "default_locale": "en", {STORE}}}"#);
+    let messages = r#"{"APPNAME": {"message": "Dark Reader"}}"#;
+    extension(&profile, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", &named, Some(messages));
+    let plain = format!(r#"{{"name": "Bitwarden", {STORE}}}"#);
+    extension(&profile, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", &plain, None);
+    let blocker = format!(r#"{{"name": "uBlock Origin", {STORE}}}"#);
+    extension(&profile, UBLOCK, &blocker, None);
+    let theme = format!(r#"{{"name": "Ocean", "theme": {{}}, {STORE}}}"#);
+    extension(&profile, "cccccccccccccccccccccccccccccccc", &theme, None);
+    let own = r#"{"name": "Mine"}"#;
+    extension(&profile, "dddddddddddddddddddddddddddddddd", own, None);
+    profile
+}
+
+/// A profile's Web Store extensions come by their names, from their messages when the manifest
+/// leaves it to them, with the pins of its `Preferences`; themes and extensions from elsewhere
+/// don't, and an ad blocker is known as one.
+#[test]
+fn a_profiles_extensions_come_with_their_pins() {
+    let home = home("extensions");
+    let profile = chrome_extensions(&home);
+    let read = extensions::read(&profile);
+    let listed: Vec<_> = read.iter().map(|e| (e.name.as_str(), e.pinned, e.blocks_ads())).collect();
+    assert_eq!(
+        listed,
+        [("Bitwarden", false, false), ("Dark Reader", true, false), ("uBlock Origin", false, true)]
+    );
+    assert_eq!(
+        read[1].store_page(),
+        "https://chromewebstore.google.com/detail/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let named = |name: &str| Extension { id: "x".into(), name: name.into(), pinned: false };
+    assert!(named("AdGuard AdBlocker").blocks_ads() && named("Total Adblock").blocks_ads());
+    assert!(!named("Grammarly").blocks_ads());
+    fs::remove_dir_all(home).unwrap();
+}
+
+/// Chrome's extensions are listed after the import, uBlock Origin left off the list, as the
+/// browser blocks ads itself; Add… takes one off and opens its Web Store page, and Add Anyway does
+/// the same for the ad blocker. One that was pinned in Chrome is pinned once it comes in, once.
+#[gpui::test]
+fn chromes_extensions_are_listed_to_add_and_keep_their_pins(cx: &mut TestAppContext) {
+    let home = chrome("chrome-extensions", &[("Default", "Me")], SystemTime::now());
+    chrome_extensions(&home);
+    let browser = Rc::new(Browser::new(Some(Roots::under(&home, Os::Linux))));
+    let host: Rc<dyn Host> = browser.clone();
+    let view = cx.new(|_| ImportView::new(host, false));
+    view.update(cx, |view, cx| {
+        view.pick(0, cx);
+        view.import(cx);
+    });
+    cx.run_until_parked();
+    cx.update(|cx| browser.added(cx));
+    view.read_with(cx, |view, _| {
+        let super::Step::Done(said) = &view.step else {
+            panic!("still importing")
+        };
+        assert_eq!(
+            said.as_ref(),
+            "1 Space, 3 pinned tabs and 2 pages of history came in from Chrome, with 2 \
+             extensions to add from the Chrome Web Store."
+        );
+    });
+    let ids = || -> Vec<String> {
+        extensions::listed().extensions.iter().map(|each| each.id.clone()).collect()
+    };
+    assert_eq!(extensions::listed().from, "Chrome");
+    assert_eq!(ids().len(), 3, "the ad blocker is kept to add anyway");
+    let dark_reader = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    view.update(cx, |view, cx| view.add_extension(dark_reader, cx));
+    view.update(cx, |view, cx| view.add_extension(UBLOCK, cx));
+    assert_eq!(ids(), ["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"]);
+    let pages = browser.state.borrow().store_pages.clone();
+    assert_eq!(
+        pages,
+        [
+            format!("https://chromewebstore.google.com/detail/{dark_reader}"),
+            format!("https://chromewebstore.google.com/detail/{UBLOCK}"),
+        ]
+    );
+    // Dark Reader comes in, unpinned here: it's pinned, and only the once.
+    let now = [(dark_reader, false), (UBLOCK, false)];
+    assert_eq!(extensions::to_pin(&[], now), [dark_reader]);
+    assert!(extensions::to_pin(&[], now).is_empty());
+    fs::remove_dir_all(home).unwrap();
+}
+
+/// Choose folders lists the bar's own bookmarks by the bar's name and each top folder, and a
+/// folder unticked stays out of the import.
+#[gpui::test]
+fn a_bookmark_folder_unticked_stays_out(cx: &mut TestAppContext) {
+    let now = SystemTime::now();
+    let home = chrome("chrome-folders", &[("Default", "Me")], now);
+    let source = &super::importable(&Roots::under(&home, Os::Linux))[0];
+    assert_eq!(read::folders(source, now).unwrap(), ["Bookmarks Bar", "Other bookmarks"]);
+    let mut found = read::read(source, &[Kind::Bookmarks], now).unwrap();
+    read::leave_out(&mut found, &["Bookmarks Bar".into()], source.browser.family);
+    let nodes = node_shape(&found.spaces[0].pinned);
+    assert_eq!(nodes, "Other bookmarks[Docs=https://docs.example.com/]");
+    let mut found = read::read(source, &[Kind::Bookmarks], now).unwrap();
+    let both = ["Bookmarks Bar".into(), "Other bookmarks".into()];
+    read::leave_out(&mut found, &both, source.browser.family);
+    assert!(found.spaces.is_empty(), "a Space with nothing left doesn't come");
+
+    let browser = Rc::new(Browser::new(Some(Roots::under(&home, Os::Linux))));
+    let host: Rc<dyn Host> = browser.clone();
+    let view = cx.new(|_| ImportView::new(host, false));
+    view.update(cx, |view, cx| {
+        view.pick(0, cx);
+        view.choose_folders(cx);
+    });
+    cx.run_until_parked();
+    view.update(cx, |view, cx| {
+        let names = view.folders.names.clone();
+        assert_eq!(names.as_deref(), Some(&["Bookmarks Bar".into(), "Other bookmarks".into()][..]));
+        view.toggle_folder("Other bookmarks", cx);
+        view.import(cx);
+    });
+    cx.run_until_parked();
+    cx.update(|cx| browser.added(cx));
+    assert_eq!(
+        shape(&browser.spaces()[1].rows),
+        "Mail=https://mail.example.com/, https://example.com/"
+    );
+    fs::remove_dir_all(home).unwrap();
+}
+
+/// The favorites offered are the sites visited most, once a site however its pages and `www.`
+/// differ, at its root: not one visited once or twice, a favorite already, or the user's own
+/// machine or network.
+#[test]
+fn the_sites_visited_most_are_offered_as_favorites() {
+    let page = |url: &str, visits| Page {
+        url: url.into(),
+        title: String::new(),
+        last_visit: 0,
+        visits,
+        typed: 0,
+    };
+    let history = [
+        page("https://www.example.com/a", 2),
+        page("https://news.example.org/today", 3),
+        page("https://example.com/b?x=1", 2),
+        page("http://localhost:3000/", 40),
+        page("http://192.168.1.1/admin", 40),
+        page("https://printer.local/", 40),
+        page("https://mail.example.net/inbox", 9),
+        page("https://rare.example.com/", 2),
+        page("file:///Users/me/notes.html", 40),
+    ];
+    let skip = ["https://mail.example.net/".to_string()];
+    let urls: Vec<String> =
+        suggested::favorites(&history, &skip).into_iter().map(|tab| tab.url).collect();
+    assert_eq!(urls, ["https://www.example.com/", "https://news.example.org/"]);
+    assert_eq!(suggested::site_name("https://www.example.com/"), "example.com");
+    let many: Vec<Page> = (0..12).map(|n| page(&format!("https://site{n}.example/"), 3)).collect();
+    assert_eq!(suggested::favorites(&many, &[]).len(), suggested::MOST);
+}
+
+/// An import offers the sites its history visited most once it's read them, and none when it
+/// brought favorites of its own, as Arc's does.
+#[gpui::test]
+fn an_import_offers_favorites_from_its_history(cx: &mut TestAppContext) {
+    let home = chrome("chrome-suggested", &[("Default", "Me")], SystemTime::now());
+    let browser = Rc::new(Browser::new(Some(Roots::under(&home, Os::Linux))));
+    let host: Rc<dyn Host> = browser.clone();
+    let view = cx.new(|_| ImportView::new(host, false));
+    view.update(cx, |view, cx| {
+        assert_eq!(view.suggested(), None);
+        view.pick(0, cx);
+        view.import(cx);
+        assert!(view.suggesting());
+    });
+    cx.run_until_parked();
+    view.read_with(cx, |view, _| {
+        let urls: Vec<&str> = view.suggested().unwrap().iter().map(|t| t.url.as_str()).collect();
+        assert_eq!(urls, ["https://example.com/"]);
+        assert!(!view.suggesting());
+    });
+    fs::remove_dir_all(home).unwrap();
+
+    let arc = Rc::new(Browser::new(None));
+    let host: Rc<dyn Host> = arc.clone();
+    let view = cx.new(|_| ImportView::new(host, false));
+    view.update(cx, |view, cx| {
+        view.pick(0, cx);
+        view.import(cx);
+    });
+    cx.run_until_parked();
+    view.read_with(cx, |view, _| assert_eq!(view.suggested(), Some(&[][..])));
+}
+
+/// Chrome's export: its bar marked as the toolbar folder, then Other bookmarks. A page of the
+/// browser's own stays out, and the names and addresses read their character references.
+const CHROME_BOOKMARKS_HTML: &str = r#"<!DOCTYPE NETSCAPE-Bookmark-file-1>
+<!-- This is an automatically generated file.
+     It will be read and overwritten.
+     DO NOT EDIT! -->
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
+<TITLE>Bookmarks</TITLE>
+<H1>Bookmarks</H1>
+<DL><p>
+    <DT><H3 ADD_DATE="1700000000" LAST_MODIFIED="1700000001" PERSONAL_TOOLBAR_FOLDER="true">Bookmarks bar</H3>
+    <DL><p>
+        <DT><A HREF="https://mail.example.com/" ADD_DATE="1700000000" ICON="data:image/png;base64,iVBORw0KGgo=">Mail</A>
+        <DT><A HREF="chrome://settings/">Settings</A>
+        <DT><H3 ADD_DATE="1700000000">Work</H3>
+        <DL><p>
+            <DT><A HREF="https://docs.example.com/?a=1&amp;b=2">Docs &amp; Sheets</A>
+        </DL><p>
+        <DT><H3>Empty</H3>
+        <DL><p>
+        </DL><p>
+    </DL><p>
+    <DT><H3>Other bookmarks</H3>
+    <DL><p>
+        <DT><A HREF="https://example.com/">Caf&#233; &#x2014; menu</A>
+    </DL><p>
+</DL><p>
+"#;
+
+/// Firefox's export: its menu's bookmarks outside any folder, under the file's heading, with a
+/// separator and descriptions, then its toolbar and Other Bookmarks.
+const FIREFOX_BOOKMARKS_HTML: &str = r#"<!DOCTYPE NETSCAPE-Bookmark-file-1>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'none'; img-src data: *; object-src 'none'"></meta>
+<TITLE>Bookmarks</TITLE>
+<H1>Bookmarks Menu</H1>
+
+<DL><p>
+    <DT><A HREF="https://news.example.org/" ADD_DATE="1700000000">News</A>
+    <DD>What's new
+    <HR>
+    <DT><A HREF="place:sort=8&maxResults=10">Most Visited</A>
+    <DT><H3 ADD_DATE="1700000000" PERSONAL_TOOLBAR_FOLDER="true">Bookmarks Toolbar</H3>
+    <DD>Add bookmarks to this folder to see them displayed on the Bookmarks Toolbar
+    <DL><p>
+        <DT><A HREF="https://wiki.example.org/" TAGS="ref">Wiki</A>
+    </DL><p>
+    <DT><H3 ADD_DATE="1700000000" UNFILED_BOOKMARKS_FOLDER="true">Other Bookmarks</H3>
+    <DL><p>
+        <DT><A HREF="https://shop.example.org/">Shop</A>
+    </DL><p>
+</DL>
+"#;
+
+#[test]
+fn a_bookmarks_file_comes_in_as_its_browser_kept_it() {
+    let chrome = super::html::bookmarks(CHROME_BOOKMARKS_HTML).unwrap();
+    assert_eq!(
+        node_shape(&chrome),
+        "Mail=https://mail.example.com/, \
+         Work[Docs & Sheets=https://docs.example.com/?a=1&b=2], \
+         Other bookmarks[Café — menu=https://example.com/]"
+    );
+    let firefox = super::html::bookmarks(FIREFOX_BOOKMARKS_HTML).unwrap();
+    assert_eq!(
+        node_shape(&firefox),
+        "Wiki=https://wiki.example.org/, Bookmarks Menu[News=https://news.example.org/], \
+         Other Bookmarks[Shop=https://shop.example.org/]"
+    );
+}
+
+/// Safari's export marks no bar: what's outside any folder is the bar, and every folder comes as
+/// one, its Reading List too. Tags in any case, unquoted values and a file cut short read alike.
+#[test]
+fn a_bookmarks_file_without_a_bar_keeps_its_folders() {
+    let safari = "\u{feff}<!doctype netscape-bookmark-file-1>\n<html><head><title>Bookmarks</title>\
+        </head><body><h1>Bookmarks</h1><dl><dt><h3 FOLDED>Favourites</h3><dl>\
+        <dt><a href=https://a.example/>A</a></dl><dt><a href='https://b.example/'>B</a>\
+        <dt><h3 FOLDED id=\"com.apple.ReadingList\">Reading List</h3><dl><dt>\
+        <a href=\"https://c.example/\">C\n   later</a>";
+    assert_eq!(
+        node_shape(&super::html::bookmarks(safari).unwrap()),
+        "B=https://b.example/, Favourites[A=https://a.example/], \
+         Reading List[C later=https://c.example/]"
+    );
+}
+
+/// A bar of more than read::BAR_ROWS comes in as a folder of its name.
+#[test]
+fn a_long_bar_in_a_bookmarks_file_comes_as_a_folder() {
+    let rows: String = (0..=read::BAR_ROWS)
+        .map(|n| format!("<DT><A HREF=\"https://{n}.example/\">{n}</A>\n"))
+        .collect();
+    let html = format!(
+        "<!DOCTYPE NETSCAPE-Bookmark-file-1>\n<DL><p><DT><H3 PERSONAL_TOOLBAR_FOLDER=\"true\">\
+         Bar</H3><DL><p>{rows}</DL><p></DL><p>"
+    );
+    let pinned = super::html::bookmarks(&html).unwrap();
+    assert!(matches!(&pinned[..], [Node::Folder { name, children }]
+        if name == "Bar" && children.len() == read::BAR_ROWS + 1));
+}
+
+#[test]
+fn a_file_that_isnt_bookmarks_says_so() {
+    let error = super::html::bookmarks("url,username,password\n").unwrap_err();
+    assert_eq!(error, "it isn't a bookmarks file a browser exported");
+    assert_eq!(super::html::bookmarks("<!DOCTYPE NETSCAPE-Bookmark-file-1>").unwrap(), []);
+}
+
+/// Bookmarks from a file come in as a Space named Bookmarks, in the profile this browser started
+/// with, and a second time add nothing.
+#[gpui::test]
+fn a_bookmarks_file_comes_in_once(cx: &mut TestAppContext) {
+    let browser = Rc::new(Browser::new(None));
+    let host: Rc<dyn Host> = browser.clone();
+    let view = cx.new(|_| ImportView::new(host, false));
+    let said = |cx: &mut TestAppContext| {
+        view.read_with(cx, |view, _| match &view.step {
+            super::Step::Done(said) => said.to_string(),
+            _ => panic!("still importing"),
+        })
+    };
+    // Cancelling the panel imports nothing.
+    view.update(cx, |view, cx| view.choose_bookmarks(cx));
+    cx.run_until_parked();
+    view.read_with(cx, |view, _| assert!(matches!(view.step, super::Step::List)));
+
+    let file = write(home("bookmarks-file").join("bookmarks.html"), CHROME_BOOKMARKS_HTML);
+    *browser.bookmarks_file.borrow_mut() = Some(file.clone());
+    view.update(cx, |view, cx| view.choose_bookmarks(cx));
+    cx.run_until_parked();
+    assert_eq!(said(cx), "1 Space and 3 pinned tabs came in from bookmarks.html.");
+    let space = browser.spaces().into_iter().find(|space| space.name == "Bookmarks").unwrap();
+    assert_eq!(space.profile, 1);
+    assert_eq!(
+        shape(&space.rows),
+        "Mail=https://mail.example.com/, Work[Docs & Sheets=https://docs.example.com/?a=1&b=2], \
+         Other bookmarks[Café — menu=https://example.com/]"
+    );
+    view.update(cx, |view, cx| view.refresh(cx));
+    view.update(cx, |view, cx| view.choose_bookmarks(cx));
+    cx.run_until_parked();
+    assert_eq!(said(cx), "Everything from bookmarks.html is here already.");
+
+    let other = write(file.with_file_name("notes.html"), "<html>notes</html>");
+    *browser.bookmarks_file.borrow_mut() = Some(other);
+    view.update(cx, |view, cx| view.refresh(cx));
+    view.update(cx, |view, cx| view.choose_bookmarks(cx));
+    cx.run_until_parked();
+    assert_eq!(
+        said(cx),
+        "Couldn't import notes.html: it isn't a bookmarks file a browser exported."
+    );
+    fs::remove_dir_all(file.parent().unwrap()).unwrap();
 }

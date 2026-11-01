@@ -1,6 +1,9 @@
 //! What the readers find in another browser's files, in the shape it comes in here: Spaces with
-//! their pinned tabs and folders, favorites and history, each in the profile it was kept in.
+//! their pinned tabs and folders, favorites and history, each in the profile it was kept in, and
+//! Arc's link rules.
 
+use super::extensions::Extension;
+use crate::link_rules::Condition;
 use crate::theme::Theme;
 
 /// The profile something was kept in, by its folder in the browser's user data.
@@ -64,6 +67,19 @@ pub struct Found {
     /// Each profile's favorites, in the browser's order.
     pub favorites: Vec<(FromProfile, Vec<Tab>)>,
     pub history: Vec<(FromProfile, Vec<Page>)>,
+    /// The Web Store extensions of every profile, once each, pinned if any profile pinned it.
+    pub extensions: Vec<Extension>,
+    /// Arc's Air Traffic Control rules, in its order.
+    pub link_rules: Vec<LinkRule>,
+}
+
+/// A link rule: links whose URL meets `condition` with `text` open in the Space at `space` among
+/// the found Spaces.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LinkRule {
+    pub condition: Condition,
+    pub text: String,
+    pub space: usize,
 }
 
 /// Whether a page at `url` can open here: another browser's own pages, such as `arc://` or

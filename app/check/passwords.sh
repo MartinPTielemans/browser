@@ -4,29 +4,59 @@
 # does. Japanese input composes in its username field, where return commits it without saving;
 # return saves the username as left in the field, and the login page fills the saved password in
 # after, with a key that opens the Site Controls. Chrome's dropdown under the username field fills
-# the login in again once the password is cleared. A changed password brings the offer to update it,
-# and escape there declines. On another site, Never answers, and that site's Site Controls list it
-# in a Passwords row whose menu takes it off Never. On the first site, the row names the login,
-# All Passwords… lists it in Settings, whose Remove asks first, and the row's Remove asks in the
-# browser window's dialog and removes it, which Settings hears. Each run has a profile of its own,
-# which no other run or the owner's copy reaches.
+# the login in again once the password is cleared. Blink's eye in the password field shows once a
+# password is typed into it, never for the one filled in, and goes with the field's focus. A
+# changed password brings the offer to update it, and escape there declines. On another site,
+# Never answers, and that site's Site Controls list it in a Passwords row whose menu takes it off
+# Never. On the first site, the row names the login, All Passwords… lists it in Settings, whose
+# Remove asks first and whose Manage Passwords… opens Chrome's page listing it, and the row's
+# Remove asks in the browser window's dialog and removes it, which Settings hears. Then a sign-up
+# form's new-password field offers Chrome's strong password, where Choose Your Own leaves the field
+# to the user and Use Strong Password fills it and saves it, with no offer. Last, Settings' Offer
+# to save passwords, switched off, keeps the next login from bringing the offer, and Save and fill
+# addresses switches off and on. Each run has a profile of its own, which no other run or the
+# owner's copy reaches.
 
-# The login page, in a new profile, whose passwords start empty.
+# The login page, in a new profile, whose passwords start empty, with a DevTools client that sees
+# the eye in its password field (check/cdp.py).
 serve
 log="$out/passwords.log"
+cdp_log="$out/passwords-cdp.log"
 step=0
 passwords_profile="$PWD/$out/passwords-profile"
+scratch=$(mktemp -d)
+mkfifo "$scratch/to-browser" "$scratch/from-browser" "$scratch/cdp"
+# Each end of a pipe waits for the other to open, in this order: the driver's, the browser's
+# DevTools pipe, then cdp.py's input.
 BROWSER_DRIVE=1 BROWSER_URL="${site}login.html" BROWSER_PROFILE_DIR="$passwords_profile" \
-  "$browser" < "$out/drive" > "$log" 2>&1 &
+  "$browser" --remote-debugging-pipe < "$out/drive" 3< "$scratch/to-browser" \
+  4> "$scratch/from-browser" > "$log" 2>&1 &
 pid=$!
+python3 -I -u check/cdp.py "$scratch/to-browser" "$scratch/from-browser" /login.html \
+  < "$scratch/cdp" > "$cdp_log" 2>&1 &
 exec 3> "$out/drive"
+exec 5> "$scratch/cdp"
 await_load
 await '^browser: title [0-9]* login$' || fail "the login page didn't draw"
 tab=$(today)
+# Asks cdp.py whether the eye in the password field shows until it says $1, for up to 10 s, as the
+# page takes keys and focus a moment after they're sent, or fails with $2.
+eye() {
+  for _ in $(seq 100); do
+    asked=$(grep -c '^cdp: reveal ' "$cdp_log" || true)
+    echo "reveal pass" >&5
+    for _ in $(seq 20); do
+      [ "$(grep -c '^cdp: reveal ' "$cdp_log" || true)" -gt "$asked" ] && break
+      sleep 0.05
+    done
+    [ "$(grep '^cdp: reveal ' "$cdp_log" | tail -1)" = "cdp: reveal $1" ] && return 0
+  done
+  fail "$2: cdp.py said $(grep '^cdp: ' "$cdp_log" | tail -1)"
+}
 # The username field, across the top of the page, and the password field under it.
 send click 600 60
 if [ "$active" != 1 ]; then
-  exec 3>&-
+  exec 3>&- 5>&-
   quit
   kill "$server"
   echo "skip: passwords. Browser wasn't the active app, so the page ignored the click."
@@ -173,10 +203,18 @@ expect "^browser: title $tab filled\$" "down didn't preview the saved login"
 sleep 0.6
 send key return
 expect "^browser: title $tab chosen\$" "Chrome's dropdown didn't fill the saved login in"
+# The password filled in shows no eye in its field, and one typed into the emptied field does,
+# until the field loses focus.
 send click 600 60
 send key tab
+eye hidden "the eye showed for the password filled in"
 send key a cmd
+send key backspace
 send type hunter3.check
+eye shown "the eye didn't show once a password was typed"
+../tools/window-screenshot.sh "$pid" "$out/password-reveal.png" || fail "no window to capture"
+send click 600 60
+eye hidden "the eye stayed once the password field lost focus"
 send key return
 offered update
 ../tools/window-screenshot.sh "$pid" "$out/password-update.png" || fail "no window to capture"
@@ -197,16 +235,18 @@ expect "^browser: offer $tab answered Never check@example.test\$" "Never didn't 
 expect '^browser: offer hidden$' "Never didn't hide the offer"
 
 # The Site Controls list the site set to Never in a Passwords row, whose menu takes it off Never at
-# once. With no extension pinned and no permission set, it's the row under ad blocking's, whose
-# middle is at y 262 (clear.sh measures the panel), its own 43 under it at y 305.
+# once. With no extension pinned and no permission set, it's the row under the ones the log lists
+# between its semicolons: ad blocking's, whose middle is at y 262 (clear.sh measures the panel), and
+# Developer Mode's on localhost, each 43 under the last.
 last_controls() { grep '^browser: site controls http' "$log" | tail -1; }
+passwords_y() { echo $((262 + 43 * $(last_controls | cut -d';' -f2 | tr ',' '\n' | grep -c .))); }
 controls="^browser: site controls http://localhost:$port: "
 bar_command site-controls "Site Controls" "site controls"
 expect "${controls}.*; passwords never localhost:$port\$" \
   "the Site Controls didn't list localhost as set to Never: $(last_controls)"
 expect '^browser: site controls settled$' "the Site Controls didn't open"
 ../tools/window-screenshot.sh "$pid" "$out/site-controls-never.png" || fail "no window to capture"
-post click 207 305
+post click 207 $(passwords_y)
 expect "^browser: menu shown $(cased 'Offer to Save Passwords, All Passwords…')\$" \
   "the Passwords row didn't offer to take localhost off Never"
 send choose "$(cased 'Offer to Save Passwords')"
@@ -219,8 +259,9 @@ send key escape
 expect '^browser: site controls hidden$' "escape didn't close the Site Controls"
 
 # On the first site the row names the saved login, and All Passwords… lists it in Settings, whose
-# Remove asks in an alert, where Cancel keeps it. With one profile there's no pop-up, so the first
-# login's row is the Shortcuts tab's first row, its Remove at the box's right.
+# Remove asks in an alert, where Cancel keeps it. With one profile there's no pop-up, so the box at
+# the top holds the profile's offers to save passwords, addresses and cards, where Save and fill
+# addresses switches off and on again. Settings logs where it draws each.
 go_from_bar "${site#http://}login.html"
 expect "^browser: title $tab filled\$" "the login page didn't fill the saved password in again"
 controls="^browser: site controls http://127.0.0.1:$port: "
@@ -230,7 +271,7 @@ expect "${controls}.*; passwords 127.0.0.1:$port check@example.test\$" \
 expect '^browser: site controls settled$' "the Site Controls didn't open on the first site"
 ../tools/window-screenshot.sh "$pid" "$out/site-controls-passwords.png" ||
   fail "no window to capture"
-post click 207 305
+post click 207 $(passwords_y)
 expect "^browser: menu shown $(cased 'Remove “check@example.test”…, All Passwords…')\$" \
   "the Passwords row didn't offer to remove the saved login"
 send choose "$(cased 'All Passwords…')"
@@ -239,13 +280,57 @@ expect '^browser: settings tab Passwords$' "All Passwords… didn't show Setting
 expect "^browser: passwords [0-9]*: 127.0.0.1:$port check@example.test\$" \
   "Settings didn't list the saved login alone: $(grep '^browser: passwords ' "$log" | tail -1)"
 ../tools/window-screenshot.sh "$pid" "$out/settings-passwords.png" || fail "no window to capture"
-post clickkey 574 159
-expect "^browser: alert shown Remove the password for “check@example.test” on 127.0.0.1:$port?\$" \
+post clickkey $(drawn "remove login 0")
+# Settings asks in an alert, and off the Mac, which has none, in its dialog, where escape cancels.
+# The dialog covers Settings, taking its keys, until it has gone.
+asks=alert
+[ "$(uname)" = Darwin ] || asks=dialog
+expect "^browser: $asks shown Remove the password for “check@example.test” on 127.0.0.1:$port?\$" \
   "Remove in Settings didn't ask first"
-send choose Cancel
+if [ "$asks" = dialog ]; then
+  expect '^browser: dialog settled$' "Settings' dialog didn't settle"
+  send key escape
+  expect '^browser: dialog hidden$' "escape didn't cancel Settings' dialog"
+else
+  send choose Cancel
+fi
 none_since '^browser: remove login' || fail "Cancel removed the login"
+send clickkey $(drawn "switch save and fill addresses")
+expect '^browser: save and fill addresses off$' "a click on Save and fill addresses didn't switch it off"
+send clickkey $(drawn "switch save and fill addresses")
+expect '^browser: save and fill addresses on$' "a second click didn't switch addresses back on"
+# Manage Passwords…, under the box of the login's row, opens Chrome's password manager page in a
+# new tab, where a search for the username finds the login. Its device check guards only Show,
+# Copy, a login's details and Export, which the run never asks for, so no prompt comes. ⌘W closes
+# it, and ⌘2 shows the login page's tab again, under the welcome page's.
+post clickkey $(drawn "manage passwords")
+expect '^browser: manage passwords [0-9]*$' "a click on Manage Passwords… didn't run it"
+expect '^browser: settings hidden$' "Manage Passwords… didn't hide Settings"
+await '^browser: loaded [0-9]* chrome://password-manager/passwords$' ||
+  fail "Manage Passwords… didn't open Chrome's password manager page"
+manager=$(grep '^browser: loaded [0-9]* chrome://password-manager/passwords$' "$log" | tail -1 |
+  cut -d' ' -f3)
+[ "$manager" != "$tab" ] || fail "Manage Passwords… opened Chrome's page in the login's tab"
+go_from_bar 'chrome://password-manager/passwords?q=check@example.test'
+await "^browser: loaded $manager chrome://password-manager/passwords?q=check\(@\|%40\)example.test\$" ||
+  fail "Chrome's password manager page didn't search for the login"
+# Asks cdp.py, for up to 10 s, until the page has drawn its list.
+for _ in $(seq 100); do
+  asked=$(grep -c '^cdp: shows ' "$cdp_log" || true)
+  echo "shows chrome://password-manager/ check@example.test" >&5
+  for _ in $(seq 20); do
+    [ "$(grep -c '^cdp: shows ' "$cdp_log" || true)" -gt "$asked" ] && break
+    sleep 0.05
+  done
+  [ "$(grep '^cdp: shows ' "$cdp_log" | tail -1)" = "cdp: shows yes" ] && break
+done
+[ "$(grep '^cdp: shows ' "$cdp_log" | tail -1)" = "cdp: shows yes" ] ||
+  fail "Chrome's password manager page didn't list the login: cdp.py said $(tail -1 "$cdp_log")"
+../tools/window-screenshot.sh "$pid" "$out/password-manager.png" || fail "no window to capture"
 send key w cmd
-expect '^browser: settings hidden$' "⌘W didn't hide Settings"
+expect "^browser: tab $manager closed\$" "⌘W didn't close Chrome's password manager page"
+send key 2 cmd
+expect "^browser: selected $tab\( in .*\)\{0,1\}\$" "⌘2 didn't show the login's tab again"
 
 # The row's Remove closes the panel and asks in the browser window's dialog, where return removes
 # the login, and Settings, which asked for the logins, hears that it's gone. A click on the page
@@ -253,7 +338,7 @@ expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 send click $page_point
 bar_command site-controls "Site Controls" "site controls"
 expect '^browser: site controls settled$' "the Site Controls didn't open again"
-post click 207 305
+post click 207 $(passwords_y)
 expect "^browser: menu shown $(cased 'Remove “check@example.test”…, All Passwords…')\$" \
   "the Passwords row didn't offer to remove the saved login again"
 send choose 'Remove “check@example.test”…'
@@ -266,6 +351,76 @@ send key return
 expect "^browser: remove login [0-9]* 127.0.0.1:$port check@example.test\$" \
   "return didn't remove the login"
 expect "^browser: passwords [0-9]*: none\$" "Settings didn't hear the login was removed"
-exec 3>&-
+
+# With no login saved for the site, Chrome's popup in a sign-up form's new-password field offers
+# Choose Your Own and Use Strong Password, and previews its password in the field. Down selects
+# Choose Your Own, whose return leaves the field to the user. On the page again, down twice selects
+# Use Strong Password, whose return fills the password in; Chrome saves it in the profile, which
+# Settings hears, and the sign-up brings no offer to save it. Made-up usernames only.
+# Loads the sign-up page and types username $1, then tab takes the keyboard to the password field,
+# where down brings the popup: Chrome's desktop Autofill opens on a click, typing or an arrow key in
+# a field, not on focus from the keyboard.
+generation_offered() {
+  go_from_bar "${site#http://}signup.html"
+  expect "^browser: title $tab signup\$" "the sign-up page didn't load"
+  send click 600 60
+  send type "$1"
+  send key tab
+  send key down
+  expect "^browser: title $tab offered\$" "Chrome's popup didn't offer a password to the field"
+}
+generation_offered own@example.test
+../tools/window-screenshot.sh "$pid" "$out/password-generation.png" || fail "no window to capture"
+send key down
+send key return
+expect "^browser: title $tab own\$" "Choose Your Own didn't leave the password field to the user"
+generation_offered new@example.test
+send key down
+send key down
+send key return
+expect "^browser: title $tab generated\$" "Use Strong Password didn't fill a password in"
+await "^browser: passwords [0-9]*: 127.0.0.1:$port new@example.test\$" ||
+  fail "Settings didn't hear the save: $(grep '^browser: passwords ' "$log" | tail -1)"
+send click 600 60
+send key return
+expect "^browser: title $tab welcome\$" "the sign-up didn't go through"
+none_since "^browser: offer $tab " || fail "the generated password brought an offer to save it"
+
+# Chrome offers a strong password only while Offer to save passwords is on, so it switches off last,
+# in Settings' Passwords tab, which the Site Controls show again from the generated login's row.
+bar_command site-controls "Site Controls" "site controls"
+expect "${controls}.*; passwords 127.0.0.1:$port new@example.test\$" \
+  "the Site Controls didn't list the generated login: $(last_controls)"
+expect '^browser: site controls settled$' "the Site Controls didn't open after the sign-up"
+post click 207 $(passwords_y)
+expect "^browser: menu shown $(cased 'Remove “new@example.test”…, All Passwords…')\$" \
+  "the Passwords row didn't offer to remove the generated login"
+send choose "$(cased 'All Passwords…')"
+expect '^browser: site controls run passwords$' "All Passwords… didn't run again"
+expect '^browser: settings shown Passwords$' "All Passwords… didn't show Settings' Passwords tab again"
+send clickkey $(drawn "switch offer to save passwords")
+expect '^browser: offer to save passwords off$' "a click on Offer to save passwords didn't switch it off"
+../tools/window-screenshot.sh "$pid" "$out/settings-passwords-off.png" || fail "no window to capture"
+send key w cmd
+expect '^browser: settings hidden$' "⌘W didn't hide Settings"
+
+# Switched off, the profile doesn't offer to save the next login. The page it posts to loading, and
+# the command bar opening and closing, take longer than the core reporting an offer. A click on the
+# page gives the browser window the keyboard back from Settings.
+send click $page_point
+go_from_bar "${site#http://}login.html"
+expect "^browser: title $tab login\$" "the login page didn't load after the sign-up"
+send click 600 60
+off=$step
+log_in hunter2.off
+expect "^browser: title $tab welcome\$" "the login didn't post"
+send key l cmd
+expect '^browser: command bar shown$' "⌘L didn't open the command bar"
+send key escape
+expect '^browser: command bar hidden$' "escape didn't close the command bar"
+sed -n "/^browser: drive $off: /,\$p" "$log" | grep -q "^browser: offer $tab " &&
+  fail "the login brought an offer with Offer to save passwords off"
+exec 3>&- 5>&-
 quit
-echo "ok: a submitted login offers to save its password in a card 18 from the page's top right, through a resize; another tab closes it, and the key after the host brings it back; Japanese input composes in its username field and return commits it without saving; return saves the username as left, and the login page fills the saved password in, with a key that opens the Site Controls, and Chrome's dropdown fills it in again; a changed password offers to update it, which escape declines; and Never answers on another site, whose Site Controls take it off Never; the first site's Site Controls name its login, All Passwords… lists it in Settings, where Remove asks and Cancel keeps it, and the row's Remove asks in the dialog and removes it, which Settings hears. Windows: $out/password-offer.png, $out/password-key.png, $out/password-fill.png, $out/password-offer-ime.png, $out/password-update.png, $out/site-controls-never.png, $out/site-controls-passwords.png, $out/settings-passwords.png, $out/password-remove.png"
+rm -rf "$scratch"
+echo "ok: a submitted login offers to save its password in a card 18 from the page's top right, through a resize; another tab closes it, and the key after the host brings it back; Japanese input composes in its username field and return commits it without saving; return saves the username as left, and the login page fills the saved password in, with a key that opens the Site Controls, and Chrome's dropdown fills it in again; the eye shows in the password field once one is typed, never for the one filled in, and goes with the field's focus; a changed password offers to update it, which escape declines; and Never answers on another site, whose Site Controls take it off Never; the first site's Site Controls name its login, All Passwords… lists it in Settings, where Remove asks and Cancel keeps it and Manage Passwords… opens Chrome's password manager page listing it, and the row's Remove asks in the dialog and removes it, which Settings hears; a sign-up form offers Chrome's strong password, which Choose Your Own leaves to the user and Use Strong Password fills in and saves, with no offer; and Settings' Offer to save passwords switched off keeps the next login from bringing an offer, and Save and fill addresses switches off and on. Windows: $out/password-offer.png, $out/password-key.png, $out/password-fill.png, $out/password-reveal.png, $out/password-offer-ime.png, $out/password-update.png, $out/site-controls-never.png, $out/site-controls-passwords.png, $out/settings-passwords.png, $out/password-manager.png, $out/password-remove.png, $out/password-generation.png, $out/settings-passwords-off.png"

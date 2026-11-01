@@ -4,6 +4,7 @@
 
 import("//build/config/sanitizers/sanitizers.gni")
 import("//mojo/public/tools/bindings/mojom.gni")
+import("//testing/test.gni")
 
 # What a page tells the core about the key system it asks for. Blink's encrypted media module calls
 # it (engine/patches/ours/chromium-drm-request.patch), so it has a Blink variant.
@@ -20,6 +21,21 @@ source_set("error_page") {
     "error_page.h",
   ]
   deps = [ "//base" ]
+}
+
+# What keeps DuckDuckGo a profile's default and not its choice, apart from the browser's code so its
+# test links without the browser.
+source_set("search_default") {
+  sources = [
+    "search_default.cc",
+    "search_default.h",
+  ]
+  deps = [
+    "//base",
+    "//components/pref_registry",
+    "//components/prefs",
+    "//components/search_engines",
+  ]
 }
 
 config("exports") {
@@ -64,14 +80,20 @@ source_set("browser_core") {
     "archive.h",
     "auto_archive.cc",
     "auto_archive.h",
+    "autofill_data.cc",
+    "autofill_data.h",
     "browser_window_stand_in.cc",
     "browser_window_stand_in.h",
     "capture.cc",
     "capture.h",
+    "cast_dialog.cc",
+    "cast_dialog.h",
     "clear_site.cc",
     "clear_site.h",
     "crash_reports.cc",
     "crash_reports.h",
+    "developer_mode.cc",
+    "developer_mode.h",
     "downloads.cc",
     "downloads.h",
     "drm_request.cc",
@@ -84,6 +106,8 @@ source_set("browser_core") {
     "favorites.h",
     "find.cc",
     "find.h",
+    "held_keys.cc",
+    "held_keys.h",
     "hooks.h",
     "history_import.cc",
     "history_import.h",
@@ -100,6 +124,10 @@ source_set("browser_core") {
     "link_target.h",
     "main_delegate.cc",
     "main_delegate.h",
+    "mini_player.cc",
+    "mini_player.h",
+    "notes.cc",
+    "notes.h",
     "open_app_dialog.cc",
     "open_app_dialog.h",
     "page_menu.cc",
@@ -145,6 +173,7 @@ source_set("browser_core") {
     "system_engine.h",
     "tab.cc",
     "tab.h",
+    "trace.cc",
     "widevine.cc",
     "widevine.h",
     "window.cc",
@@ -153,6 +182,7 @@ source_set("browser_core") {
 
   deps = [
     ":drm_request",
+    ":search_default",
     "//base",
     "//base:i18n",
     "//chrome/app:command_ids",
@@ -173,12 +203,17 @@ source_set("browser_core") {
     "//chrome/browser:icon_manager",
     "//chrome/browser/lifetime",
     "//chrome/browser/lifetime:termination_notification",
+    "//chrome/browser/media/router",
+    "//chrome/browser/media/router:media_router_feature",
+    "//chrome/browser/media/webrtc",
     "//chrome/browser/password_manager/factories",
     "//chrome/browser/performance_manager",
+    "//chrome/browser/picture_in_picture",
     "//chrome/browser/profiles",
     "//chrome/browser/profiles:profile",
     "//chrome/browser/profiles/keep_alive",
     "//chrome/browser/resource_coordinator:mojo_bindings",
+    "//chrome/browser/autofill",
     "//chrome/browser/search_engines",
     "//chrome/browser/ui",
     "//chrome/browser/ui:browser_tabrestore",
@@ -194,11 +229,14 @@ source_set("browser_core") {
     "//chrome/browser/ui/location_bar",
     "//chrome/browser/ui/login",
     "//chrome/browser/ui/page_action",
+    "//chrome/browser/ui/media_router",
+    "//chrome/browser/ui/media_router:impl",
     "//chrome/browser/ui/page_info",
     "//chrome/browser/ui/passwords",
     "//chrome/browser/ui/passwords/bubble_controllers",
     "//chrome/browser/ui/side_panel",
     "//chrome/browser/ui/side_panel:side_panel_views_dependent",
+    "//chrome/browser/ui/tab_sharing",
     "//chrome/browser/ui/tabs:tabs_public",
     "//chrome/browser/ui/tabs:utils",
     "//chrome/browser/ui/views:bubble_anchor_util_views",
@@ -206,6 +244,7 @@ source_set("browser_core") {
     "//chrome/browser/ui/views/extensions:extension_popup",
     "//chrome/browser/ui/views/eye_dropper",
     "//chrome/browser/ui/views/interaction:impl",
+    "//chrome/browser/ui/views/overlay",
     "//chrome/common",
     "//chrome/common/profiler",
     "//components/autofill/content/browser",
@@ -213,6 +252,7 @@ source_set("browser_core") {
     "//components/component_updater",
     "//components/content_settings/core/browser",
     "//components/crash/core/app",
+    "//components/crash/core/common",
     "//components/content_settings/core/common",
     "//components/download/content/public",
     "//components/download/public/common:public",
@@ -221,8 +261,12 @@ source_set("browser_core") {
     "//components/favicon/core",
     "//components/favicon_base",
     "//components/history/core/browser",
+    "//components/infobars/content",
+    "//components/infobars/core",
     "//components/javascript_dialogs",
     "//components/keyed_service/core",
+    "//components/media_router/browser",
+    "//components/media_router/common",
     "//components/find_in_page",
     "//components/input",
     "//components/keep_alive_registry",
@@ -269,6 +313,7 @@ source_set("browser_core") {
     "//third_party/widevine/cdm:buildflags",
     "//ui/accessibility",
     "//ui/base",
+    "//ui/content_accelerators",
     "//ui/display",
     "//ui/events:dom_keycode_converter",
     "//ui/events:events_base",
@@ -374,4 +419,21 @@ source_set("browser_core") {
     configs += [ "//ui/events/ozone/layout:xkbcommon" ]
     all_dependent_configs = [ ":linux_exports" ]
   }
+}
+
+# The core's tests that run without the browser. engine/linux/build.sh builds them, and the Linux
+# engine's run runs them.
+test("browser_core_unittests") {
+  sources = [ "search_default_unittest.cc" ]
+  deps = [
+    ":search_default",
+    "//base",
+    "//base/test:run_all_unittests",
+    "//base/test:test_support",
+    "//components/search_engines",
+    "//components/search_engines:test_support",
+    "//components/sync_preferences:test_support",
+    "//components/variations:test_support",
+    "//testing/gtest",
+  ]
 }

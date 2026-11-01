@@ -248,10 +248,10 @@ class Follower : public extensions::ExtensionRegistryObserver {
       return;
     }
     if (extension->location() != extensions::mojom::ManifestLocation::kCommandLine) {
-      // It reloads itself as it first starts in a profile, and when the user restores or resets its
-      // settings. Chrome loads it back as one from its extensions page, which its policy turns off
-      // while developer mode is, so it would block nothing until the next launch. Not inside the
-      // registry's notification.
+      // It reloads itself when the user restores or resets its settings (app/fetch-ublock.sh takes
+      // out the reload as it first starts). Chrome loads it back as one from its extensions page,
+      // which its policy turns off while developer mode is, so it would block nothing until the
+      // next launch. Not inside the registry's notification.
       reloaded_ = true;
       base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE, base::BindOnce(&Follower::LoadAgain, weak_factory_.GetWeakPtr()));

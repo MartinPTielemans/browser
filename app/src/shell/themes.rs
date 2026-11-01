@@ -144,6 +144,11 @@ impl Shell {
             self.browser.set_window_light(light, cx);
             log!("browser: window light {light}");
         }
+        let look = self.menu_look();
+        if self.capture_look != Some(look) {
+            self.capture_look = Some(look);
+            self.browser.capture_look(self.selected, look, cx);
+        }
         if cx.try_global::<super::commands::ShellHandle>().is_some_and(|key| key.0 == cx.weak_entity()) {
             palette::set_current(palette, cx);
         }
@@ -168,6 +173,8 @@ impl Shell {
             shell.update(cx, |shell, cx| shell.theme_changed(space, theme, done, cx)).ok();
         });
         let height = f32::from(self.viewport.height);
+        // A card showing would stay under the picker, as rows' cards wait while it shows.
+        self.browser.hover_card(crate::hover_card::Hover::Close, cx);
         theme_picker::show(space, theme, anchor, height, changed, cx);
     }
 

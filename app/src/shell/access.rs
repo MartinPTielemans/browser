@@ -46,6 +46,10 @@ impl Shell {
         let states = [
             (page.audible && !page.muted, "playing audio"),
             (page.muted, "muted"),
+            (page.camera, "using the camera"),
+            (page.microphone, "using the microphone"),
+            (page.sharing, "sharing"),
+            (page.shared, "being shared"),
             (self.agent_at_work(tab), "agent working"),
             (page.loading, "loading"),
             (page.unloaded, "unloaded"),
@@ -207,6 +211,7 @@ mod tests {
         let folders = Folders {
             folders: [(9, ("Work".into(), false))].into(),
             parents: [(10, 9)].into(),
+            ..Default::default()
         };
         shell.update(cx, |shell, cx| {
             let space = (1, "Home".into(), None, 1, "".into(), "".into(), "".into());
@@ -290,6 +295,26 @@ mod tests {
         assert!(at("New Tab") < at("Today"), "{order:?}");
     }
 
+    /// A tab in a call says what it's capturing, as its row's mark shows it, and the mark it
+    /// shows is the share's while it shares, the camera's over the microphone's.
+    #[gpui::test]
+    fn a_tab_in_a_call_says_what_it_captures(cx: &mut TestAppContext) {
+        let (shell, cx, _) = shell(cx, 2);
+        let call = Page { camera: true, microphone: true, ..Page::default() };
+        shell.update(cx, |shell, cx| shell.set_page(6, call.clone(), cx));
+        cx.run_until_parked();
+        cx.simulate_a11y_activation();
+        let tree = Tree::read(cx);
+        tree.named(Role::Tab, "Search, using the camera, using the microphone");
+
+        let glyph = |page: Page| super::super::rows::capture_glyph(&page);
+        assert_eq!(glyph(Page::default()), None);
+        assert_eq!(glyph(Page { microphone: true, ..Page::default() }), Some("icons/mic.svg"));
+        assert_eq!(glyph(call.clone()), Some("icons/video.svg"));
+        let sharing = Page { sharing: true, ..call };
+        assert_eq!(glyph(sharing), Some("icons/screen-share.svg"));
+    }
+
     /// VoiceOver's press shows a tab, opens a folder, and VO-Shift-M shows a row's menu, as the
     /// mouse's do.
     #[gpui::test]
@@ -322,7 +347,7 @@ mod tests {
         assert!(back.is_disabled());
         let (_, sidebar) = tree.named(Role::Button, "Hide Sidebar");
         assert!(!sidebar.is_disabled() && sidebar.supports_action(Action::Click));
-        let (_, plus) = tree.named(Role::Button, "New Space or Folder");
+        let (_, plus) = tree.named(Role::Button, "New Space, Folder or Note");
         assert!(plus.supports_action(Action::Click));
         tree.named(Role::Button, "View Library");
         tree.named(Role::Button, "New Tab");

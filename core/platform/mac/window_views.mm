@@ -305,6 +305,10 @@ void ShowPages(views::Widget* widget,
 
 void HoldPagesForResize(views::Widget*) {}
 
+bool PagesHeldForResize(views::Widget*) {
+  return false;
+}
+
 void HidePages(views::Widget* widget) {
   BrowserCoreWindowView* view = WindowView(widget);
   for (BrowserCorePane* pane in view.panes) {
@@ -314,7 +318,11 @@ void HidePages(views::Widget* widget) {
   view.sidePanel.page.hidden = YES;
 }
 
-void ShowPageIn(gfx::NativeView page, void* view, const gfx::Rect& frame, double corner_radius) {
+void ShowPageIn(views::Widget*,
+                gfx::NativeView page,
+                void* view,
+                const gfx::Rect& frame,
+                double corner_radius) {
   NSView* holder = (__bridge NSView*)view;
   NSView* page_view = page.GetNativeNSView();
   if (!holder || !page_view) {
@@ -331,6 +339,11 @@ void ShowPageIn(gfx::NativeView page, void* view, const gfx::Rect& frame, double
   }
   page_view.frame = rect;
   UpdateOcclusion(holder.window);
+}
+
+bool PageDialogsInOwnWindow() {
+  // A child NSWindow either way.
+  return false;
 }
 
 bool KeyboardForPage(views::Widget* widget) {

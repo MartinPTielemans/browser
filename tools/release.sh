@@ -5,8 +5,6 @@
 # The notarytool profile is NOTARY_PROFILE, else "notary" (xcrun notarytool store-credentials
 # notary). Without it the app is signed and packed but not notarized, and the run fails.
 # SIGN_IDENTITY=- signs ad hoc, to try the signing without the key; it stops before the DMG.
-# A build that names a crash collector (app/branding/crash-reports) uploads its symbols there at the
-# end, with tools/symbols.sh, which says what it needs.
 # Usage: SIGN_IDENTITY="Developer ID Application: … (TEAMID)" tools/release.sh
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../app" && pwd)"
@@ -64,7 +62,10 @@ if [ -d "$sparkle" ]; then
   sign "$sparkle/Versions/B/Updater.app"
   sign "$sparkle"
 fi
-sign --entitlements "$root/entitlements/app.plist" "$app"
+# The team's requirement, as tools/install.sh signs the owner's copy, so either reads the other's
+# Keychain items.
+requirement=$("$(dirname "$0")/requirement.sh" "$(cat "$root/branding/id")" "$identity")
+sign --entitlements "$root/entitlements/app.plist" ${requirement:+"-r=$requirement"} "$app"
 codesign --verify --deep --strict --verbose=2 "$app"
 [ "$identity" = - ] && exit 0
 
@@ -107,8 +108,4 @@ xcrun stapler staple "$dmg"
 spctl -a -t exec -vv "$app"
 spctl -a -t open --context context:primary-signature -vv "$dmg"
 
-# Without them the collector has addresses and no functions. The Release engine writes the
-# framework's and helpers' dSYMs beside Chromium.app; the app's executable keeps its symbol table.
-engine_out=$(dirname "$(cd "$root/.deps/Chromium.app" && pwd -P)")
-"$(dirname "$0")/symbols.sh" "$engine_out"/*.dSYM "$app/Contents/MacOS/Browser"
 echo "$dmg"

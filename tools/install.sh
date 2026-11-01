@@ -2,7 +2,8 @@
 # Installs the copy `app/build.sh prod` made, as /Applications/<name>.app or in the folder named,
 # signed with the first code-signing identity in the Keychain, else ad hoc. macOS lets an app read
 # its Keychain items while its signature stays alike, so signed with an identity it asks for the
-# cookie key once, and ad hoc after every update. Run it again to update; the profile, in
+# cookie key once, and ad hoc after every update. An identity Apple issued signs it with the
+# team's requirement (requirement.sh), which a release's Developer ID meets too. Run it again to update; the profile, in
 # Application Support, stays.
 # Usage: tools/install.sh [folder]
 set -e
@@ -24,4 +25,7 @@ identity=${SIGN_IDENTITY:-$(security find-identity -v -p codesigning |
 rm -rf "$to/$name.app"
 ditto "$app" "$to/$name.app"
 codesign --force --deep --sign "${identity:--}" "$to/$name.app"
+# The app alone again, with the team's requirement, which --deep would give every helper too.
+requirement=$("$(dirname "$0")/requirement.sh" "$(cat "$root/branding/id")" "${identity:--}")
+[ -z "$requirement" ] || codesign --force --sign "$identity" -r="$requirement" "$to/$name.app"
 echo "open $to/$name.app"

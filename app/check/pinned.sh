@@ -1,21 +1,30 @@
 # ⌘D pins the tab shown, from the page and from the UI, at the bottom of the pinned tabs, and unpins
-# it to the top of Today. ⌘1–⌘9 count the pinned tabs first. ⌘W, the ✕ under the pointer, which is
-# − on the tab shown, or a middle-click on its row, unloads a pinned tab and keeps its row, which
-# has no ✕ then, and shows the top Today tab, else the nearest pinned tab still loaded, else no
-# page, as closing the last Today tab does. Shown again, the tab loads. A link in its page takes it
-# away from its pinned URL, and ⌘↩ from the page and the UI, and a click on its favicon, go back
-# there. An address typed into it opens in a Today tab of its own, as in Arc, and closing that shows
-# the pinned tab again. Launched again, the app brings back the pinned tab pinned and
-# away from its pinned URL, without loading it. Dragging a row moves its tab in the pinned tabs,
-# pins it and unpins it, without showing it, and escape puts it back. New Folder makes a folder
-# under the pinned tabs, which takes the name typed. A row dragged right under it goes in and
-# dragged left comes out, a folder drags as a row, and a click closes and opens it. Launched again,
-# the app brings it back closed, a double-click renames it, and Delete Folder in its menu leaves its
-# tab where it was. Links and files dragged onto the list from the page or another app open as tabs
-# where the pointer lets go, and dragged text that isn't a web link doesn't. A split made with a
-# pinned tab is pinned. Away from its pinned URL, Pinned URL › Replace Pinned URL with Current and
-# Edit… change its pinned URL, which ⌘Z gives back, and ⌘-click on its favicon goes back keeping
-# the page in a new tab.
+# it to the top of Today. ⌘1–⌘9 count the pinned tabs first. ⌘W, the ✕ under the pointer, which is −
+# on the tab shown, or a middle-click on its row, unloads a pinned tab and keeps its row, which has
+# no ✕ then, and shows the top Today tab, else the nearest pinned tab still loaded, else no page, as
+# closing the last Today tab does. Shown again, the tab loads. A link in its page takes it away from
+# its pinned URL, and ⌘↩ from the page and the UI, and a click on its favicon, go back there. An
+# address typed into it opens in a Today tab of its own, as in Arc, and closing that shows the
+# pinned tab again. Launched again, the app brings back the pinned tab pinned and away from its
+# pinned URL, without loading it. Dragging a row moves its tab in the pinned tabs, pins it and
+# unpins it, without showing it, and escape puts it back. New Folder makes a folder under the pinned
+# tabs, which takes the name typed, as New Folder… in the sidebar's empty space does, and a tab's
+# Add to Folder › moves it into a folder or a new one in its place, named for its site, each one
+# step for ⌘Z. A row dragged right under it goes in and dragged left comes out,
+# a folder drags as a row, a click closes and opens it, and closed, it previews its tab, which the
+# keyboard shows. Launched again, the app brings it back closed and a double-click renames it. In
+# its menu, Copy All Links is Copy All Links as Markdown with ⌥ held and Change Icon… gives it an
+# emoji. Settings' Export… writes it and its tab as Markdown links, and Delete Folder in its menu
+# leaves its tab where it was. Links and files dragged onto the list from the page or another app open as
+# tabs where the pointer lets go, and dragged text that isn't a link opens a search for it there,
+# but a link that isn't a web link doesn't open. A split made with a pinned tab is pinned. Away from
+# its pinned URL, Pinned URL › Replace Pinned URL with Current and Edit… change its pinned URL,
+# which ⌘Z gives back, and ⌘-click on its favicon goes back keeping the page in a new tab. Export
+# Space as Markdown… saves the Space's folders, pinned tabs and Today tabs as a list of links. The
+# chevron after the Space's name collapses the pinned rows but the tab shown's, which the tabs'
+# order then skips, and the command bar and the View menu expand and collapse them. Launched again,
+# the app brings them back collapsed. Focus Sidebar rings the tab shown's row, whose ring the arrows
+# move past the collapsed rows and return shows, and a key in the page or escape ends it.
 
 # Pinned tabs, from the served page, whose favicon fades once its tab is unloaded.
 serve
@@ -70,14 +79,16 @@ send press $today_top
 none_since '^browser: detent$' || fail "pressing a row clicked the trackpad"
 send dragto 100 270
 send dragto 100 230
-send dragto 100 200
+# Between the pinned rows, as a rest on a row's middle would join that tab in a split view, and the
+# capture takes longer than that rest.
+send dragto 100 175
 ../tools/window-screenshot.sh "$pid" "$out/drag.png" || fail "no window to capture"
 none_since '^browser: dragged' || fail "a row dropped before the pointer let go"
 [ "$(detents)" -gt "$clicks" ] || fail "a row dragged up past the pinned rows didn't click"
 # Holding the row at its place doesn't click again, nor does letting go.
-send dragto 100 201
+send dragto 100 176
 none_since '^browser: detent$' || fail "a row held at its place clicked again"
-send release 100 200
+send release 100 175
 none_since '^browser: detent$' || fail "letting go of a row clicked the trackpad"
 expect "^browser: dragged $b to pinned 1\$" "a drag of the Today tab up didn't pin it"
 expect_lists "$a $b $c" " *" "after dragging the Today tab into the pinned tabs"
@@ -183,8 +194,24 @@ expect "^browser: loaded $c $site\$" "the unloaded pinned tab didn't load once s
 # The served page's link, 200 by 40 points, 100 in from the card's top left, which is 228 and 10 in
 # from the window's (site.sh).
 link_point="430 130"
+# The pointer on the link, once the page takes it. Chromium drops a page's input until it has drawn,
+# which a software renderer does well after the page has loaded, so it moves until the page reports
+# the link under it. Each try comes from off the link: a page reports a link only as the pointer
+# reaches it, and one shown again under a pointer already there doesn't.
+on_link() {
+  local at
+  at=$(wc -l < "$log")
+  for i in $(seq 50); do
+    send move 600 400
+    send move $((430 + i % 2)) 130
+    tail -n "+$((at + 1))" "$log" | grep -q "^browser: link target ${site}notes.txt\$" && return 0
+    sleep 0.1
+  done
+  fail "the pointer on the pinned tab's link reported no address"
+}
 # Away from it by its page's link.
 link_away() {
+  on_link
   send click $link_point
   expect "^browser: loaded $c ${site}notes.txt\$" "the page's link didn't load in the pinned tab"
   expect "^browser: page $c away 1\$" "a pinned tab at another page didn't read as away from its pinned URL"
@@ -204,12 +231,13 @@ link_away_and_back() {
 }
 link_away_and_back page
 link_away_and_back ui
-# A split made with a pinned tab is pinned, as Arc keeps one made in Pinned: ⌥⇧-click on its
+# A split made with a pinned tab is pinned, as Arc keeps one made in Pinned: ⌥-click on its
 # page's link opens the link in a pane beside it, which joins the pinned tabs as one row. Separate
 # All Pages ends it, and ⌘D and ⌘W take the pane's tab out again.
-send click $link_point alt shift
+on_link
+send click $link_point alt
 expect "^browser: splits $c+[0-9][0-9]*\$" \
-  "⌥⇧-click on the pinned tab's link didn't open it beside the page: $(grep '^browser: splits' "$log" | tail -1)"
+  "⌥-click on the pinned tab's link didn't open it beside the page: $(grep '^browser: splits' "$log" | tail -1)"
 n=$(grep '^browser: splits' "$log" | tail -1 | sed 's/.*+//')
 expect "^browser: pinned $c $n\$" "the pane beside the pinned tab isn't pinned: the pinned tabs are \"$(pinned)\""
 expect "^browser: today $a\$" "the pane beside the pinned tab went into Today: Today is \"$(today)\""
@@ -224,6 +252,8 @@ send key d cmd
 expect_lists "$c" "$n $a" "after ⌘D on the pinned split's pane"
 send key w cmd
 expect "^browser: tab $n closed\$" "⌘W didn't close the pinned split's pane"
+# The next click waits for the tab ⌘W shows, which would otherwise come after it.
+expect "^browser: selected $a\$" "⌘W on the pinned split's pane didn't show the top Today tab"
 send click $(pinned_row 0)
 expect "^browser: selected $c in " "a click on the pinned tab didn't show it"
 # Away from its pinned URL, the menu's Pinned URL › Replace Pinned URL with Current makes the page
@@ -231,7 +261,7 @@ expect "^browser: selected $c in " "a click on the pinned tab didn't show it"
 # in a field in its row, which takes a URL typed over it, and ⌘Z takes that back too (Arc).
 link_away
 post rightclick $(pinned_row 0)
-expect "^browser: menu shown $(cased 'Unpin Tab, Add to Favorites, Back to Pinned URL, Pinned URL › Replace Pinned URL with Current, Pinned URL › Edit…, Rename Tab, Change Icon…, Duplicate Tab, Move to Space (disabled), Close Tab')\$" \
+expect "^browser: menu shown $(cased 'Unpin Tab, Add to Favorites, Back to Pinned URL, Pinned URL › Replace Pinned URL with Current, Pinned URL › Edit…, Rename Tab, Change Icon…, Duplicate Tab, Add to Folder › New Folder, Move to Space (disabled), Close Tab')\$" \
   "a right-click on the pinned tab away from its pinned URL didn't show its Pinned URL submenu"
 expect '^browser: menu window at ' "the menu didn't take the keyboard"
 send key p
@@ -253,7 +283,7 @@ expect "^browser: page $c away 0\$" "⇧⌘Z didn't replace the pinned URL again
 send key z cmd
 expect "^browser: page $c away 1\$" "⌘Z didn't give the pinned tab back its pinned URL again"
 post rightclick $(pinned_row 0)
-expect "^browser: menu shown $(cased 'Unpin Tab, Add to Favorites, Back to Pinned URL, Pinned URL › Replace Pinned URL with Current, Pinned URL › Edit…, Rename Tab, Change Icon…, Duplicate Tab, Move to Space (disabled), Close Tab')\$" "a right-click on the pinned tab didn't show its menu"
+expect "^browser: menu shown $(cased 'Unpin Tab, Add to Favorites, Back to Pinned URL, Pinned URL › Replace Pinned URL with Current, Pinned URL › Edit…, Rename Tab, Change Icon…, Duplicate Tab, Add to Folder › New Folder, Move to Space (disabled), Close Tab')\$" "a right-click on the pinned tab didn't show its menu"
 send choose "$(cased 'Pinned URL › Edit…')"
 expect "^browser: edit pinned url $c\$" "Edit… didn't show the pinned URL in a field"
 send type "${site}notes.txt"
@@ -285,6 +315,7 @@ back=$(sed -n "$since,\$p" "$log" | grep -n "^browser: loaded $c $site\$" | head
 expect "^browser: selected $k\( in .*\)\{0,1\}\$" "the copy the ⌘-click kept didn't show"
 send key w cmd
 expect "^browser: tab $k closed\$" "⌘W didn't close the copy the ⌘-click kept"
+expect "^browser: selected $a\$" "⌘W on the copy the ⌘-click kept didn't show the top Today tab"
 send click $(pinned_row 0)
 expect "^browser: selected $c in " "a click on the pinned tab didn't show it"
 # An address typed into it opens in a tab it opened, at the top of Today, shown, and the pinned tab
@@ -316,7 +347,8 @@ exited
 # URL. A click on its favicon goes back there and shows it.
 log="$out/pinned-restored.log"
 step=0
-BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
+rm -f "$out/space.md"
+BROWSER_DRIVE=1 BROWSER_EXPORT_FILE="$out/space.md" "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await '^browser: restored in ' || fail "the relaunch didn't restore the Space"
@@ -427,36 +459,128 @@ send click $(pinned_row 0)
 expect "^browser: outline $f+\\[$c\\]\$" "a click on the closed folder didn't open it: $(outline)"
 settled
 recorded
+# A right-click on the sidebar's empty space offers New Folder… after New Tab, which makes a folder
+# as the Tabs menu's does (#1088).
+post rightclick 100 500
+expect "^browser: menu shown $(cased 'New Tab, New Folder…'), " \
+  "a right-click on the sidebar's empty space didn't offer New Folder… after New Tab"
+../tools/window-screenshot.sh "$pid" "$out/empty-space-menu.png" || fail "no window to capture"
+send choose "$(cased 'New Folder…')"
+expect '^browser: command new-folder via sidebar$' \
+  "New Folder… in the empty space's menu didn't run"
+expect '^browser: rename folder [0-9]*$' "New Folder… from the empty space gave no name field"
+g=$(grep '^browser: rename folder' "$log" | tail -1 | cut -d' ' -f4)
+expect "^browser: outline $f+\\[$c\\] $g+\\[\\]\$" \
+  "New Folder… from the empty space didn't make a folder at the bottom: $(outline)"
+send type read
+send key return
+expect "^browser: renamed folder $g read\$" "the folder from the empty space didn't take its name"
+# A name moves no row, so there's nothing to wait for.
+# A tab's menu has Add to Folder ›: New Folder, then the Space's folders. A folder takes the tab at
+# its bottom.
+post rightclick $(pinned_row 1)
+expect "^browser: menu shown .*, $(cased 'Duplicate Tab, Add to Folder › New Folder'), \
+$(cased 'Add to Folder') › work, $(cased 'Add to Folder') › read, $(cased 'Move to Space')" \
+  "the tab's menu didn't list Add to Folder › New Folder, work and read"
+send choose "$(cased 'Add to Folder') › read"
+expect '^browser: command add-to-folder via tab menu$' "Add to Folder › read didn't run"
+expect "^browser: outline $f+\\[\\] $g+\\[$c\\]\$" \
+  "Add to Folder › read didn't move the tab in: $(outline)"
+settled
+../tools/window-screenshot.sh "$pid" "$out/add-to-folder.png" || fail "no window to capture"
+# Add to Folder › New Folder puts the tab in a new folder in its place, named for its site.
+host=$(printf '%s\n' "$site" | sed 's#^[a-z]*://##; s#^www\.##; s#[:/?#].*##')
+post rightclick $(pinned_row 2)
+expect "^browser: menu shown .*, $(cased 'Add to Folder › New Folder'), " "the tab's menu again"
+send choose "$(cased 'Add to Folder › New Folder')"
+expect '^browser: command new-folder via tab menu$' "Add to Folder › New Folder didn't run"
+expect '^browser: rename folder [0-9]*$' "Add to Folder › New Folder gave no name field"
+h=$(grep '^browser: rename folder' "$log" | tail -1 | cut -d' ' -f4)
+expect "^browser: folder name field $host\$" \
+  "the tab's folder wasn't named for $host: $(grep '^browser: folder name' "$log" | tail -1)"
+expect "^browser: outline $f+\\[\\] $g+\\[$h+\\[$c\\]\\]\$" \
+  "Add to Folder › New Folder didn't put the tab in a folder in its place: $(outline)"
+settled
+../tools/window-screenshot.sh "$pid" "$out/site-folder.png" || fail "no window to capture"
+send key escape
+# Each is one step for ⌘Z, and the empty folder goes with Delete Folder.
+send key z cmd
+expect "^browser: outline $f+\\[\\] $g+\\[$c\\]\$" \
+  "⌘Z didn't undo Add to Folder › New Folder: $(outline)"
+send key z cmd
+expect "^browser: outline $f+\\[$c\\] $g+\\[\\]\$" "⌘Z didn't undo Add to Folder › read: $(outline)"
+settled
+post rightclick $(pinned_row 2)
+expect "^browser: menu shown $(cased 'Rename Folder'), " \
+  "a right-click on the empty folder showed no menu"
+send choose "$(cased 'Delete Folder')"
+expect "^browser: outline $f+\\[$c\\]\$" \
+  "Delete Folder didn't take the empty folder away: $(outline)"
+settled
 # The command bar finds commands by their names' letters in order, those that start with what's
 # typed first, and one found by its letters alone last, after the suggestions. ↩ runs the command
 # selected.
 send key t cmd
 expect '^browser: command bar shown$' "⌘T didn't open the command bar"
 send type clear
-expect '^browser: command bar commands "clear": Clear Today, Clear Cache and Refresh, Clear Cookies and Refresh, Clear Archive, Collapse All Folders$' "the command bar didn't find the four commands that start with \"clear\", then Collapse All Folders: $(grep '^browser: command bar commands' "$log" | tail -1)"
+expect '^browser: command bar commands "clear": Clear Today, Clear Cache and Refresh, Clear Cookies and Refresh, Clear Archive, Clear Browsing Data…, Collapse All Folders$' "the command bar didn't find the five commands that start with \"clear\", then Collapse All Folders: $(grep '^browser: command bar commands' "$log" | tail -1)"
 ../tools/window-screenshot.sh "$pid" "$out/command-bar-commands.png" || fail "no window to capture"
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar"
 send key t cmd
 expect '^browser: command bar shown$' "⌘T didn't open the command bar again"
 send type cllps
-expect '^browser: command bar commands "cllps": Collapse All Folders$' "the command bar didn't find Collapse All Folders for \"cllps\""
+expect '^browser: command bar commands "cllps": Collapse All Folders, Collapse Pinned Tabs$' "the command bar didn't find Collapse All Folders, then Collapse Pinned Tabs, for \"cllps\": $(grep '^browser: command bar commands' "$log" | tail -1)"
 send key pagedown
-expect '^browser: command bar selected Collapse All Folders$' "⇟ didn't select Collapse All Folders, the last row"
+expect '^browser: command bar selected Collapse Pinned Tabs$' "⇟ didn't select Collapse Pinned Tabs, the last row"
+send key up
+expect '^browser: command bar selected Collapse All Folders$' "↑ didn't select Collapse All Folders, the row above"
 send key return
 expect '^browser: command bar runs Collapse All Folders$' "↩ didn't run Collapse All Folders"
 expect '^browser: command collapse-folders via command bar$' "Collapse All Folders didn't run collapse-folders"
 expect "^browser: outline $f-\\[$c\\]\$" "Collapse All Folders didn't close the folder: $(outline)"
 expect '^browser: new tab plate 0$' "running a command left New Tab's plate"
+# Export Space as Markdown… saves the folder with its tab nested under it, the pinned tab's link to
+# its pinned URL, then the Today tab. The run names the file, as it can't drive the save panel, and
+# leaves out the Space's name and the pages' titles, which it doesn't choose.
+bar_command export-space "Export Space as Markdown…" export
+expect "^browser: exported 2 links to .*/space.md\$" \
+  "Export Space as Markdown… didn't save the Space's two links"
+exported=$(sed -e '1s/^# .*/#/' -e 's/\[.*\](/[](/' "$out/space.md")
+[ "$exported" = "$(printf '#\n\n## Pinned\n\n- work\n  - []('"$site"')\n\n## Today\n\n- [](https://example.org/)')" ] ||
+  fail "the Space wasn't saved as its folder, then its Today tab: $exported"
+# Expand All Folders opens it again, and Collapse All Folders closes it for the launch that follows.
+bar_command expand-folders "Expand All Folders" "expand all"
+expect "^browser: outline $f+\\[$c\\]\$" "Expand All Folders didn't open the folder: $(outline)"
+bar_command collapse-folders "Collapse All Folders" "collapse all"
+expect "^browser: outline $f-\\[$c\\]\$" "Collapse All Folders didn't close the folder again: $(outline)"
+# The pointer resting on the closed folder previews its tab with the keyboard in its search, where
+# typing its title selects it and ↩ shows it, keeping the folder closed.
+send move $(pinned_row 0)
+expect "^browser: folder preview shown $f at " "resting on the closed folder didn't preview it"
+../tools/window-screenshot.sh "$pid" "$out/folder-preview.png" || fail "no window to capture"
+send type ready
+expect '^browser: folder preview found 1 for ready$' "typing didn't reach the folder preview's search"
+../tools/window-screenshot.sh "$pid" "$out/folder-preview-search.png" || fail "no window to capture"
+send key return
+expect "^browser: folder preview chose $c\$" "↩ in the folder's preview didn't choose the tab found"
+expect '^browser: folder preview hidden$' "choosing a tab left the folder's preview up"
+expect "^browser: selected $c in " "the tab chosen in the folder's preview didn't show"
+# The folder staying closed logs no new outline, so the last one is the folder's state.
+[ "$(outline)" = "$f-[$c]" ] || fail "showing a tab from the preview opened the folder: $(outline)"
+send move $page_point
+switch "9 cmd" "$a"
 quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't reach the UI"
 exited
 
-# Launched again, the folder comes back closed with its tab. A double-click renames it, and Delete
-# Folder in its menu leaves its tab where it was.
+# Launched again, the folder comes back closed with its tab. A double-click renames it, Export…
+# writes it, and Delete Folder in its menu leaves its tab where it was.
 log="$out/folder-restored.log"
 step=0
-BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
+# The run names the file Export… writes, as it can't drive the system's save panel.
+rm -f "$out/spaces.md"
+BROWSER_EXPORT_FILE="$out/spaces.md" BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await '^browser: restored in ' || fail "the relaunch didn't restore the Space"
@@ -482,7 +606,64 @@ send key return
 expect "^browser: renamed folder $f later\$" "the folder didn't take the name typed over its old one"
 ../tools/window-screenshot.sh "$pid" "$out/folder-restored.png" || fail "no window to capture"
 post rightclick $(pinned_row 0)
-expect "^browser: menu shown $(cased 'Rename Folder, Delete Folder')\$" "the folder's menu isn't Rename Folder, Delete Folder"
+# Paste URL as New Tab comes and goes with the clipboard, so it isn't pinned here.
+expect "^browser: menu shown $(cased 'Rename Folder, Change Icon…, Duplicate, Copy All Links'), .*$(cased 'Delete Folder')\$" \
+  "the folder's menu isn't Rename Folder, Change Icon…, Duplicate, Copy All Links … Delete Folder"
+expect '^browser: menu drawn ' "the folder's menu didn't draw"
+../tools/window-screenshot.sh "$pid" "$out/folder-menu.png" || fail "no window to capture"
+# With ⌥ held, Copy All Links is Copy All Links as Markdown, as in Arc's.
+send flags alt
+expect "^browser: menu drawn with ⌥ held $(cased 'Rename Folder, Change Icon…, Duplicate, Copy All Links as Markdown'), " \
+  "⌥ didn't turn the folder's Copy All Links into Copy All Links as Markdown"
+../tools/window-screenshot.sh "$pid" "$out/folder-menu-option.png" || fail "no window to capture"
+send choose "$(cased 'Copy All Links')"
+expect "^browser: menu chose $(cased 'Copy All Links as Markdown')\$" \
+  "Copy All Links with ⌥ held didn't choose Copy All Links as Markdown"
+expect '^browser: toast shown Copied Links as Markdown$' "Copy All Links as Markdown showed no toast"
+send flags
+# Change Icon… puts an emoji before the folder's name.
+post rightclick $(pinned_row 0)
+expect "^browser: menu shown $(cased 'Rename Folder, Change Icon…, Duplicate'), " \
+  "a second right-click on the folder didn't show its menu"
+send choose "$(cased 'Change Icon…')"
+expect "^browser: icon picker for folder $f on emoji\$" "Change Icon… didn't open the icon picker for the folder"
+expect '^browser: icon picker shown$' "Change Icon… didn't show the icon picker under the folder"
+send insert glowing star
+send key return
+expect "^browser: iconed folder $f 🌟\$" "the picker's pick didn't become the folder's icon"
+expect '^browser: icon picker hidden$' "picking an emoji didn't close the icon picker"
+../tools/window-screenshot.sh "$pid" "$out/folder-icon.png" || fail "no window to capture"
+# Export… in Settings › Advanced, in the box under the four switch rows, writes the Space's pinned
+# tabs as Markdown links, the folder a list of what it holds.
+send key , cmd
+expect '^browser: settings shown General$' "⌘, didn't show Settings on its General tab"
+# The run's first ⌘, opens the window, which takes no click until it has drawn (#1101).
+expect '^browser: settings drew General$' "Settings didn't draw General"
+send clickkey 519 60
+expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
+# Copy All Links' toast is mostly still up, and the click lands all the same (#1134): a toast lets
+# clicks through, but on its plate while it has buttons, which this one hasn't. A slow run says
+# when the toast had gone first, so the click didn't have one to go past.
+shown=$(grep -n '^browser: toast shown Copied Links as Markdown$' "$log" | tail -1 | cut -d: -f1)
+advanced=$(grep -n '^browser: settings tab Advanced$' "$log" | tail -1 | cut -d: -f1)
+hidden=$(sed -n "${shown:-1},\$p" "$log" | grep -n '^browser: toast hidden$' | head -1 | cut -d: -f1)
+if [ -n "$hidden" ] && [ $((${shown:-1} + hidden - 1)) -lt "$advanced" ]; then
+  echo "skip: the click on Advanced with a toast up, as Copy All Links' toast had gone first (#1134)."
+fi
+# On the Mac and Linux, where the host hears ⌥ alone, its switch row is 42 under the other four.
+case $(uname) in Darwin | Linux) option_row=42 ;; *) option_row=0 ;; esac
+send clickkey 575 $((302 + option_row))
+expect '^browser: exported [0-9]* links to .*/spaces\.md$' "Export… didn't write the Spaces' links"
+grep -qx -- '- later' "$out/spaces.md" ||
+  fail "the export didn't list the folder: $(cat "$out/spaces.md")"
+grep -qx -- "  - \[.*\]($site)" "$out/spaces.md" ||
+  fail "the export didn't list the pinned tab in its folder: $(cat "$out/spaces.md")"
+../tools/window-screenshot.sh "$pid" "$out/export.png" || fail "no window to capture"
+send key w cmd
+expect '^browser: settings hidden$' "⌘W didn't hide Settings"
+post rightclick $(pinned_row 0)
+expect "^browser: menu shown $(cased 'Rename Folder, Change Icon…, Remove Icon, Duplicate'), .*$(cased 'Delete Folder')\$" \
+  "the folder with an icon didn't offer Remove Icon"
 send choose "$(cased 'Delete Folder')"
 expect '^browser: command delete-folder via tab menu$' "Delete Folder didn't run delete-folder"
 expect "^browser: outline $c\$" "Delete Folder didn't leave its tab in its place: $(outline)"
@@ -525,6 +706,109 @@ send dragover 100 300 text "javascript:document.title='dropped'"
 expect '^browser: drag over HostUIView refused$' "the list took a javascript: URL dragged as text"
 send dragleave
 none_since '^browser: dropped' || fail "dragged text that isn't a web link opened"
+# Other text, let go past the middle of the dropped link's row, centred at 333, goes in the gap
+# under it, the nearest, and is searched for there with the default engine, its spaces run
+# together.
+send dragdrop 100 345 text "dogs  and   cats"
+expect '^browser: dropped 1 in today 2$' "the dropped text wasn't taken under the dropped link"
+expect_lists "$e $c" "$t $d [0-9][0-9]*" "after dropping text"
+s=$(today | cut -d' ' -f3)
+expect "^browser: selected $s\$" "the dropped text's search didn't show"
+expect "^browser: loaded $s https://duckduckgo.com/?q=dogs+and+cats" \
+  "the dropped text didn't load a search for it: $(grep "^browser: loaded $s " "$log" | tail -1)"
+../tools/window-screenshot.sh "$pid" "$out/dropped-text.png" || fail "no window to capture"
+
+# The chevron after the Space's name, there while the pointer is over the sidebar, collapses the
+# pinned rows as it's pressed, and the name lights: they fold away, but for the tab shown's, as
+# a closed folder's do, and ⌘1–⌘9 count Today's tabs first. The command bar's Expand Pinned Tabs
+# brings them back, and View › Collapse Pinned Tabs folds them again.
+# The middle of the chevron the app last drew for pinned rows open or shut ($1).
+caret() {
+  grep "^browser: pinned caret $1 at " "$log" | tail -1 |
+    awk '{ printf "%d %d", $6 + $8 / 2, $7 + $9 / 2 }'
+}
+[ -n "$(caret open)" ] || fail "the Space with pinned tabs drew no chevron after its name"
+away
+send move $(caret open)
+expect '^browser: sidebar hovered 1$' "the sidebar didn't see the pointer come over the chevron"
+expect '^browser: sidebar tools shown$' "the chevron didn't fade in with Clear"
+../tools/window-screenshot.sh "$pid" "$out/pinned-caret.png" || fail "no window to capture"
+send click $(caret open)
+expect '^browser: command collapse-pinned via sidebar$' "a click on the chevron didn't run collapse-pinned"
+expect "^browser: outline -\\[$e $c\\]\$" "the chevron didn't collapse the pinned rows: $(outline)"
+expect '^browser: pinned caret shut at ' "the chevron didn't turn for collapsed rows"
+settled
+../tools/window-screenshot.sh "$pid" "$out/pinned-collapsed.png" || fail "no window to capture"
+switch "1 cmd" "$t"
+bar_command expand-pinned "Expand Pinned Tabs" "expand pinned"
+expect "^browser: outline $e $c\$" "Expand Pinned Tabs didn't bring the pinned rows back: $(outline)"
+expect '^browser: pinned caret open at ' "the chevron didn't turn back for open rows"
+settled
+send menu Collapse Pinned Tabs
+expect '^browser: command collapse-pinned via ui$' "View › Collapse Pinned Tabs didn't run collapse-pinned"
+expect "^browser: outline -\\[$e $c\\]\$" "Collapse Pinned Tabs didn't collapse the pinned rows: $(outline)"
+
+# Focus Sidebar, on F6 unless the user gives it another key, gives the sidebar the keyboard and rings
+# the tab shown's row, the first ⌘1 counts. ↑ there stays, past the collapsed pinned rows, ↓ moves
+# the ring down, and return shows the ringed tab with its page holding the keyboard. From the View
+# menu, a key in the page clicked ends the ring, and escape gives the page the keyboard back
+# without showing another tab.
+bar_command focus-sidebar "Focus Sidebar" "focus sidebar"
+expect "^browser: sidebar keyed $t\$" "Focus Sidebar didn't ring the tab shown's row"
+expect "^browser: sidebar ring $t at " "the ring wasn't drawn round the tab shown's row"
+in_browser AccessKitSubclassOfGPUIView "Focus Sidebar didn't give the sidebar the keyboard"
+settled
+../tools/window-screenshot.sh "$pid" "$out/sidebar-keyed.png" || fail "no window to capture"
+send key up
+none_since '^browser: sidebar keyed' || fail "↑ from the first row moved the ring, onto a collapsed row"
+send key down
+expect "^browser: sidebar keyed $d\$" "↓ didn't move the ring to the next row"
+expect "^browser: sidebar ring $d at " "the ring wasn't drawn round the next row"
+../tools/window-screenshot.sh "$pid" "$out/sidebar-keyed-down.png" || fail "no window to capture"
+send key return
+expect '^browser: command select via sidebar keys$' "return didn't show the ringed tab"
+expect "^browser: selected $d\\( in .*\\)\\{0,1\\}\$" "return didn't show tab $d"
+expect '^browser: sidebar ring hidden$' "the ring stayed after return"
+in_browser RenderWidgetHostViewCocoa "return didn't give the page the keyboard"
+send menu Focus Sidebar
+expect '^browser: command focus-sidebar via ui$' "View › Focus Sidebar didn't run focus-sidebar"
+expect "^browser: sidebar keyed $d\$" "View › Focus Sidebar didn't ring the tab shown's row"
+send click $page_point
+send key down
+expect '^browser: sidebar keys left by page$' "a key in the page left the ring in the sidebar"
+expect '^browser: sidebar ring hidden$' "the ring stayed with the page's keyboard"
+send menu Focus Sidebar
+expect "^browser: sidebar keyed $d\$" "Focus Sidebar didn't ring the row again"
+send key escape
+expect '^browser: sidebar keys left by escape$' "escape didn't end the ring"
+none_since '^browser: selected' || fail "escape showed another tab"
+in_browser RenderWidgetHostViewCocoa "escape didn't give the page the keyboard"
+quit_by_key
+await '^browser: command quit via ' || fail "⌘Q didn't reach the UI"
+exited
+
+# Launched again, the pinned rows come back collapsed, with the chevron, which expands them.
+log="$out/pinned-collapsed.log"
+step=0
+BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
+pid=$!
+exec 3> "$out/drive"
+await '^browser: restored in ' || fail "the relaunch didn't restore the Space"
+await '^browser: outline -\[[0-9]* [0-9]*\]$' || fail "the pinned rows didn't come back collapsed: $(outline)"
+await '^browser: pinned caret shut at ' || fail "the collapsed rows came back without the chevron"
+send click $page_point
+if [ "$active" != 1 ]; then
+  exec 3>&-
+  quit
+  kill "$server"
+  echo "skip: the restored pinned rows. Browser wasn't the active app, so the page ignored the click."
+  exit 0
+fi
+send click $(caret shut)
+expect '^browser: command expand-pinned via sidebar$' "a click on the chevron didn't run expand-pinned"
+expect '^browser: outline [0-9]* [0-9]*$' "the chevron didn't expand the restored pinned rows: $(outline)"
+settled
+../tools/window-screenshot.sh "$pid" "$out/pinned-expanded.png" || fail "no window to capture"
 exec 3>&-
 quit
-echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. A middle-click on a row closes its tab as its ✕ does. Dragging a row moves its tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. New Folder makes a folder its field names, a drag right and left takes a tab in and out of it, a folder drags as a row, a click closes and opens it, and the command bar finds Collapse All Folders, which closes it. It comes back closed, a double-click renames it, and Delete Folder leaves its tab in place. A link and a file dragged onto the list open as tabs where they're let go, Today or pinned, and show, and text that isn't a web link doesn't. Delete Folder offers Undo, ⌘Z remakes the folder around its tab and ⇧⌘Z deletes it again. ⌥⇧-click on a pinned tab's link opens a pinned split. Away from its pinned URL, Pinned URL › Replace Pinned URL with Current and Edit… change the pinned URL, which ⌘Z and ⇧⌘Z undo and redo, and ⌘-click on its favicon goes back after opening the page in a new tab. Windows: $out/pinned-split.png, $out/pinned-url-menu.png, $out/pinned-url-edit.png, $out/pinned-kept-page.png, $out/drag.png, $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png, $out/folder.png, $out/folder-restored.png, $out/folder-motion.mp4, $out/drop-before.png, $out/drop-line.png, $out/dropped.png, $out/command-bar-commands.png"
+echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. A middle-click on a row closes its tab as its ✕ does. Dragging a row moves its tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. New Folder makes a folder its field names, a drag right and left takes a tab in and out of it, a folder drags as a row, a click closes and opens it, and the command bar finds Collapse All Folders, which closes it, and Expand All Folders, which opens it. Resting on it closed previews its tab, and typing the tab's title in the preview's search and ↩ show it, the folder kept closed. It comes back closed, a double-click renames it, its menu's Copy All Links is Copy All Links as Markdown with ⌥ held, which copies them, Change Icon… gives it an emoji and offers Remove Icon after, and Delete Folder leaves its tab in place. A link and a file dragged onto the list open as tabs where they're let go, Today or pinned, and show, text that isn't a link opens a search for it there, and a link that isn't a web link doesn't open. Delete Folder offers Undo, ⌘Z remakes the folder around its tab and ⇧⌘Z deletes it again. Settings' Export… writes the folder and its pinned tab as Markdown links. ⌥-click on a pinned tab's link opens a pinned split. Away from its pinned URL, Pinned URL › Replace Pinned URL with Current and Edit… change the pinned URL, which ⌘Z and ⇧⌘Z undo and redo, and ⌘-click on its favicon goes back after opening the page in a new tab. The chevron after the Space's name collapses the pinned rows, which ⌘1 then skips, Expand Pinned Tabs and Collapse Pinned Tabs in the command bar and the View menu bring them back and fold them, and they come back collapsed. Focus Sidebar from the command bar and the View menu rings the tab shown's row, ↑ and ↓ move the ring past the collapsed rows, return shows its tab with the page holding the keyboard, and a key in the page and escape end it. Windows: $out/pinned-split.png, $out/pinned-url-menu.png, $out/pinned-url-edit.png, $out/pinned-kept-page.png, $out/drag.png, $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png, $out/folder.png, $out/folder-preview.png, $out/folder-preview-search.png, $out/folder-restored.png, $out/export.png, $out/folder-menu.png, $out/folder-menu-option.png, $out/folder-icon.png, $out/folder-motion.mp4, $out/drop-before.png, $out/drop-line.png, $out/dropped.png, $out/dropped-text.png, $out/command-bar-commands.png, $out/pinned-caret.png, $out/pinned-collapsed.png, $out/sidebar-keyed.png, $out/sidebar-keyed-down.png, $out/pinned-expanded.png"

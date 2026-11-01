@@ -7,6 +7,10 @@ class Profile;
 
 namespace browser_core {
 
+// Makes downloads go straight to the download folder unless the user asked otherwise. Before the
+// first profile is made.
+void RegisterDownloadPrefs();
+
 // Tells the app of |profile|'s downloads from now on, those Chrome's history put back from the
 // last launch too, in one list with the other profiles', as Arc's Library lists them. Then
 // downloads_changed.

@@ -11,6 +11,7 @@
 
 #include "base/functional/bind.h"
 #include "base/task/single_thread_task_runner.h"
+#include "browser_core/held_keys.h"
 #include "build/build_config.h"
 #include "browser_core/host.h"
 #include "browser_core/platform/window_views.h"
@@ -35,9 +36,11 @@
 #include "content/public/browser/keyboard_event_processing_result.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/base/mojom/window_show_state.mojom.h"
+#include "ui/content_accelerators/accelerator_util.h"
 #include "ui/display/types/display_constants.h"
 #include "ui/gfx/range/range.h"
 #include "ui/native_theme/native_theme.h"
+#include "ui/views/focus/focus_manager.h"
 #include "ui/views/widget/widget.h"
 
 namespace browser_core {
@@ -320,6 +323,24 @@ void BrowserWindowStandIn::SetBrowser(BrowserWindowInterface* browser) {
   }
 }
 
+void BrowserWindowStandIn::LetGoOfPage() {
+  ExclusiveAccessManager* manager = browser_ ? ExclusiveAccessManager::From(browser_) : nullptr;
+  FullscreenController* controller = manager ? manager->fullscreen_controller() : nullptr;
+  if (!controller || !controller->IsWindowFullscreenForTabOrPending()) {
+    return;
+  }
+  // Off the Mac the controller lets go of the page only once it hears the window is out, after the
+  // window has resized. A page its tab switch had hidden by then never heard it was out: it kept
+  // its full screen, and stopped drawing or taking input when shown again. Told the window is out
+  // now, the controller lets go first, as it does on the Mac (ExitFullscreenModeInternal).
+  base::WeakPtr<BrowserWindowStandIn> alive = weak_factory_.GetWeakPtr();
+  letting_go_ = true;
+  controller->WindowFullscreenStateChanged();
+  if (alive) {
+    letting_go_ = false;
+  }
+}
+
 void BrowserWindowStandIn::DeleteBrowserWindow() {
   delete this;
 }
@@ -341,7 +362,7 @@ bool BrowserWindowStandIn::IsMinimized() const {
 }
 
 bool BrowserWindowStandIn::IsFullscreen() const {
-  return widget() && widget()->IsFullscreen();
+  return !letting_go_ && widget() && widget()->IsFullscreen();
 }
 
 gfx::NativeWindow BrowserWindowStandIn::GetNativeWindow() const {
@@ -389,6 +410,14 @@ void BrowserWindowStandIn::Close() {
 }
 
 void BrowserWindowStandIn::Activate() {
+#if BUILDFLAG(IS_WIN)
+  // Chrome asks a window that's active to activate again, as tab restore does for the tab it
+  // brings back, which on Windows focuses the window itself (DesktopNativeWidgetAura::Activate).
+  // That took the keyboard from the UI, and the page shown next took it from the window (#872).
+  if (widget() && widget()->IsActive()) {
+    return;
+  }
+#endif
   if (widget()) {
     widget()->Activate();
   }
@@ -521,26 +550,48 @@ void BrowserWindowStandIn::ConfirmBrowserCloseWithPendingDownloads(
     int download_count,
     DownloadCloseType dialog_type,
     base::OnceCallback<void(bool)> callback) {
-  // Closes, cancelling the downloads, until the app can ask the user.
+#if !BUILDFLAG(IS_MAC)
+  // The app asks, in its dialog. On the Mac, Chrome's own alert has asked as the app quits.
+  if (window_) {
+    window_->AskAboutDownloads(download_count, dialog_type != DownloadCloseType::kBrowserShutdown,
+                               std::move(callback));
+    return;
+  }
+#endif
   base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(std::move(callback), true));
 }
 
 content::KeyboardEventProcessingResult BrowserWindowStandIn::PreHandleKeyboardEvent(
     const input::NativeWebKeyboardEvent& event) {
+  content::WebContents* contents =
+      browser_ ? browser_->GetTabStripModel()->GetActiveWebContents() : nullptr;
+  // Typed after a shortcut that opens a field of the app's, for the field.
+  if (contents && held_keys::Holds(Tab::IdOf(contents), event)) {
+    return content::KeyboardEventProcessingResult::HANDLED;
+  }
   return AskApp(Host().tab_key_before_page, browser_, event)
              ? content::KeyboardEventProcessingResult::HANDLED
              : content::KeyboardEventProcessingResult::NOT_HANDLED;
 }
 
 bool BrowserWindowStandIn::HandleKeyboardEvent(const input::NativeWebKeyboardEvent& event) {
+  views::Widget* widget = this->widget();
+  views::FocusManager* focus_manager = widget ? widget->GetFocusManager() : nullptr;
+  // A tab's dialog, such as print preview off the Mac, hands on the keys its page doesn't use, and
+  // its own keys come first, as in Chrome, where they're the window's: escape closes it rather
+  // than stopping the tab's page.
+  if (focus_manager &&
+      focus_manager->IsAcceleratorRegistered(ui::GetAcceleratorFromNativeWebKeyboardEvent(event)) &&
+      unhandled_keyboard_event_handler_.HandleKeyboardEvent(event, focus_manager)) {
+    return true;
+  }
   if (AskApp(Host().tab_key_unhandled, browser_, event)) {
     return true;
   }
   // As BrowserView does: what neither the page nor the app used goes to the window's menus.
-  views::Widget* widget = this->widget();
-  return widget && widget->GetFocusManager() &&
-         unhandled_keyboard_event_handler_.HandleKeyboardEvent(event, widget->GetFocusManager());
+  return focus_manager &&
+         unhandled_keyboard_event_handler_.HandleKeyboardEvent(event, focus_manager);
 }
 
 std::unique_ptr<FindBar> BrowserWindowStandIn::CreateFindBar() {
@@ -625,6 +676,23 @@ void BrowserWindowStandIn::EnterFullscreen(const url::Origin& origin,
                                            FullscreenTabParams fullscreen_tab_params) {
   // Chrome's fullscreen controller asks when a page goes full screen in a window that isn't, and
   // back only if the window went for the page. The app hears of the page from its tab.
+#if BUILDFLAG(IS_WIN)
+  // Before the window resizes, which on Windows it does as SetFullscreen is called, ahead of the
+  // page's request returning: the app hears of the page first, as on the Mac and Linux, where the
+  // window resizes later, so it lays the page out once, at the window's new size (#1051).
+  base::WeakPtr<BrowserWindowStandIn> alive = weak_factory_.GetWeakPtr();
+  ExclusiveAccessManager* manager = browser_ ? ExclusiveAccessManager::From(browser_) : nullptr;
+  FullscreenController* controller = manager ? manager->fullscreen_controller() : nullptr;
+  Tab* tab = controller && controller->IsTabFullscreen()
+                 ? Tab::FromWebContents(controller->exclusive_access_tab())
+                 : nullptr;
+  if (tab) {
+    tab->EnteredFullScreen();
+  }
+  if (!alive) {
+    return;
+  }
+#endif
   PutFullscreen(true, fullscreen_tab_params.display_id);
 }
 
@@ -637,11 +705,17 @@ void BrowserWindowStandIn::PutFullscreen(bool fullscreen, int64_t display_id) {
   if (!widget) {
     return;
   }
-  // The app lays the page out once, at the window's new size, which it hears of after the window
-  // has resized.
-  platform::HoldPagesForResize(widget);
   base::WeakPtr<BrowserWindowStandIn> alive = weak_factory_.GetWeakPtr();
-  widget->SetFullscreen(fullscreen, display_id);
+  // Off the Mac the way out is the one every exit takes, which holds the pages and lets go of a
+  // page full screen (Window::LeaveFullScreen); on the Mac AppKit takes it as the window leaves.
+  if (!BUILDFLAG(IS_MAC) && !fullscreen && window_) {
+    window_->LeaveFullScreen();
+  } else {
+    // The app lays the page out once, at the window's new size, which it hears of after the
+    // window has resized.
+    platform::HoldPagesForResize(widget);
+    widget->SetFullscreen(fullscreen, display_id);
+  }
 #if !BUILDFLAG(IS_MAC)
   // Off the Mac the window is there as SetFullscreen returns, and no show state change follows
   // when the window manager agrees, so the controller hears it now, as from Chrome's own windows
@@ -684,6 +758,14 @@ bool BrowserWindowStandIn::GetAcceleratorForCommandId(int command_id,
 }
 
 void BrowserWindowStandIn::OnWidgetShowStateChanged(views::Widget* widget) {
+#if !BUILDFLAG(IS_MAC)
+  // Off the Mac a window the window manager took out of full screen, by its own key, says so here,
+  // on Wayland before its new size: it leaves the one way every exit takes, so a page full screen
+  // goes with it and is laid out once.
+  if (!IsFullscreen() && window_ && window_->FullScreenForPage()) {
+    window_->LeaveFullScreen();
+  }
+#endif
   // As Chrome's windows do once a fullscreen change is done, or has failed. The controller takes a
   // full-screen page back when the window has left full screen, as by its green button.
   ExclusiveAccessManager* manager = ExclusiveAccessManager::From(browser_);

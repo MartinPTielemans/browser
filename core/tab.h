@@ -16,10 +16,14 @@
 #include "browser_core/platform/system_page.h"
 #include "browser_core/public/browser_core.h"
 #include "browser_core/session.h"
+#include "chrome/browser/media/webrtc/media_stream_capture_indicator.h"
 #include "components/favicon/core/favicon_driver.h"
 #include "components/favicon/core/favicon_driver_observer.h"
+#include "components/infobars/core/infobar_manager.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "mojo/public/cpp/bindings/receiver.h"
+#include "services/media_session/public/mojom/media_session.mojom.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/geometry/point_f.h"
 #include "ui/gfx/image/image.h"
@@ -30,6 +34,8 @@ class BrowserWindowInterface;
 class Profile;
 namespace content {
 class RenderWidgetHost;
+struct DropData;
+enum class PageLinkDrag;
 }
 
 namespace browser_core {
@@ -41,6 +47,9 @@ class Window;
 // page back once a window shows it (Wake), as Chrome loads a restored tab once it's shown.
 class Tab : public content::WebContentsObserver,
             public favicon::FaviconDriverObserver,
+            public MediaStreamCaptureIndicator::Observer,
+            public infobars::InfoBarManager::Observer,
+            public media_session::mojom::MediaSessionObserver,
             public platform::SystemPage::Delegate {
  public:
   // |contents|'s id, given the first time it's asked for.
@@ -64,8 +73,17 @@ class Tab : public content::WebContentsObserver,
   static void LinkTargetChanged(BrowserWindowInterface* browser,
                                 content::WebContents* source,
                                 const GURL& url);
+  // The hook for a link dragged over a page (content::SetPageLinkDragHandler): tells the app of a
+  // web link dragged over a tab's page, and answers whether the app takes it there.
+  static bool LinkDragged(content::WebContents* contents,
+                          content::PageLinkDrag phase,
+                          const content::DropData& data,
+                          const gfx::PointF& point);
   // Every tab's page, of the tabs that have one.
   static std::vector<content::WebContents*> Pages();
+  // Stops every tab hearing Chrome's capture indicator, at a quit once the run loop is done: the
+  // tabs outlive it, and it checks it has no one left to tell as it goes.
+  static void StopHearingCaptures();
   // The view a window shows for |contents|'s page: its system page's, else its own.
   static gfx::NativeView PageViewOf(content::WebContents* contents);
   // Gives |contents|'s page the keyboard.
@@ -76,6 +94,9 @@ class Tab : public content::WebContentsObserver,
                              bc_id tab,
                              const input::NativeWebKeyboardEvent& event,
                              bool editing);
+  // What the web names the key |event| is, as the app's shortcuts do, with its BC_MODIFIER_ flags
+  // held in |modifiers|.
+  static std::string KeyName(const input::NativeWebKeyboardEvent& event, uint32_t* modifiers);
 
   // A tab without its page, in |profile| and in no Space, as |saved| keeps it: its history, name,
   // icon, mute and when it was last seen. Tells the app its state, title and the favicon the
@@ -139,6 +160,11 @@ class Tab : public content::WebContentsObserver,
 
   // Mutes or unmutes the tab, as Chrome's speaker button does.
   void SetMuted(bool muted);
+  // While another page shares a tab, has it share this tab's page instead, as Chrome's infobar's
+  // Share this tab instead does.
+  void ShareInstead();
+  // Plays, pauses or skips the page's media, as bc_tab_media.
+  void Media(int action);
   bool muted() const;
 
   // The page the system's engine shows in place of Chromium's (system_engine.h), else null. Its
@@ -159,6 +185,11 @@ class Tab : public content::WebContentsObserver,
   bool CanGoForward();
   void GoBack();
   void GoForward();
+  // The pages back from this one, or forward of it, as SavedTab keeps them, to the app's
+  // tab_history with their favicons. None while a system page shows, whose history is WebKit's.
+  void ListHistory(bool forward);
+  // Goes to the page |offset| from this one, as ListHistory numbers them, if there's one there.
+  void GoToOffset(int offset);
   void Reload(bool bypass_cache);
   void Stop();
 
@@ -184,9 +215,6 @@ class Tab : public content::WebContentsObserver,
   // place of the page until it's loaded again.
   bool crashed() const { return crashed_; }
 
-  // The modifier keys held at the user's last click or key in the page, as blink::WebInputEvent's
-  // flags: what a link it opens was opened with.
-  int input_modifiers() const { return input_modifiers_; }
   // Where the user last pressed the mouse in the page, in points from the top-left of its view:
   // where a link it opens was clicked.
   gfx::PointF last_click() const { return last_click_; }
@@ -195,6 +223,11 @@ class Tab : public content::WebContentsObserver,
   // unloading tabs unseen a while.
   base::Time last_seen() const { return last_seen_; }
   void set_last_seen(base::Time time) { last_seen_ = time; }
+
+  // Tells the app the page went full screen, once, as it does when the page's request returns
+  // (DidToggleFullscreenModeForTab). On Windows the window resizes before that returns, and the
+  // app lays the page out once, at the window's new size, only if it hears first.
+  void EnteredFullScreen();
 
  private:
   Tab(bc_id id, Profile* profile);
@@ -224,6 +257,7 @@ class Tab : public content::WebContentsObserver,
   void DidUpdateAudioMutingState(bool muted) override;
   void DidGetUserInteraction(const blink::WebInputEvent& event) override;
   void OnVisibilityChanged(content::Visibility visibility) override;
+  void MediaStartedPlaying(const MediaPlayerInfo& info, const content::MediaPlayerId& id) override;
   void WebContentsDestroyed() override;
 
   // platform::SystemPage::Delegate:
@@ -244,6 +278,35 @@ class Tab : public content::WebContentsObserver,
                         const GURL& icon_url,
                         bool icon_url_changed,
                         const gfx::Image& image) override;
+
+  // MediaStreamCaptureIndicator::Observer:
+  void OnIsCapturingVideoChanged(content::WebContents* contents, bool capturing) override;
+  void OnIsCapturingAudioChanged(content::WebContents* contents, bool capturing) override;
+  void OnIsBeingMirroredChanged(content::WebContents* contents, bool mirrored) override;
+  void OnIsCapturingTabChanged(content::WebContents* contents, bool capturing) override;
+  void OnIsCapturingWindowChanged(content::WebContents* contents, bool capturing) override;
+  void OnIsCapturingDisplayChanged(content::WebContents* contents, bool capturing) override;
+  // Within those, for a change to this tab's page.
+  void CaptureChanged(content::WebContents* contents);
+
+  // infobars::InfoBarManager::Observer, for Chrome's tab sharing infobar, which ShareInstead acts
+  // through and the app never shows:
+  void OnInfoBarAdded(infobars::InfoBar* infobar) override;
+  void OnInfoBarRemoved(infobars::InfoBar* infobar, bool animate) override;
+  void OnInfoBarReplaced(infobars::InfoBar* old_infobar, infobars::InfoBar* new_infobar) override;
+  void OnManagerWillBeDestroyed(infobars::InfoBarManager* manager) override;
+
+  // media_session::mojom::MediaSessionObserver, for the media the sidebar's player shows:
+  void MediaSessionInfoChanged(media_session::mojom::MediaSessionInfoPtr info) override;
+  void MediaSessionMetadataChanged(
+      const std::optional<media_session::MediaMetadata>& metadata) override;
+  void MediaSessionActionsChanged(
+      const std::vector<media_session::mojom::MediaSessionAction>& actions) override;
+  void MediaSessionImagesChanged(
+      const base::flat_map<media_session::mojom::MediaSessionImageType,
+                           std::vector<media_session::MediaImage>>& images) override {}
+  void MediaSessionPositionChanged(
+      const std::optional<media_session::MediaPosition>& position) override {}
 
   // Tells the app the tab's state from a task of its own, as StateChanged does, for a change the
   // session doesn't keep.
@@ -286,7 +349,6 @@ class Tab : public content::WebContentsObserver,
   base::Time last_seen_ = base::Time::Now();
   std::optional<SkColor> page_color_;
   bool state_report_posted_ = false;
-  int input_modifiers_ = 0;
   gfx::PointF last_click_;
   // Whether the app was last told the page is full screen.
   bool fullscreen_ = false;
@@ -297,6 +359,12 @@ class Tab : public content::WebContentsObserver,
   base::ScopedObservation<favicon::FaviconDriver, favicon::FaviconDriverObserver>
       favicon_observation_{this};
   base::CallbackListSubscription audible_subscription_;
+  base::ScopedObservation<MediaStreamCaptureIndicator, MediaStreamCaptureIndicator::Observer>
+      capture_observation_{this};
+  base::ScopedObservation<infobars::InfoBarManager, infobars::InfoBarManager::Observer>
+      infobar_observation_{this};
+  // Bound once the page first plays media, as only then has it a session to hear from.
+  mojo::Receiver<media_session::mojom::MediaSessionObserver> media_observer_{this};
   std::unique_ptr<content::NavigationController::LoadURLParams> waiting_;
   bool crashed_ = false;
   // While the page is hung: Chrome's Wait, and the id of the renderer that hung, which Reload ends.
@@ -304,6 +372,8 @@ class Tab : public content::WebContentsObserver,
   int hung_process_ = 0;
   // A reload waiting for the hung renderer Reload ended to go.
   std::optional<bool> reload_after_kill_;
+  // That reload's page gets the keyboard back once its new renderer is ready.
+  bool focus_when_ready_ = false;
   // Chromium's net error code while the page is its error page, else 0.
   int net_error_ = 0;
   // The page base colour the tab last gave its pages, if not Chrome's.

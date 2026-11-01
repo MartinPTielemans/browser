@@ -33,6 +33,7 @@
 #include "base/values.h"
 #include "browser_core/ad_block.h"
 #include "browser_core/archive.h"
+#include "browser_core/auto_archive.h"
 #include "browser_core/favorites.h"
 #include "browser_core/host.h"
 #include "browser_core/profiles.h"
@@ -220,6 +221,7 @@ SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today)
   to.theme = space.theme();
   to.profile = space.profile();
   to.agent = space.agent();
+  to.pinned_open = space.pinned_open();
   int index = 0;
   // Each folder saved, to where it is among them.
   std::map<bc_id, int> folders;
@@ -237,6 +239,7 @@ SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today)
     for (bc_id id : *ids) {
       if (space.IsFolder(id)) {
         to.folders.push_back({.name = space.FolderName(id),
+                              .icon = space.FolderIcon(id),
                               .open = space.IsOpen(id),
                               .folder = folder_of(id),
                               .at = to.pinned.size(),
@@ -405,6 +408,9 @@ std::optional<std::string> ToJson(const Saved& saved) {
     base::ListValue pinned = to_list(space.pinned, &space.folders);
     for (auto folder = space.folders.rbegin(); folder != space.folders.rend(); ++folder) {
       base::DictValue row = base::DictValue().Set("folder", folder->name).Set("open", folder->open);
+      if (!folder->icon.empty()) {
+        row.Set("icon", folder->icon);
+      }
       write_folder(space.folders, folder->folder, row);
       WriteNode(folder->node, row);
       pinned.Insert(pinned.begin() + folder->at, base::Value(std::move(row)));
@@ -432,6 +438,9 @@ std::optional<std::string> ToJson(const Saved& saved) {
     }
     if (!space.theme.empty()) {
       dict.Set("theme", space.theme);
+    }
+    if (!space.pinned_open) {
+      dict.Set("pinned_open", false);
     }
     if (!space.profile.empty()) {
       dict.Set("profile", space.profile);
@@ -476,12 +485,18 @@ std::optional<std::string> ToJson(const Saved& saved) {
                            .Set("archive_after", saved.settings.archive_after.InSecondsF())
                            .Set("haptics", saved.settings.haptics)
                            .Set("warn_before_quitting", saved.settings.warn_before_quitting)
+                           .Set("archive_noted", saved.settings.archive_noted)
+                           .Set("restore_windows", saved.settings.restore_windows)
                            .Set("warn_moving_profiles", saved.settings.warn_moving_profiles)
                            .Set("favorites_scope", ScopeName(saved.settings.favorites_scope))
                            .Set("unload_idle_tabs", saved.settings.unload_idle_tabs)
                            .Set("ad_blocking", saved.settings.ad_blocking)
                            .Set("send_crash_reports", saved.settings.send_crash_reports)
                            .Set("link_previews", saved.settings.link_previews)
+                           .Set("auto_picture_in_picture",
+                                saved.settings.auto_picture_in_picture)
+                           .Set("option_reveals_sidebar", saved.settings.option_reveals_sidebar)
+                           .Set("hover_kinds", saved.settings.hover_kinds)
                            .Set("crash_report_offered", saved.settings.crash_report_offered)
                            .Set("widevine", saved.settings.widevine));
   return base::WriteJson(root);
@@ -576,6 +591,7 @@ std::optional<Saved> Read(const base::FilePath& path) {
     if (const std::string* theme = space->FindString("theme")) {
       to.theme = *theme;
     }
+    to.pinned_open = space->FindBool("pinned_open").value_or(true);
     if (const std::string* profile = space->FindString("profile")) {
       to.profile = *profile;
     }
@@ -634,6 +650,7 @@ std::optional<Saved> Read(const base::FilePath& path) {
         if (folder && tabs == &to.pinned) {
           SavedFolder& read = to.folders.emplace_back(SavedFolder{
               .name = *folder,
+              .icon = dict->FindString("icon") ? *dict->FindString("icon") : std::string(),
               .open = dict->FindBool("open").value_or(true),
               .folder = folder_of(*dict),
               .at = to.pinned.size(),
@@ -711,8 +728,10 @@ std::optional<Saved> Read(const base::FilePath& path) {
     saved.settings.haptics = settings->FindBool("haptics").value_or(true);
     saved.settings.warn_before_quitting =
         settings->FindBool("warn_before_quitting").value_or(true);
+    saved.settings.archive_noted = settings->FindBool("archive_noted").value_or(false);
     saved.settings.warn_moving_profiles =
         settings->FindBool("warn_moving_profiles").value_or(true);
+    saved.settings.restore_windows = settings->FindBool("restore_windows").value_or(true);
     if (const std::string* scope = settings->FindString("favorites_scope")) {
       saved.settings.favorites_scope = ScopeFromName(*scope);
     }
@@ -721,6 +740,11 @@ std::optional<Saved> Read(const base::FilePath& path) {
     saved.settings.send_crash_reports =
         settings->FindBool("send_crash_reports").value_or(false);
     saved.settings.link_previews = settings->FindBool("link_previews").value_or(true);
+    saved.settings.auto_picture_in_picture =
+        settings->FindBool("auto_picture_in_picture").value_or(true);
+    saved.settings.option_reveals_sidebar =
+        settings->FindBool("option_reveals_sidebar").value_or(true);
+    saved.settings.hover_kinds = settings->FindInt("hover_kinds").value_or(15);
     saved.settings.crash_report_offered =
         settings->FindDouble("crash_report_offered").value_or(0);
     saved.settings.widevine = settings->FindBool("widevine").value_or(false);
@@ -1106,9 +1130,17 @@ class Saver : public base::ImportantFileWriter::BackgroundDataSerializer {
       LoadArchive(std::exchange(saved->archive, {}));
       UserSettings() = saved->settings;
       LoadedWindows() = std::exchange(saved->windows, {});
+      // Without the last session's windows, the launch opens one, where the front one was, and
+      // windowed, as a new window would be.
+      if (!UserSettings().restore_windows && !LoadedWindows().empty()) {
+        LoadedWindows().erase(LoadedWindows().begin() + 1, LoadedWindows().end());
+        LoadedWindows().front().fullscreen = false;
+      }
     }
     // The profile the browser started in loaded before the settings were read.
     ApplyAdBlocking();
+    ApplyAutoPictureInPicture(/*changed=*/false);
+    ArchiveDefaultRead();
     // The profiles the Spaces and favorites are in load before they come back.
     std::set<std::string> profiles;
     if (saved) {
@@ -1199,7 +1231,8 @@ bool RestoreSavedWindow(Window& window, size_t index) {
       break;
     }
   }
-  window.ShowSpace(space);
+  // A new window's shows no page.
+  window.ShowSpace(space, /*page=*/UserSettings().restore_windows);
   // The window is on screen already, so this is the transition the user would start. Only the
   // front window's: one behind would take the user to its own macOS Space as the browser launches,
   // so it comes back windowed, at the frame it had before full screen.
@@ -1209,16 +1242,24 @@ bool RestoreSavedWindow(Window& window, size_t index) {
   return true;
 }
 
-Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved_space, bc_id id) {
-  Space* space = Space::Create(saved_space.name, id, saved_space.agent);
+Space* RestoreSpace(Window& window,
+                    Profile* profile,
+                    const SavedSpace& saved_space,
+                    bc_id id,
+                    size_t at) {
+  Space* space = Space::Create(saved_space.name, id, saved_space.agent, at);
   space->SetColor(saved_space.color);
   space->SetIcon(saved_space.icon);
   space->SetTheme(saved_space.theme);
+  space->SetPinnedOpen(saved_space.pinned_open);
   space->SetProfile(DirOf(profile));
+  // Else the Space comes back as a new window shows it: its pinned tabs, none shown, and no Today
+  // tabs, which go in the archive.
+  const bool whole = UserSettings().restore_windows;
   const auto restore = [&](const SavedTab& saved_tab, int index) -> bc_id {
     // Without its page until it's first shown, which saves launch making a page for each tab.
     const bc_id tab = Tab::Restore(profile, saved_tab);
-    if (tab && index == saved_space.shown) {
+    if (tab && whole && index == saved_space.shown) {
       window.SetSelectedIn(space->id(), tab);
     }
     return tab;
@@ -1241,6 +1282,7 @@ Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved_sp
       const bc_id folder = space->AddFolder(saved_folder.name, in(saved_folder.folder),
                                             space->pinned_rows().size());
       space->SetOpen(folder, saved_folder.open);
+      space->SetFolderIcon(folder, saved_folder.icon);
       nodes[folder] = saved_folder.node;
       folder_ids.push_back(folder);
     }
@@ -1268,13 +1310,22 @@ Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved_sp
                              ? saved_tab.pinned_url
                              : saved_tab.history[saved_tab.current].virtual_url(),
                          space->id(), saved_tab.site);
-      if (static_cast<int>(j) == saved_space.shown_own_favorite) {
+      if (whole && static_cast<int>(j) == saved_space.shown_own_favorite) {
         window.SetSelectedIn(space->id(), tab);
       }
     }
   }
-  // Bottom up, as each goes at the top.
+  // Bottom up, as each goes at the top, of the Space or of the archive.
   for (size_t j = saved_space.today.size(); j-- > 0;) {
+    if (!whole) {
+      const SavedTab& saved_tab = saved_space.today[j];
+      if (saved_tab.current >= 0 &&
+          static_cast<size_t>(saved_tab.current) < saved_tab.history.size()) {
+        const sessions::SerializedNavigationEntry& entry = saved_tab.history[saved_tab.current];
+        Archive(/*tab=*/0, entry.virtual_url(), base::UTF16ToUTF8(entry.title()));
+      }
+      continue;
+    }
     if (bc_id tab = today_ids[j] = restore(saved_space.today[j], pinned + static_cast<int>(j))) {
       space->Add(tab, /*opener=*/0, /*foreground=*/false);
     }
@@ -1334,7 +1385,8 @@ bool RestoreSession(Window& window) {
   for (const SavedSpace& saved_space : saved->spaces) {
     Space* space = RestoreSpace(window, ProfileFor(saved_space.profile), saved_space);
     RestoredSpaces().push_back(space->id());
-    if (saved_space.shown_favorite >= 0 && favorites[saved_space.shown_favorite]) {
+    if (UserSettings().restore_windows && saved_space.shown_favorite >= 0 &&
+        favorites[saved_space.shown_favorite]) {
       window.SetSelectedIn(space->id(), favorites[saved_space.shown_favorite]);
     }
   }
@@ -1342,7 +1394,7 @@ bool RestoreSession(Window& window) {
   Favorites::Complete();
   // A session saved with no regular window open shows the first Space.
   if (!RestoreSavedWindow(window, 0)) {
-    window.ShowSpace(RestoredSpaces().front());
+    window.ShowSpace(RestoredSpaces().front(), /*page=*/UserSettings().restore_windows);
   }
   g_saver->ListSidebars();
   return true;

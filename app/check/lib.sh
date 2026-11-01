@@ -19,7 +19,7 @@ cased() {
       sub(/,$/, "", noun)
       sub(/…$/, "", noun)
       if (word ~ /^“/) quoted = 1
-      keep = first || quoted || noun ~ /^[A-Z][A-Z]+$/ || noun == "Space" || noun == "Spaces" || noun == "Library"
+      keep = first || quoted || noun ~ /^[A-Z][A-Z]+$/ || noun == "Space" || noun == "Spaces" || noun == "Library" || noun == "Markdown"
       printf "%s%s", (i > 1 ? " " : ""), (keep ? word : tolower(word))
       if (word ~ /”/) quoted = 0
       first = word ~ /,$/ || word == "›"
@@ -54,16 +54,35 @@ cleanup() {
   [ -z "${collector:-}" ] || kill "$collector" 2>/dev/null || true
   [ -z "${stuck:-}" ] || kill "$stuck" 2>/dev/null || true
   [ -z "${helper:-}" ] || kill "$helper" 2>/dev/null || true
+  [ -z "${tls:-}" ] || kill "$tls" 2>/dev/null || true
+  # The access run's session and AT-SPI buses.
+  [ -z "${buses:-}" ] || kill $buses 2>/dev/null || true
   # A run's temp dir, such as the updates run's with its key.
   [ -z "${scratch:-}" ] || rm -rf "$scratch"
   # A check VM that a run turned light or dark goes back to the appearance it had.
   [ -z "${dark_mode:-}" ] || appearance "$dark_mode" || true
+  # A crash's minidump goes with the run's captures, once Crashpad's handler has written it.
+  for _ in $(seq 60); do
+    ls "$profile_dir"/Crashpad/new/*.dmp > /dev/null 2>&1 || break
+    sleep 1
+  done
+  cp "$profile_dir"/Crashpad/*/*.dmp "$out/" 2>/dev/null || true
+  kill -0 "$pid" 2>/dev/null || return 0
+  if windows; then
+    # Git Bash's kill ends a Windows program by starting ExitProcess in it and in each process it
+    # started, and chrome.dll faults as that thread unloads it, so each helper would leave a crash
+    # report and the run would read as a crash after its failure (#1017). taskkill /F ends them.
+    taskkill //F //T //PID "$(cat "/proc/$pid/winpid")" > /dev/null 2>&1 || true
+    return 0
+  fi
   kill "$pid" 2>/dev/null || return 0
   for _ in $(seq 10); do
     kill -0 "$pid" 2>/dev/null || break
     sleep 0.5
   done
-  kill -9 "$pid" 2>/dev/null
+  # Most often the app ended at the kill above, and this one fails, which would end the trap before
+  # the helpers go, and before what a run's own trap does after cleanup, such as mcp's forget_login.
+  kill -9 "$pid" 2>/dev/null || true
   pkill -9 -f "$procs" || true
 }
 fail() {
@@ -71,11 +90,16 @@ fail() {
   grep -v '^$' "$log" | tail -5 >&2
   exit 1
 }
+# The app ended by itself.
+gone() {
+  wait "$pid" 2>/dev/null && ended=0 || ended=$?
+  fail "the app exited with status $ended"
+}
 # Waits up to 30 s for a line matching $1 in the log of the current run.
 await() {
   for _ in $(seq 300); do
     grep -q "$1" "$log" && return 0
-    kill -0 "$pid" 2>/dev/null || fail "the app exited"
+    kill -0 "$pid" 2>/dev/null || gone
     sleep 0.1
   done
   return 1
@@ -86,33 +110,70 @@ await_load() {
   grep -q '^browser: loaded' "$log" || fail "the page didn't load"
 }
 # Waits up to $1 seconds (10) for the app to exit and checks that no Chromium process outlives it.
+# On the Mac, sample records the app's last 2 s before the limit in hang.txt, with what it said in
+# hang-sample.txt: started after the limit, it found no app to attach to when the app went just
+# then (#960).
 exited() {
-  for _ in $(seq $((${1:-10} * 2))); do
+  ticks=$((${1:-10} * 2))
+  sampler=
+  for tick in $(seq "$ticks"); do
     kill -0 "$pid" 2>/dev/null || break
+    if [ "$tick" = $((ticks - 3)) ] && [ "$(uname)" = Darwin ]; then
+      sample "$pid" 2 -file "$out/hang.txt" > "$out/hang-sample.txt" 2>&1 &
+      sampler=$!
+    fi
     sleep 0.5
   done
-  if kill -0 "$pid" 2>/dev/null; then
-    windows || [ "$(uname)" = Linux ] || sample "$pid" 2 -file "$out/hang.txt" > /dev/null 2>&1
-    fail "the app didn't quit. Where it was: $out/hang.txt"
+  if ! kill -0 "$pid" 2>/dev/null; then
+    # Quit in time, maybe while sampled, which then shows no hang.
+    [ -z "$sampler" ] || { wait "$sampler" || true; rm -f "$out/hang.txt" "$out/hang-sample.txt"; }
+  else
+    [ -z "$sampler" ] || wait "$sampler" || true
+    # Whether it's stuck or only slow, which the sample alone doesn't say.
+    late=
+    for tick in $(seq 20); do
+      kill -0 "$pid" 2>/dev/null || { late=$tick; break; }
+      sleep 0.5
+    done
+    if [ -n "$late" ]; then
+      why="the app quit late, within $(((late + 1) / 2)) s after the ${1:-10} s it had"
+    else
+      why="the app didn't quit in ${1:-10} s, nor in the 10 s after"
+      # Windows has no sample, but the windows the app has left say what's keeping it.
+      ! windows || python3 -I check/app-windows.py list "$(cat "/proc/$pid/winpid")" \
+        > "$out/hang.txt" 2>&1 || true
+    fi
+    if [ -s "$out/hang.txt" ]; then
+      fail "$why. Where it was: $out/hang.txt"
+    elif [ -n "$sampler" ]; then
+      fail "$why, and sample wrote nothing: $(tail -1 "$out/hang-sample.txt" 2>/dev/null)"
+    fi
+    fail "$why"
   fi
   wait "$pid" || fail "the app exited with status $?"
   for _ in $(seq 10); do
     pgrep -f "$procs" > /dev/null || break
     sleep 0.5
   done
-  # It exits once no process is left to send it a crash.
+  # It exits once no process is left to send it a crash, which can take it a moment after the
+  # last one; a handler still there after the wait is stuck, as #761's fork child was.
+  for _ in $(seq 10); do
+    pgrep -f "$app/.*chrome_crashpad_handler" > /dev/null || break
+    sleep 0.5
+  done
   pgrep -f "$app/.*chrome_crashpad_handler" > /dev/null &&
     fail "Crashpad's handler outlived the app"
   pgrep -f "$procs" > /dev/null && fail "Chromium helper processes were left running"
   return 0
 }
 # A quit Apple Event goes through -[NSApplication terminate:], the way macOS quits apps when the
-# user logs out. On Windows taskkill without /F closes the app's windows, as the user would, and
-# Chromium quits with its last one. On Linux SIGINT is that way: Chromium quits as from its menu,
-# where SIGTERM ends the session at once, without the startup trace tabs.sh reads.
+# user logs out. On Windows each browser window is asked to close, as its close button does, and
+# Chromium quits with its last one: taskkill without /F closed one of two (#1017). On Linux SIGINT
+# is that way: Chromium quits as from its menu, where SIGTERM ends the session at once, without the
+# startup trace tabs.sh reads.
 quit_app() {
   if windows; then
-    taskkill //PID "$(cat "/proc/$pid/winpid")" > /dev/null
+    python3 -I check/app-windows.py close "$(cat "/proc/$pid/winpid")"
   elif [ "$(uname)" = Linux ]; then
     kill -INT "$pid"
   else
@@ -152,9 +213,19 @@ post() {
 # with none its one Share… for the share sheet, dimmed for a page with no link, or nothing on Linux,
 # which has neither. A check reads past them and never chooses one.
 share='\(, Share…\( (disabled)\)\?\|, Share › [^,]*\(, Share › [^,]*\)*\)\?'
-# Waits for a line matching $1 logged after the last command was sent.
+# Waits for a line matching $1 logged after the last command was sent, or after command $3, and
+# fails with $2.
 expect() {
   for _ in $(seq 100); do
+    logged "$1" "${3:-}" && return 0
+    exited_without "$1" "$2" "${3:-}"
+    sleep 0.1
+  done
+  fail "$2"
+}
+# expect, for up to 30 s, for what waits on a process that may still be starting.
+expect_late() {
+  for _ in $(seq 300); do
     sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "$1" && return 0
     sleep 0.1
   done
@@ -163,14 +234,53 @@ expect() {
 # expect, looking every 10 ms, for a press that has to land within the first frames of a motion.
 expect_soon() {
   for _ in $(seq 1000); do
-    sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "$1" && return 0
+    logged "$1" && return 0
+    exited_without "$1" "$2"
     sleep 0.01
   done
   fail "$2"
 }
+# A line matching $1 was logged after the last command was sent, or after command $2.
+logged() {
+  sed -n "/^browser: drive ${2:-$step}: /,\$p" "$log" | grep -q "$1"
+}
+# The app that was to log $1 is gone without it, which says why the step $2 failed. It's looked
+# for again, as the app may have logged it as it went.
+exited_without() {
+  [ -z "${pid:-}" ] || kill -0 "$pid" 2>/dev/null || logged "$1" "${3:-}" || fail "the app exited: $2"
+}
+# Where Settings last drew its control $1, "x y" for clickkey, once it has: it logs each place it
+# draws one ("browser: settings $1 at x y").
+drawn() {
+  for _ in $(seq 100); do
+    sed -n "s/^browser: settings $1 at //p" "$log" | tail -1 | grep . && return 0
+    sleep 0.1
+  done
+  return 1
+}
 # Nothing logged since the last command was sent matches $1.
 none_since() {
   ! sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "$1"
+}
+# Nothing logged while the driver handled the last command matches $1: what it did at once, not
+# what a timer of the app's did after, which on Windows send's own greps can outlast.
+none_while() {
+  ! sed -n "/^browser: drive $step: /,/^browser: drive $step done/p" "$log" | grep -q "$1"
+}
+# Kills the app's pages' renderers, as macOS kills one under memory pressure. Not an extension's,
+# which is a renderer too and whose death shows Chromium's balloon saying the extension crashed.
+kill_pages() {
+  renderers=$(ps -Ao pid=,args= | grep -e "$procs.*--type=rendere[r]" |
+    grep -v -e '--extension-process' | awk '{ print $1 }')
+  [ -n "$renderers" ] && kill -KILL $renderers
+}
+# Where Settings' close button is, in $close: AppKit's on the Mac, else where Settings drew its own,
+# which on Windows is in the top right corner.
+settings_close() {
+  close="16 16"
+  [ "$(uname)" = Darwin ] && return
+  await '^browser: settings close at ' || fail "Settings didn't draw its close button"
+  close=$(sed -n 's/^browser: settings close at //p' "$log" | tail -1)
 }
 # How many detents the app has asked the trackpad for: one for each place a dragged row passes.
 detents() {
@@ -203,19 +313,40 @@ last() { grep "^browser: $1 " "$log" | tail -1 | sed 's/.* //'; }
 # returns once frames are being written, so the motion driven next is in it, and recorded waits
 # for the file.
 record() {
+  # tools/window-record.sh records with the Mac's ScreenCaptureKit alone.
+  if [ "$(uname)" != Darwin ]; then
+    recording=""
+    echo "skip: recording $1, as tools/window-record.sh records only the Mac's windows so far."
+    return 0
+  fi
   recording="$out/$1.mp4"
   ../tools/window-record.sh "$pid" "$2" "$recording" > "$out/$1-record.log" 2>&1 &
   recorder=$!
   for _ in $(seq 300); do
     grep -q '^recording$' "$out/$1-record.log" && return 0
-    kill -0 "$recorder" 2> /dev/null ||
-      fail "the window's recording didn't start: $(tail -1 "$out/$1-record.log")"
+    if ! kill -0 "$recorder" 2> /dev/null; then
+      unrecorded || fail "the window's recording didn't start: $(tail -1 "$out/$1-record.log")"
+      return 0
+    fi
     sleep 0.1
   done
   fail "the window's recording didn't start in 30 s"
 }
 recorded() {
-  wait "$recorder" || fail "the window's recording didn't finish: $(tail -1 "${recording%.mp4}-record.log")"
+  [ -n "$recording" ] || return 0
+  wait "$recorder" && return 0
+  unrecorded || fail "the window's recording didn't finish: $(tail -1 "${recording%.mp4}-record.log")"
+}
+# GitHub's hosted Mac starts a recording and never gets its first frame, ReplayKit's -5822 (#1108),
+# so there the run goes on without it, saying so. Anywhere else a failed recording fails the run.
+unrecorded() {
+  said=$(tail -1 "${recording%.mp4}-record.log")
+  case "${GITHUB_ACTIONS:-}: $said" in
+  true:*Code=-5822*) ;;
+  *) return 1 ;;
+  esac
+  echo "skip: recording $(basename "$recording" .mp4), as the hosted Mac's recording got no first frame: $said"
+  recording=""
 }
 # The driver's clicks come with no move, and one in the sidebar tells it the pointer is there, so
 # where the sidebar last saw the pointer depends on the steps before. This moves it to the page and
@@ -330,8 +461,8 @@ space() {
 
 # The pinned tabs the app last showed, top to bottom.
 pinned() {
-  grep '^browser: pinned' "$log" | grep -v '^browser: pinned extensions ' | tail -1 |
-    sed 's/^browser: pinned *//'
+  # Only the list's lines, not "pinned extensions" or the chevron's "pinned caret".
+  grep -E '^browser: pinned( [0-9]+)* ?$' "$log" | tail -1 | sed 's/^browser: pinned *//'
 }
 # Waits for the app to show the pinned tabs $1 over Today $2. $3 says what went wrong if it doesn't.
 expect_lists() {
@@ -372,6 +503,17 @@ with open(sys.argv[1], "w") as f:
 # Starts the check's web server, in site.sh, unless a run before has. Its pages are at $site.
 serve() {
   [ -n "${site:-}" ] || . check/site.sh
+}
+# Waits up to 3 s for the clipboard to hold the text $1, off the Mac, where a run's clipboard is its
+# headless session's, which wl-paste reads, Xwayland's too, as sway hands it over. The Mac's
+# pasteboard is the run's own, which nothing else reads, so it passes there, as under Xvfb.
+clipboard_holds() {
+  case "${BROWSER_HEADLESS:-xvfb}" in xvfb) return 0 ;; esac
+  for _ in $(seq 30); do
+    [ "$(WAYLAND_DISPLAY="$BROWSER_HEADLESS" wl-paste -n 2>/dev/null)" = "$1" ] && return 0
+    sleep 0.1
+  done
+  return 1
 }
 # Waits for the check's server to log a request matching $1, as site.sh writes them.
 served() {

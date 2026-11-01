@@ -53,11 +53,12 @@ class Space {
     std::string name;
   };
 
-  // With the id |id|, a deleted Space's, if it isn't 0, which puts it back at its place. The
-  // agent's if there's |agent|, else the user's.
+  // With the id |id|, a deleted Space's, if it isn't 0. The agent's if there's |agent|, else the
+  // user's. At |at| in the Spaces' order, else after the others.
   static Space* Create(std::string name,
                        bc_id id = 0,
-                       std::optional<Agent> agent = std::nullopt);
+                       std::optional<Agent> agent = std::nullopt,
+                       size_t at = SIZE_MAX);
   // A private window's Space, its tabs in the off-the-record profile of the profile in the
   // directory |profile|. It holds Today tabs alone, and isn't among All(), so it's never saved,
   // archived or listed with the Spaces. It goes with its window.
@@ -115,9 +116,12 @@ class Space {
   bool IsFolder(bc_id id) const { return folders_.contains(id); }
   // The folder holding the pinned tab or folder |id|, else 0.
   bc_id FolderOf(bc_id id) const;
-  // A folder's name, and whether it shows what's in it.
+  // A folder's name, its icon, empty for none, and whether it shows what's in it.
   std::string FolderName(bc_id folder) const;
+  std::string FolderIcon(bc_id folder) const;
   bool IsOpen(bc_id folder) const;
+  // Whether the pinned tabs and folders show, which collapsing them hides.
+  bool pinned_open() const { return pinned_open_; }
 
   void SetName(std::string name);
   void SetColor(std::optional<uint32_t> color);
@@ -169,7 +173,9 @@ class Space {
   // Move counts. Returns it.
   bc_id AddFolder(std::string name, bc_id folder, size_t index);
   void RenameFolder(bc_id folder, std::string name);
+  void SetFolderIcon(bc_id folder, std::string icon);
   void SetOpen(bc_id folder, bool open);
+  void SetPinnedOpen(bool open);
   // Deletes |folder|, leaving what was in it where it was, in the folder that held it.
   void DeleteFolder(bc_id folder);
 
@@ -266,9 +272,11 @@ class Space {
   std::map<bc_id, GURL> pinned_urls_;
   struct Folder {
     std::string name;
+    std::string icon;
     bool open = true;
   };
   std::map<bc_id, Folder> folders_;
+  bool pinned_open_ = true;
   // Each pinned tab or folder inside a folder, to the folder.
   std::map<bc_id, bc_id> folder_of_;
   std::vector<bc_id> today_;

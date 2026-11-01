@@ -6,11 +6,20 @@
 #   ilo-linux-x86_64.flatpak     flatpak.yml's bundle, naming ilo's Flatpak repository, which it
 #   ilo.flatpakref               updates from, and the repository's entry (tools/flatpak-repo.sh)
 #   SHA256SUMS, and appcast.xml  the updates feed's next state (tools/appcast.sh)
+#   ilo-demo.tar.gz              the site's live demo, when the commit has one (demo.yml)
+# and, in the run rather than the release, winget's manifests for the Windows installer.
 # On a pushed v* tag, or by hand with the tag's name. The tag must be app/Cargo.toml's version, and
-# its message is the release's notes. Each job builds on its OS's prebuilt engine for the commit,
-# which engine/fetch.sh finds or fails on; a release never builds an engine. The owner publishes
-# the draft, which puts its Linux build in the Flatpak repository (the publish job). README.md ›
-# Releases names the secrets it needs. GitHub's hosted runners only.
+# its message is the release's notes. By hand before the tag exists, it's a try: it skips, and says so
+# in the run, what needs the owner (the Store's identity, the Developer ID, notarization, the appcast)
+# and makes no release, leaving its packages as the run's artifact release-try. Each job builds on
+# its OS's prebuilt engine for the commit, which engine/fetch.sh finds or fails on; a release never builds an engine. The Windows engine is
+# built nightly, not for each core change, so before pushing the tag, dispatch Engine on Windows
+# (cross-compiled) on its commit (gh workflow run engine-windows-cross.yml --ref main, with main at
+# that commit) and wait for its release engine-windows-<commit>; otherwise the Windows job stops at
+# "No Windows engine release for this commit", or packs an older core. The owner publishes
+# the draft, which puts its Linux build in the Flatpak repository (the publish job) and the release
+# on ilobrowser.com (the site job). README.md › Releases names the secrets it needs. GitHub's
+# hosted runners only.
 name: Release
 
 on:
@@ -54,6 +63,10 @@ jobs:
           fi
           mkdir -p "$RUNNER_TEMP/notes"
           notes=$RUNNER_TEMP/notes/notes.md
+          # On a tag push, checkout writes the tag it ran for as a lightweight one on the commit
+          # (actions/checkout#290), so the annotated tag, and its message, comes again from the
+          # remote. A run by hand before the tag exists finds none, and stays a trial.
+          git fetch -q --force origin "+refs/tags/$TAG:refs/tags/$TAG" 2>/dev/null || true
           if [ "$(git cat-file -t "refs/tags/$TAG" 2>/dev/null)" = tag ]; then
             if [ "$(git rev-parse "$TAG^{commit}")" != "$GITHUB_SHA" ]; then
               echo "::error::$TAG is on another commit. Run the workflow from the tag: gh workflow run release.yml --ref $TAG -f tag=$TAG"
@@ -73,8 +86,8 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       # Crash reports' symbols, which each OS's job uploads to the collector app/branding/crash-reports
-      # names (tools/symbols.sh). Optional: with none of these no symbols are uploaded, and with only
-      # some the release stops here rather than after its builds.
+      # names (tools/symbols.sh). Optional: without the token no symbols are uploaded, and with the
+      # token but not the rest the release stops here rather than after its builds.
       - name: Crash reports' symbols
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
@@ -133,18 +146,50 @@ jobs:
             exit 1
           fi
           cargo build --release --features prod
+          # The bridge an agent's MCP client runs, which package.sh puts beside Browser.dll.
+          cargo build --release --features prod --manifest-path ../Cargo.toml --bin mcp-bridge --target-dir target
 
       # The packaging is app/platform/windows/package's, under the release's names. --release stops
       # on a missing engine and on windows-store.ini's placeholder identity, and only its release
-      # names are taken, never an -app-only or -placeholder-identity package.
+      # names are taken, never an -app-only or -placeholder-identity package. A trial packs a test
+      # MSIX while the identity is a placeholder, so the rest of the job can be tried before
+      # Partner Center gives one; the Engine step has already stopped one without an engine.
       - name: Package
         env:
           version: ${{ needs.version.outputs.version }}
+          TRIAL: ${{ needs.version.outputs.trial }}
         run: |
-          platform/windows/package/package.sh --release "$RUNNER_TEMP/packages"
+          if [ "$TRIAL" = true ]; then
+            platform/windows/package/package.sh "$RUNNER_TEMP/packages"
+            msix=$(ls "$RUNNER_TEMP/packages/ilo-$version-x64"*.msix)
+            case $msix in *-placeholder-identity*)
+              echo "::notice title=Skipped: the Store's identity::branding/windows-store.ini holds placeholders, not Partner Center's identity, which the owner reserves, so this try's MSIX is a test package the Store would refuse." ;;
+            esac
+          else
+            platform/windows/package/package.sh --release "$RUNNER_TEMP/packages"
+            msix=$RUNNER_TEMP/packages/ilo-$version-x64.msix
+          fi
           mkdir "$RUNNER_TEMP/windows"
-          mv "$RUNNER_TEMP/packages/ilo-$version-x64.msix" "$RUNNER_TEMP/windows/ilo-windows-x64.msix"
-          mv "$RUNNER_TEMP/packages/ilo-$version-x64-setup.exe" "$RUNNER_TEMP/windows/ilo-windows-x64-setup.exe"
+          mv "$msix" "$RUNNER_TEMP/windows/ilo-windows-x64.msix"
+          cp "$RUNNER_TEMP/packages/ilo-$version-x64-setup.exe" "$RUNNER_TEMP/windows/ilo-windows-x64-setup.exe"
+
+      # winget's manifests for the installer at the URL this release publishes it at, which the
+      # owner puts in a pull request to microsoft/winget-pkgs once the draft is published
+      # (README.md › Releases). They're the run's, not the release's: users never need them.
+      - name: winget manifests
+        env:
+          version: ${{ needs.version.outputs.version }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          ../tools/winget.sh "$RUNNER_TEMP/packages/ilo-$version-x64-setup.exe" \
+            "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/ilo-windows-x64-setup.exe" \
+            "$RUNNER_TEMP/winget"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: winget
+          path: ${{ runner.temp }}/winget
+          if-no-files-found: error
 
       # The engine's executables and libraries with their PDBs, from its release, and Browser.dll
       # with its own.
@@ -169,6 +214,10 @@ jobs:
       symbols: true
     secrets:
       SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+
+  demo:
+    needs: version
+    uses: ./.github/workflows/demo.yml
 
   # The Linux build in ilo's Flatpak repository, which installs from GitHub update from, and the
   # release's Linux files from it (tools/flatpak-repo.sh). Its objects and deltas go to the R2 bucket
@@ -296,10 +345,15 @@ jobs:
     defaults:
       run:
         working-directory: app
+    outputs:
+      signed: ${{ steps.secrets.outputs.signed }}
     steps:
-      # Without them nothing is signed, so nothing is built.
+      # Without them nothing is signed, so a release builds nothing. A try before the tag builds
+      # and signs ad hoc instead, to try every step but the Developer ID's and notarization.
       - name: Secrets
+        id: secrets
         env:
+          TRIAL: ${{ needs.version.outputs.trial }}
           MAC_CERTIFICATE_P12: ${{ secrets.MAC_CERTIFICATE_P12 }}
           MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
           MAC_NOTARY_KEY: ${{ secrets.MAC_NOTARY_KEY }}
@@ -313,7 +367,12 @@ jobs:
             MAC_NOTARY_ISSUER_ID UPDATE_PRIVATE_KEY; do
             [ -n "$(printenv "$name")" ] || missing="$missing $name"
           done
-          if [ -n "$missing" ]; then
+          if [ -z "$missing" ]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          elif [ "$TRIAL" = true ]; then
+            echo "::notice title=Skipped: Developer ID signing and notarization::No$missing, which the owner holds: this try signs ad hoc and makes no DMG, appcast or Mac upload."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          else
             echo "::error::The Mac's DMG needs the repository secrets$missing (README.md › Releases). Without them it isn't built, and no unsigned DMG is uploaded."
             exit 1
           fi
@@ -331,6 +390,7 @@ jobs:
       # A keychain of the run's own, which the runner deletes, with the Developer ID and the
       # notarization key as notarytool's profile "notary".
       - name: Keychain
+        if: ${{ steps.secrets.outputs.signed == 'true' }}
         env:
           MAC_CERTIFICATE_P12: ${{ secrets.MAC_CERTIFICATE_P12 }}
           MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
@@ -361,26 +421,35 @@ jobs:
             --key-id "$MAC_NOTARY_KEY_ID" --issuer "$MAC_NOTARY_ISSUER_ID"
           rm "$RUNNER_TEMP/notary.p8"
 
+      # It uploads the crash reports' symbols too (tools/symbols.sh).
       - name: Build
         env:
           UPDATE_PUBLIC_KEY: ${{ secrets.UPDATE_PUBLIC_KEY }}
-        run: ./build.sh prod
-
-      - name: Sign and notarize
-        env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_URL: ${{ vars.SENTRY_URL }}
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+        run: ./build.sh prod
+
+      - name: Sign and notarize
+        if: ${{ steps.secrets.outputs.signed == 'true' }}
+        run: ../tools/release.sh
+
+      # Every signature the release's makes, ad hoc, which stops before the DMG.
+      - name: Sign ad hoc
+        if: ${{ steps.secrets.outputs.signed != 'true' }}
+        env:
+          SIGN_IDENTITY: '-'
         run: ../tools/release.sh
 
       - uses: actions/download-artifact@v4
-        if: ${{ needs.windows.result == 'success' }}
+        if: ${{ needs.windows.result == 'success' && steps.secrets.outputs.signed == 'true' }}
         with:
           name: windows
           path: ${{ runner.temp }}/windows
 
       - uses: actions/download-artifact@v4
+        if: ${{ steps.secrets.outputs.signed == 'true' }}
         with:
           name: notes
           path: ${{ runner.temp }}/notes
@@ -389,6 +458,7 @@ jobs:
       # input, never through the Keychain. appcast.sh names the DMG ilo.dmg in the appcast; the
       # release's is ilo-mac-arm64.dmg.
       - name: Appcast
+        if: ${{ steps.secrets.outputs.signed == 'true' }}
         env:
           UPDATE_PRIVATE_KEY: ${{ secrets.UPDATE_PRIVATE_KEY }}
           version: ${{ needs.version.outputs.version }}
@@ -410,15 +480,17 @@ jobs:
           mv build/release/ilo.dmg "$RUNNER_TEMP/mac/ilo-mac-arm64.dmg"
 
       - uses: actions/upload-artifact@v4
+        if: ${{ steps.secrets.outputs.signed == 'true' }}
         with:
           name: mac
           path: ${{ runner.temp }}/mac
           if-no-files-found: error
 
   # The draft, once the Mac's and Linux's packages are built. Windows's join it when they built;
-  # 0.1.0's Windows packages wait on a Windows engine and the Store's identity.
+  # 0.1.0's Windows packages wait on a Windows engine and the Store's identity. The site's demo
+  # joins it when it built, and a release without one leaves the site's demo as it was.
   release:
-    needs: [version, windows, flatpak-repo, mac]
+    needs: [version, windows, flatpak-repo, mac, demo]
     if: ${{ !cancelled() && needs.mac.result == 'success' && needs.flatpak-repo.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
@@ -427,8 +499,10 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ needs.version.outputs.tag }}
       VERSION: ${{ needs.version.outputs.version }}
+      TRIAL: ${{ needs.version.outputs.trial }}
     steps:
       - uses: actions/download-artifact@v4
+        if: ${{ needs.mac.outputs.signed == 'true' }}
         with:
           name: mac
           path: assets
@@ -442,15 +516,31 @@ jobs:
           name: linux
           path: assets
       - uses: actions/download-artifact@v4
+        if: ${{ needs.demo.result == 'success' && needs.demo.outputs.built == 'true' }}
+        with:
+          name: ilo-demo
+          path: assets
+      - uses: actions/download-artifact@v4
         with:
           name: notes
           path: notes
 
       - run: |
           (cd assets && sha256sum -- ilo-* > SHA256SUMS)
+          # The Mac's minimum, LSMinimumSystemVersion in app/build.sh.
+          printf '\nThe Mac build needs macOS 15 (Sequoia) or later, on Apple silicon.\n' >> notes/notes.md
           if [ ! -f assets/ilo-windows-x64-setup.exe ]; then
             printf '\nThe Windows packages are not in this release yet.\n' >> notes/notes.md
             echo "No Windows packages: the Windows job failed. The draft has the Mac's and Linux's." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          [ -f assets/ilo-demo.tar.gz ] ||
+            echo "No site demo in the draft: publishing it leaves the site's demo as it was." >> "$GITHUB_STEP_SUMMARY"
+          # A try makes no release, not even a draft, which would hold the tag's name: its packages
+          # are the run's artifact release-try instead.
+          if [ "$TRIAL" = true ]; then
+            [ -f assets/ilo-mac-arm64.dmg ] || echo "No Mac DMG: the try signed ad hoc." >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice title=Skipped: the draft release::$TAG has no tag yet, so this is a try: its packages and SHA256SUMS are the run's artifact release-try, and no release was made."
+            exit 0
           fi
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             echo "::error::There's a release $TAG already. Delete it, if it's a draft, to make it again."
@@ -459,6 +549,14 @@ jobs:
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --target "$GITHUB_SHA" \
             --title "ilo $VERSION" --notes-file notes/notes.md assets/*
           echo "Draft $TAG: $(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url -q .url)" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ needs.version.outputs.trial == 'true' }}
+        with:
+          name: release-try
+          path: |
+            assets
+            notes
 
   # The owner published a draft: its Linux build goes live in the Flatpak repository. The summary
   # and refs staged in pending/<tag>/ replace the live ones, then what no staged build's repository
@@ -496,3 +594,22 @@ jobs:
             xargs -r -P 8 -I {} aws s3 rm "$bucket/{}" --endpoint-url "$R2_ENDPOINT" --only-show-errors
           aws s3 rm "$bucket/pending/$TAG" --recursive --endpoint-url "$R2_ENDPOINT" --only-show-errors
           echo "$TAG is live in the Flatpak repository." >> "$GITHUB_STEP_SUMMARY"
+
+  # The owner published a draft: ilobrowser.com's release workflow puts its demo on the site and
+  # deploys it now, rather than at its next half-hourly check. GitHub's own token can't start
+  # another repository's workflow, so SITE_DISPATCH_TOKEN is a fine-grained token with Contents
+  # read and write on MartinPTielemans/ilo-site alone (README.md › Releases).
+  site:
+    if: ${{ github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - env:
+          TAG: ${{ github.event.release.tag_name }}
+          GH_TOKEN: ${{ secrets.SITE_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::notice::No SITE_DISPATCH_TOKEN (README.md › Releases), so the site takes $TAG at its next half-hourly check."
+            exit 0
+          fi
+          gh api repos/MartinPTielemans/ilo-site/dispatches -f event_type=ilo-release -f "client_payload[tag]=$TAG"
+          echo "ilobrowser.com is updating to $TAG: https://github.com/MartinPTielemans/ilo-site/actions" >> "$GITHUB_STEP_SUMMARY"

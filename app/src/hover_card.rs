@@ -17,10 +17,10 @@ use std::{
 };
 
 use gpui::{
-    App, Bounds, Context, FontWeight, Global, Image, ImageSource, ObjectFit, Pixels, RenderImage,
-    Role, SharedString, Size, Task, TitlebarOptions, Window, WindowBackgroundAppearance,
-    WindowBounds, WindowHandle, WindowKind, WindowOptions, div, img, point, prelude::*, px, size,
-    svg,
+    App, Bounds, Context, DispatchPhase, FontWeight, Global, Image, ImageSource, MouseExitEvent,
+    MouseMoveEvent, ObjectFit, Pixels, RenderImage, Role, SharedString, Size, Task,
+    TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind,
+    WindowOptions, canvas, div, img, point, prelude::*, px, size, svg,
 };
 
 use crate::elevation::{Level, WINDOW_MARGIN};
@@ -119,6 +119,8 @@ pub enum Action {
     Favorite,
     Unfavorite,
     Split,
+    /// The page sharing another tab shares this one instead.
+    ShareInstead,
 }
 
 impl Action {
@@ -130,6 +132,7 @@ impl Action {
             Action::Favorite => "Add to Favorites",
             Action::Unfavorite => "Remove from Favorites",
             Action::Split => "Open in Split View",
+            Action::ShareInstead => "Share This Tab Instead",
         }
     }
 
@@ -141,6 +144,7 @@ impl Action {
             Action::Favorite => "favorite",
             Action::Unfavorite => "unfavorite",
             Action::Split => "split",
+            Action::ShareInstead => "share-instead",
         }
     }
 
@@ -149,6 +153,7 @@ impl Action {
             Action::Pin | Action::Unpin => "icons/pin.svg",
             Action::Favorite | Action::Unfavorite => "icons/star.svg",
             Action::Split => "icons/columns-2.svg",
+            Action::ShareInstead => "icons/screen-share.svg",
         }
     }
 
@@ -192,6 +197,9 @@ pub enum Event {
     Shown,
     /// A button was pressed, and the card has gone.
     Act(Action),
+    /// The pointer came onto the card, or left it, which a hidden sidebar's panel counts as its
+    /// own (#830).
+    Pointer(bool),
 }
 
 /// The pointer rests on a row: what its card shows, where, and who hears what happens to it.
@@ -480,12 +488,27 @@ impl HoverCard {
         }));
     }
 
+    /// The pointer moved on the card's plate, or off it. Only leaving the card lets it go: a move
+    /// off a plate it never came onto is the pointer resting on the row.
     fn on_card(&mut self, hovered: bool, cx: &mut Context<Self>) {
-        self.on_card = hovered && self.shown.is_some();
+        let was = self.on_card;
+        self.pointer_on(hovered && self.shown.is_some(), cx);
         match hovered {
-            true => self.wait = None,
-            false if self.shown.is_some() => self.leave_after(cx),
-            false => {}
+            true if self.shown.is_some() => self.wait = None,
+            false if was && self.shown.is_some() => self.leave_after(cx),
+            _ => {}
+        }
+    }
+
+    /// Whether the pointer is on the card, which its shell hears as it changes.
+    fn pointer_on(&mut self, on: bool, cx: &mut Context<Self>) {
+        if std::mem::replace(&mut self.on_card, on) == on {
+            return;
+        }
+        // The buttons light under the pointer only while it's on the card.
+        cx.notify();
+        if let Some(rest) = &self.shown {
+            (rest.events)(rest.card.tab, Event::Pointer(on), cx);
         }
     }
 
@@ -536,7 +559,7 @@ impl HoverCard {
     fn close(&mut self, cx: &mut Context<Self>) {
         self.wait = None;
         self.resting = None;
-        self.on_card = false;
+        self.pointer_on(false, cx);
         if self.shown.is_none() {
             return;
         }
@@ -623,7 +646,7 @@ impl Render for HoverCard {
             window.drop_image(image).ok();
         }
         // The plate is inset by the margin, which its shadow draws in.
-        let root = div().size_full().p(px(WINDOW_MARGIN)).font_family(".SystemUIFont");
+        let root = div().size_full().p(px(WINDOW_MARGIN)).font_family(crate::face::UI);
         let Some(drawn) = self.drawn.clone() else {
             return root;
         };
@@ -655,6 +678,7 @@ impl Render for HoverCard {
         }
         let palette = crate::palette::current(cx);
         let a11y = window.is_a11y_active();
+        let on_card = self.on_card;
         let card = &drawn.card;
         let picture_h = picture_height(card.pictured, drawn.picture.as_ref().map(|p| p.size()));
         let text_top = if picture_h > 0. { PADDING + picture_h } else { 0. };
@@ -711,17 +735,46 @@ impl Render for HoverCard {
             .top(px(row_top))
             .flex()
             .gap(px(BUTTON_GAP))
-            .children(card.actions.iter().map(|&action| button(&palette, action, a11y, cx)));
+            .children(
+                (card.actions.iter()).map(|&action| button(&palette, action, a11y, on_card, cx)),
+            );
         // The rim is its own layer, so the border doesn't shift what the fill's box holds.
         let rim = div()
             .absolute()
+            .top_0()
+            .left_0()
             .size_full()
             .rounded(px(RADIUS))
             .border(px(RIM))
             .border_color(Level::Popover.rim_in(&palette));
+        // Whether the pointer is on the plate, from its moves and its leaving the window alone:
+        // GPUI's hover tests, at each paint, the last place the window saw the pointer, which
+        // after a click is the button, wherever the pointer has gone since (#818).
+        let plate = Bounds::new(corner_at(), size(px(WIDTH), px(drawn.height)));
+        let card_entity = cx.entity().downgrade();
+        let pointer = canvas(
+            |_, _, _| {},
+            move |_, _, window, _| {
+                let moved = card_entity.clone();
+                window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
+                    if phase == DispatchPhase::Bubble {
+                        let on = plate.contains(&event.position);
+                        moved.update(cx, |card, cx| card.on_card(on, cx)).ok();
+                    }
+                });
+                let left = card_entity.clone();
+                window.on_mouse_event(move |_: &MouseExitEvent, phase, _, cx| {
+                    if phase == DispatchPhase::Bubble {
+                        left.update(cx, |card, cx| card.on_card(false, cx)).ok();
+                    }
+                });
+            },
+        )
+        .absolute()
+        .size_full();
         // It grows about its top left corner, which its row is beside.
-        let corner = point(px(WINDOW_MARGIN), px(WINDOW_MARGIN));
-        root.child(scaled(
+        let corner = corner_at();
+        root.child(pointer).child(scaled(
             div()
                 .id("hover-card")
                 .when(a11y, |plate| plate.role(Role::Group).aria_label(card.title.clone()))
@@ -732,7 +785,6 @@ impl Render for HoverCard {
                 .shadow(Level::Popover.shadow())
                 .bg(palette.overlay)
                 .opacity(pose.opacity)
-                .on_hover(cx.listener(|card, hovered: &bool, _, cx| card.on_card(*hovered, cx)))
                 .children(picture)
                 .child(title)
                 .child(host)
@@ -742,6 +794,11 @@ impl Render for HoverCard {
             corner,
         ))
     }
+}
+
+/// The plate's top left corner in its window.
+fn corner_at() -> gpui::Point<Pixels> {
+    point(px(WINDOW_MARGIN), px(WINDOW_MARGIN))
 }
 
 /// What stands for a tab with no picture, at the favicon's size.
@@ -766,6 +823,7 @@ fn button(
     palette: &Palette,
     action: Action,
     a11y: bool,
+    on_card: bool,
     cx: &mut Context<HoverCard>,
 ) -> impl IntoElement + use<> {
     let (rest, hovered) = match action.on() {
@@ -782,7 +840,8 @@ fn button(
         .justify_center()
         .rounded(px(BUTTON_RADIUS))
         .bg(palette.state(0., rest))
-        .hover(move |style| style.bg(palette.state(0., hovered)))
+        // Only with the pointer on the card, as GPUI's hover is the last place the window saw it.
+        .when(on_card, |button| button.hover(move |style| style.bg(palette.state(0., hovered))))
         .active(move |style| style.bg(palette.state(0., STATE_PRESSED)))
         .on_click(cx.listener(move |card, _, _, cx| card.press(action, cx)))
         .child(

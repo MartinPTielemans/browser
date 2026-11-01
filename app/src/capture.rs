@@ -9,71 +9,51 @@
 use std::{rc::Rc, sync::Arc, time::Duration};
 
 use gpui::{
-    App, Bounds, BoxShadow, Context, Corners, FocusHandle, FontWeight, Global, Hsla, KeyBinding,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, RenderImage,
-    SharedString, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle,
-    WindowKind, WindowOptions, actions, canvas, div, point, prelude::*, px, rgb, rgba, size, svg,
+    App, Bounds, Context, Corners, Div, FocusHandle, FontWeight, Global, KeyBinding, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, RenderImage, SharedString,
+    Stateful, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle,
+    WindowKind, WindowOptions, actions, canvas, div, point, prelude::*, px, rgba, size, svg,
 };
 use image::{Frame, RgbaImage};
 
-use crate::palette::{Palette, STATE_HOVERED, STATE_PRESSED};
+use crate::elevation::Level;
+use crate::menu::Look;
 use crate::toast;
 
 actions!(capture, [Leave]);
 
 use crate::tokens::capture::RING;
 use crate::tokens::capture::RING_RADIUS;
-use crate::tokens::capture::RING_COLOR;
 use crate::tokens::capture::DIM;
 use crate::tokens::capture::PILL_WIDTH;
 use crate::tokens::capture::PILL_HEIGHT;
 use crate::tokens::capture::PILL_RADIUS;
 use crate::tokens::capture::PILL_BOTTOM;
 use crate::tokens::capture::PILL_TEXT_SIZE;
-use crate::tokens::capture::PILL_TEXT;
-use crate::tokens::capture::GLOW;
-use crate::tokens::capture::GLOW_BLUR;
 use crate::tokens::capture::MENU_LEFT;
-use crate::tokens::capture::MENU_WIDTH;
-use crate::tokens::capture::MENU_RADIUS;
-use crate::tokens::capture::MENU_FILL;
-use crate::tokens::capture::FIELD_INSET;
-use crate::tokens::capture::FIELD_TOP;
-use crate::tokens::capture::FIELD_HEIGHT;
-use crate::tokens::capture::FIELD_FILL;
-use crate::tokens::capture::FIELD_TEXT;
-use crate::tokens::capture::FIELD_TEXT_LEFT;
-use crate::tokens::capture::ROWS_TOP;
-use crate::tokens::capture::ROW;
 use crate::tokens::capture::GLYPH;
-use crate::tokens::capture::GLYPH_LEFT;
-use crate::tokens::capture::GLYPH_COLOR;
-use crate::palette::PAPER;
-use crate::tokens::capture::TEXT_LEFT;
-use crate::tokens::capture::TEXT_SIZE;
-use crate::tokens::capture::SEPARATOR;
-use crate::tokens::capture::SEPARATOR_COLOR;
-use crate::tokens::capture::MENU_BOTTOM;
-use crate::tokens::capture::ROW_INSET;
+use crate::tokens::capture::MARGIN;
+// The menu is ilo's (menu.rs), in its tokens, the narrowest it comes.
+use crate::tokens::menu::{GAP, LINE, PADDING, RADIUS, ROW, ROW_RADIUS, ROW_X, TEXT};
+use crate::tokens::menu::MIN_WIDTH as MENU_WIDTH;
 /// How far the pointer moves with the button down before a click is a drag (ours).
 const DRAG: f32 = 4.;
-use crate::tokens::capture::MARGIN;
-use crate::elevation::Level;
-use crate::tokens::capture::MENU_TEXT;
-use crate::tokens::capture::PILL_FILL;
 /// How long the toast after a capture stays, and longer while the pointer is over it (ours).
 const TOAST_TIME: Duration = Duration::from_secs(5);
 /// How long "Capture in Progress" can stay, which the capture's toast replaces when it comes.
 const PROGRESS_TIME: Duration = Duration::from_secs(60);
 const COPIED: &str = "Screenshot Copied to Clipboard";
+const SAVED: &str = "Saved to Library";
 
-/// What the menu does with what's chosen, in Arc's order without Save to Library, Edit and New
-/// Easel, which aren't built: one is a variant here, a row in ROWS and an arm in `Capture::done`.
+/// What the menu does with what's chosen, in Arc's order without Edit and New Easel, which aren't
+/// built: one is a variant here, a row in ROWS and an arm in `Capture::done`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Action {
     /// The field at the menu's top: the system's share menu (interim: Arc's field lists people and
     /// apps of its own).
     SendTo,
+    /// Into the Library's Media, which a private window has none of.
+    SaveToLibrary,
     Copy,
     Save,
     Messages,
@@ -83,9 +63,22 @@ pub enum Action {
 
 /// The menu's rows under its field, a line between groups. Messages is the Mac's alone.
 const ROWS: &[Option<Action>] = if cfg!(target_os = "macos") {
-    &[Some(Action::Copy), Some(Action::Save), Some(Action::Messages), None, Some(Action::Retake)]
+    &[
+        Some(Action::SaveToLibrary),
+        Some(Action::Copy),
+        Some(Action::Save),
+        Some(Action::Messages),
+        None,
+        Some(Action::Retake),
+    ]
 } else {
-    &[Some(Action::Copy), Some(Action::Save), None, Some(Action::Retake)]
+    &[
+        Some(Action::SaveToLibrary),
+        Some(Action::Copy),
+        Some(Action::Save),
+        None,
+        Some(Action::Retake),
+    ]
 };
 
 /// Whether the system has a share menu. Linux has none, so there sharing copies, and says so.
@@ -95,6 +88,7 @@ impl Action {
     fn label(self) -> &'static str {
         match self {
             Action::SendTo => "Send To…",
+            Action::SaveToLibrary => "Save to Library",
             Action::Copy => "Copy",
             Action::Save => "Save…",
             Action::Messages => "Send via iMessage…",
@@ -106,6 +100,7 @@ impl Action {
     fn glyph(self) -> &'static str {
         match self {
             Action::SendTo | Action::Copy => "icons/copy.svg",
+            Action::SaveToLibrary => "icons/library.svg",
             Action::Save => "icons/download.svg",
             Action::Messages => "icons/message-circle.svg",
             Action::Retake => "icons/rotate-ccw.svg",
@@ -116,6 +111,7 @@ impl Action {
     fn name(self) -> &'static str {
         match self {
             Action::SendTo => "send-to",
+            Action::SaveToLibrary => "save-to-library",
             Action::Copy => "copy",
             Action::Save => "save",
             Action::Messages => "messages",
@@ -153,6 +149,8 @@ pub trait Host {
     fn copy(&self, png: &[u8]);
     /// Asks where to save it, and saves it.
     fn save(&self, png: &[u8]);
+    /// Saves it in the Library's Media, away from the main thread.
+    fn save_to_library(&self, png: &[u8]);
     fn share(&self, png: &[u8], share: Share);
 }
 
@@ -181,6 +179,12 @@ struct Session {
     chosen: Option<Bounds<Pixels>>,
     /// The picture asked for of what's chosen, and what to do with it once it comes.
     pending: Option<(u64, Action)>,
+    /// Whether the menu offers Save to Library: not in a private window.
+    library: bool,
+    /// The browser window's menus' look, which the menu, the pill and the ring take.
+    look: Look,
+    /// What the log last said was drawn: the pill or the menu, and whether in the light look.
+    drawn: Option<(&'static str, bool)>,
 }
 
 impl Session {
@@ -199,14 +203,21 @@ impl Session {
         let x = f32::from(chosen.left()) - RING + MENU_LEFT;
         let y = f32::from(chosen.top()) - RING;
         let right = f32::from(page.size.width) - MENU_WIDTH - MARGIN;
-        let bottom = f32::from(page.size.height) - menu_height() - MARGIN;
+        let bottom = f32::from(page.size.height) - self.menu_height() - MARGIN;
         point(px(x.min(right).max(MARGIN)), px(y.min(bottom).max(MARGIN)))
     }
-}
 
-fn menu_height() -> f32 {
-    let rows = ROWS.iter().map(|row| if row.is_some() { ROW } else { SEPARATOR }).sum::<f32>();
-    FIELD_TOP + FIELD_HEIGHT + ROWS_TOP + rows + MENU_BOTTOM
+    /// The menu's rows, without Save to Library where there's no Library to save to.
+    fn rows(&self) -> impl Iterator<Item = Option<Action>> + use<> {
+        let library = self.library;
+        ROWS.iter().copied().filter(move |row| library || *row != Some(Action::SaveToLibrary))
+    }
+
+    /// The field, a line under it, the rows and their lines, inside the panel's padding.
+    fn menu_height(&self) -> f32 {
+        let rows = self.rows().map(|row| if row.is_some() { ROW } else { LINE }).sum::<f32>();
+        PADDING + ROW + LINE + rows + PADDING
+    }
 }
 
 pub struct Capture {
@@ -274,9 +285,30 @@ fn update(cx: &mut App, change: impl FnOnce(&mut Capture, &mut Window, &mut Cont
 }
 
 /// Starts capture mode over `tab`'s page, at `frame` in the browser window's content with corners
-/// of `radius`, once the core has a picture of it. If it's on, leaves it instead, as ⇧⌘2's second
-/// press does.
-pub fn start(tab: u64, frame: Bounds<Pixels>, radius: f32, cx: &mut App) {
+/// of `radius`, once the core has a picture of it, its menu offering Save to Library with
+/// `library`, in the window's menus' `look`. If it's on, leaves it instead, as ⇧⌘2's second press
+/// does.
+pub fn start(
+    tab: u64,
+    frame: Bounds<Pixels>,
+    radius: f32,
+    library: bool,
+    look: Look,
+    cx: &mut App,
+) {
+    // Once the update that asked is over, as off the Mac ⇧⌘2's second press comes from capture
+    // mode's own window, which can't be updated inside its own update.
+    cx.defer(move |cx| start_now(tab, frame, radius, library, look, cx));
+}
+
+fn start_now(
+    tab: u64,
+    frame: Bounds<Pixels>,
+    radius: f32,
+    library: bool,
+    look: Look,
+    cx: &mut App,
+) {
     update(cx, |capture, window, cx| {
         if capture.session.is_some() {
             return capture.leave("toggle", window, cx);
@@ -293,6 +325,9 @@ pub fn start(tab: u64, frame: Bounds<Pixels>, radius: f32, cx: &mut App) {
             drag: None,
             chosen: None,
             pending: None,
+            library,
+            look,
+            drawn: None,
         });
         // check.sh reads this line.
         log!("browser: capture started");
@@ -300,15 +335,35 @@ pub fn start(tab: u64, frame: Bounds<Pixels>, radius: f32, cx: &mut App) {
     });
 }
 
+/// The browser window over `tab` draws its menus in `look` now, as its appearance or its Space's
+/// theme changed: capture mode over it, if it's on, draws in it from now on.
+pub fn set_look(tab: u64, look: Look, cx: &mut App) {
+    // Once the update that asked is over, as start's, since the shell asks as it draws.
+    cx.defer(move |cx| {
+        update(cx, |capture, _, cx| {
+            let Some(session) = capture.session.as_mut().filter(|session| session.tab == tab) else {
+                return;
+            };
+            if session.look != look {
+                session.look = look;
+                cx.notify();
+            }
+        });
+    });
+}
+
 /// Captures all of `tab`'s page, beyond its view, and copies it.
 pub fn full_page(tab: u64, cx: &mut App) {
-    update(cx, |capture, _, _| {
-        if capture.full_page.is_some() {
-            return;
-        }
-        let request = capture.request();
-        capture.full_page = Some((tab, request));
-        capture.host.capture(tab, request, true, None);
+    // Once the update that asked is over, as start's.
+    cx.defer(move |cx| {
+        update(cx, |capture, _, _| {
+            if capture.full_page.is_some() {
+                return;
+            }
+            let request = capture.request();
+            capture.full_page = Some((tab, request));
+            capture.host.capture(tab, request, true, None);
+        });
     });
     toast::show("Capture in Progress", None, PROGRESS_TIME, cx);
 }
@@ -429,8 +484,8 @@ impl Capture {
             let field = session.chosen.map(|chosen| {
                 let origin = session.menu_origin(chosen);
                 Bounds::new(
-                    frame.origin + origin + point(px(FIELD_INSET), px(FIELD_TOP)),
-                    size(px(MENU_WIDTH - 2. * FIELD_INSET), px(FIELD_HEIGHT)),
+                    frame.origin + origin + point(px(PADDING), px(PADDING)),
+                    size(px(MENU_WIDTH - 2. * PADDING), px(ROW)),
                 )
             });
             self.leave(action.name(), window, cx);
@@ -498,6 +553,10 @@ impl Capture {
                 let buttons = if SHARES { vec![save, share] } else { vec![save] };
                 // After this update, as the toast is another window's.
                 cx.defer(|cx| toast::show_with_buttons(COPIED, buttons, TOAST_TIME, cx));
+            }
+            Action::SaveToLibrary => {
+                self.host.save_to_library(&png);
+                cx.defer(|cx| toast::show(SAVED, None, TOAST_TIME, cx));
             }
             Action::Save => self.host.save(&png),
             Action::Messages => self.host.share(&png, Share::Messages),
@@ -604,46 +663,60 @@ impl Capture {
         self.host.capture(tab, request, false, Some(chosen));
     }
 
-    fn menu(&self, origin: Point<Pixels>, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let row = |action: Action, cx: &mut Context<Self>| {
+    fn menu(
+        &self,
+        origin: Point<Pixels>,
+        rows: Vec<Option<Action>>,
+        look: Look,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let palette = look.palette();
+        let highlight = look.highlight;
+        // A row of ilo's menu: the Space's accent under the pointer, with the label solved on it.
+        let row = |id: &'static str| {
             div()
-                .id(action.name())
+                .id(id)
+                .group(id)
                 .h(px(ROW))
-                .mx(px(ROW_INSET))
-                .pl(px(GLYPH_LEFT - ROW_INSET))
+                .mx(px(PADDING))
+                .px(px(ROW_X))
                 .flex()
                 .items_center()
-                .rounded(px(MENU_RADIUS - ROW_INSET))
-                .hover(|style| style.bg(Palette::on_dark(STATE_HOVERED)))
-                .active(|style| style.bg(Palette::on_dark(STATE_PRESSED)))
-                .on_click(cx.listener(move |capture, _, _, cx| capture.run(action, cx)))
-                .child(svg().path(action.glyph()).size(px(GLYPH)).text_color(Hsla::from(rgb(PAPER)).opacity(GLYPH_COLOR)))
-                .child(div().ml(px(TEXT_LEFT - GLYPH_LEFT - GLYPH)).child(action.label()))
+                .gap(px(GAP))
+                .rounded(px(ROW_RADIUS))
+                .hover(|style| style.bg(highlight.fill).text_color(highlight.label))
+                .active(|style| style.bg(highlight.pressed))
+        };
+        let line = || {
+            div()
+                .h(px(LINE))
+                .mx(px(PADDING))
+                .flex()
+                .items_center()
+                .child(div().mx(px(ROW_X)).h(px(1.)).flex_1().bg(rgba(palette.line)))
                 .into_any_element()
         };
-        let rows: Vec<_> = (ROWS.iter())
-            .map(|row_| match *row_ {
-                Some(action) => row(action, cx),
-                None => div()
-                    .h(px(SEPARATOR))
-                    .flex()
-                    .items_center()
-                    .px(px(FIELD_INSET))
-                    .child(div().h(px(1.)).w_full().bg(rgba(SEPARATOR_COLOR)))
+        let rows: Vec<_> = (rows.into_iter())
+            .map(|row_| match row_ {
+                Some(action) => row(action.name())
+                    .on_click(cx.listener(move |capture, _, _, cx| capture.run(action, cx)))
+                    .child(
+                        svg()
+                            .path(action.glyph())
+                            .size(px(GLYPH))
+                            .flex_none()
+                            .text_color(rgba(palette.secondary))
+                            .group_hover(action.name(), |style| style.text_color(highlight.label)),
+                    )
+                    .child(action.label())
                     .into_any_element(),
+                None => line(),
             })
             .collect();
-        let field = div()
-            .id(Action::SendTo.name())
-            .mx(px(FIELD_INSET))
-            .mt(px(FIELD_TOP))
-            .h(px(FIELD_HEIGHT))
-            .pl(px(FIELD_TEXT_LEFT))
-            .flex()
-            .items_center()
-            .rounded(px(MENU_RADIUS - FIELD_INSET))
-            .bg(rgba(FIELD_FILL))
-            .text_color(rgba(FIELD_TEXT))
+        // Arc's field, as a row tinted the menu's line colour. Its words are the label's, as the
+        // secondary colour falls under 4.5:1 on the tint in the dark look.
+        let field = row(Action::SendTo.name())
+            .bg(rgba(palette.line))
             .on_click(cx.listener(|capture, _, _, cx| capture.run(Action::SendTo, cx)))
             .child(Action::SendTo.label());
         div()
@@ -652,33 +725,42 @@ impl Capture {
             .left(origin.x)
             .top(origin.y)
             .w(px(MENU_WIDTH))
-            .pb(px(MENU_BOTTOM))
+            .py(px(PADDING))
             .flex()
             .flex_col()
-            .rounded(px(MENU_RADIUS))
-            .bg(rgba(MENU_FILL))
+            .rounded(px(RADIUS))
+            .bg(rgba(palette.fill))
             .shadow(Level::Popover.shadow())
-            .text_size(px(TEXT_SIZE))
-            .font_weight(FontWeight::MEDIUM)
-            .text_color(rgba(MENU_TEXT))
+            .text_size(px(TEXT))
+            .text_color(rgba(palette.label))
             .occlude()
             // The rim is its own layer, so its border doesn't move the rows.
             .child(
                 div()
                     .absolute()
+                    .top_0()
+                    .left_0()
                     .size_full()
-                    .rounded(px(MENU_RADIUS))
-                    .border(px(0.5))
-                    .border_color(Level::Popover.rim()),
+                    .rounded(px(RADIUS))
+                    .border_1()
+                    .border_color(rgba(palette.rim)),
             )
             .child(field)
-            .child(div().h(px(ROWS_TOP)))
+            .child(line())
             .children(rows)
     }
 }
 
 impl Render for Capture {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // The browser's shortcuts work here too, below capture mode's own keys, as the Mac's menu
+        // bar has them in every window: a second ⇧⌘2 leaves.
+        div().key_context(crate::shell::KEY_CONTEXT).size_full().child(self.mode(cx))
+    }
+}
+
+impl Capture {
+    fn mode(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
         let root = div()
             .id("capture")
             .key_context("Capture")
@@ -688,6 +770,16 @@ impl Render for Capture {
             }))
             .size_full()
             .font_family(crate::face::UI);
+        if let Some(session) = self.session.as_mut().filter(|session| session.snapshot.is_some()) {
+            let what = if session.chosen.is_some() { "menu" } else { "pill" };
+            let drawn = (what, session.look.light);
+            if session.drawn != Some(drawn) {
+                session.drawn = Some(drawn);
+                // check.sh waits for this line.
+                let tone = if drawn.1 { "light" } else { "dark" };
+                log!("browser: capture {} drawn {tone}", drawn.0);
+            }
+        }
         let Some(session) = &self.session else {
             return root;
         };
@@ -697,6 +789,7 @@ impl Render for Capture {
         let (colour, grey) = (snapshot.colour.clone(), snapshot.grey.clone());
         let lit = session.lit();
         let radius = px(session.radius);
+        let (look, palette) = (session.look, session.look.palette());
         let picture = canvas(
             |_, _, _| {},
             move |bounds, _, window, _| {
@@ -719,7 +812,7 @@ impl Render for Capture {
                 .w(lit.size.width + px(2. * RING))
                 .h(lit.size.height + px(2. * RING))
                 .border(px(RING))
-                .border_color(rgba(RING_COLOR))
+                .border_color(look.highlight.fill)
                 .rounded(px(RING_RADIUS))
         });
         let pill = session.chosen.is_none().then(|| {
@@ -734,22 +827,18 @@ impl Render for Capture {
                 .items_center()
                 .justify_center()
                 .rounded(px(PILL_RADIUS))
-                .bg(rgba(PILL_FILL))
-                .shadow(vec![BoxShadow {
-                    color: rgba(GLOW).into(),
-                    offset: point(px(0.), px(0.)),
-                    blur_radius: px(GLOW_BLUR),
-                    spread_radius: px(0.),
-                    inset: false,
-                }])
+                .bg(rgba(palette.fill))
+                .border_1()
+                .border_color(rgba(palette.rim))
+                .shadow(Level::Popover.shadow())
                 .text_size(px(PILL_TEXT_SIZE))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(rgba(PILL_TEXT))
+                .text_color(rgba(palette.label))
                 .child(SharedString::from("Click or drag to capture a portion of this page"))
         });
         let menu = session.chosen.map(|chosen| {
             let origin = session.menu_origin(chosen);
-            self.menu(origin, cx)
+            self.menu(origin, session.rows().collect(), look, cx)
         });
         root.on_mouse_move(cx.listener(|capture, event: &MouseMoveEvent, _, cx| {
             capture.moved(event.position, cx)

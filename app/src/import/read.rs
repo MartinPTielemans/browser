@@ -8,6 +8,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use super::extensions::Extension;
 use super::found::{Found, FromProfile, Node, Page, Space};
 use super::sources::{Family, Profile, Source};
 use super::{chromium, firefox, safari};
@@ -22,7 +23,7 @@ pub const HISTORY_DAYS: u64 = 90;
 /// What the user can bring from a browser, each shown as a switch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
-    /// Arc's Spaces, with their pinned tabs and folders.
+    /// Arc's Spaces, with their pinned tabs and folders, and its link rules.
     Spaces,
     /// Arc's favorites.
     Favorites,
@@ -30,16 +31,19 @@ pub enum Kind {
     /// Safari's Reading List, as a folder beside its bookmarks.
     ReadingList,
     History,
+    /// A Chromium browser's Web Store extensions, listed to add from the store, never installed.
+    Extensions,
 }
 
 impl Kind {
     pub fn label(self) -> &'static str {
         match self {
-            Kind::Spaces => "Spaces, with their pinned tabs and folders",
+            Kind::Spaces => "Spaces, with their pinned tabs, folders and link rules",
             Kind::Favorites => "Favorites",
             Kind::Bookmarks => "Bookmarks, as a Space's pinned tabs",
             Kind::ReadingList => "Reading List, as a folder in that Space",
             Kind::History => "History",
+            Kind::Extensions => "Extensions, to add from the Chrome Web Store",
         }
     }
 }
@@ -83,14 +87,17 @@ impl From<String> for ReadError {
     }
 }
 
-/// What can come from `source`: Arc's sidebar in place of its bookmarks, which it doesn't show.
+/// What can come from `source`: Arc's sidebar in place of its bookmarks, which it doesn't show,
+/// and the extensions of Chromium's family, which Firefox's and Safari's aren't.
 pub fn kinds(source: &Source) -> &'static [Kind] {
     if source.arc_sidebar().is_some() {
-        &[Kind::Spaces, Kind::Favorites, Kind::History]
-    } else if source.browser.family == Family::Safari {
-        &[Kind::Bookmarks, Kind::ReadingList, Kind::History]
+        &[Kind::Spaces, Kind::Favorites, Kind::History, Kind::Extensions]
     } else {
-        &[Kind::Bookmarks, Kind::History]
+        match source.browser.family {
+            Family::Safari => &[Kind::Bookmarks, Kind::ReadingList, Kind::History],
+            Family::Firefox => &[Kind::Bookmarks, Kind::History],
+            Family::Chromium => &[Kind::Bookmarks, Kind::History, Kind::Extensions],
+        }
     }
 }
 
@@ -116,9 +123,14 @@ pub fn read(source: &Source, picked: &[Kind], now: SystemTime) -> Result<Found, 
     if let Some(path) = source.arc_sidebar()
         && (wants(Kind::Spaces) || wants(Kind::Favorites))
     {
-        let sidebar = super::arc::parse(&std::fs::read_to_string(&path)?)?;
+        // Arc's link rules come with its Spaces, each to the Space its Arc Space becomes.
+        let routing = (source.arc_link_routing())
+            .filter(|_| wants(Kind::Spaces))
+            .and_then(|routing| std::fs::read_to_string(routing).ok());
+        let sidebar = super::arc::parse(&std::fs::read_to_string(&path)?, routing.as_deref())?;
         if wants(Kind::Spaces) {
             found.spaces = sidebar.spaces;
+            found.link_rules = sidebar.link_rules;
         }
         if wants(Kind::Favorites) {
             found.favorites = sidebar.favorites;
@@ -152,8 +164,60 @@ pub fn read(source: &Source, picked: &[Kind], now: SystemTime) -> Result<Found, 
         if !read.pages.is_empty() {
             found.history.push((from, read.pages));
         }
+        for extension in read.extensions {
+            match found.extensions.iter_mut().find(|each| each.id == extension.id) {
+                Some(each) => each.pinned |= extension.pinned,
+                None => found.extensions.push(extension),
+            }
+        }
     }
     Ok(found)
+}
+
+/// What the bookmarks bar is called in `family`'s browsers, for its bookmarks that come in loose
+/// among the pinned tabs, not in a folder.
+pub fn bar_name(family: Family) -> &'static str {
+    match family {
+        Family::Chromium => "Bookmarks Bar",
+        Family::Firefox => "Bookmarks Toolbar",
+        Family::Safari => "Favorites Bar",
+    }
+}
+
+/// The folders `source`'s bookmarks come in as, by name, once each however many profiles have
+/// one, to choose from: the bar's own bookmarks by its name (bar_name), each of the bar's folders,
+/// or the bar's folder past BAR_ROWS, and the other top folders, as they come in.
+pub fn folders(source: &Source, now: SystemTime) -> Result<Vec<String>, ReadError> {
+    let found = read(source, &[Kind::Bookmarks], now)?;
+    let bar = bar_name(source.browser.family);
+    let mut names: Vec<String> = Vec::new();
+    for node in found.spaces.iter().flat_map(|space| &space.pinned) {
+        let name = match node {
+            Node::Tab(_) => bar,
+            Node::Folder { name, .. } => name,
+        };
+        if !names.iter().any(|each| each == name) {
+            names.push(name.into());
+        }
+    }
+    Ok(names)
+}
+
+/// Leaves out of what `found` brings the folders named among `left_out`, and the bar's own
+/// bookmarks if its name (bar_name of `family`) is; a Space left with nothing doesn't come.
+pub fn leave_out(found: &mut Found, left_out: &[String], family: Family) {
+    if left_out.is_empty() {
+        return;
+    }
+    let out = |name: &str| left_out.iter().any(|each| each == name);
+    let bar = out(bar_name(family));
+    for space in &mut found.spaces {
+        space.pinned.retain(|node| match node {
+            Node::Tab(_) => !bar,
+            Node::Folder { name, .. } => !out(name),
+        });
+    }
+    found.spaces.retain(|space| !space.pinned.is_empty());
 }
 
 /// What a family's reader found in one profile.
@@ -161,6 +225,7 @@ pub fn read(source: &Source, picked: &[Kind], now: SystemTime) -> Result<Found, 
 pub struct Read {
     pub pinned: Vec<Node>,
     pub pages: Vec<Page>,
+    pub extensions: Vec<Extension>,
 }
 
 /// The profile here that `profile`'s things go to: the one this browser started with for the

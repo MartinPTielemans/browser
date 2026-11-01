@@ -8,7 +8,7 @@
 use std::{cell::OnceCell, f32::consts::TAU, rc::Rc, sync::Arc, time::Instant};
 
 use gpui::{
-    App, Bounds, Context, DispatchPhase, FocusHandle, Focusable, FontWeight, Global, Hsla,
+    App, Bounds, Context, DispatchPhase, Entity, FocusHandle, Focusable, FontWeight, Global, Hsla,
     KeyBinding, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PathBuilder, Pixels,
     Point, RenderImage, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds,
     WindowHandle, WindowKind, WindowOptions, actions, canvas, div, fill, point, prelude::*, px,
@@ -114,6 +114,8 @@ pub trait Host {
     fn show(&self, left: f32, top: f32, corners: &[(f32, f32, f32)]);
     /// Hides it, and the browser window gets the keyboard back.
     fn hide(&self);
+    /// A detent on the trackpad, as a drag reaches a stop, if the user has haptics on.
+    fn detent(&self);
 }
 
 /// The theme as the user makes it, and whether they're done: false while they drag, true once
@@ -305,11 +307,28 @@ pub fn dismissed(cx: &mut App) {
     }
 }
 
+/// The Space it edits is going from under it, as a swipe turns the page: it closes as Esc closes
+/// it, where `dismissed` hears of a close the host has made.
+pub fn leave(cx: &mut App) {
+    if let Some(window) = cx.try_global::<ThemePickerWindow>().map(|picker| picker.0) {
+        window.update(cx, |picker, window, cx| picker.dismiss(&Dismiss, window, cx)).ok();
+    }
+}
+
 /// Whether the picker shows, for a click on what opened it to close it rather than open it again.
 pub fn is_open(cx: &App) -> bool {
-    cx.try_global::<ThemePickerWindow>()
-        .and_then(|picker| picker.0.read(cx).ok())
-        .is_some_and(|picker| picker.editing.as_ref().is_some_and(|editing| editing.open))
+    open_for(cx).is_some()
+}
+
+/// The Space the picker shows for, if it shows.
+pub fn open_for(cx: &App) -> Option<u64> {
+    let picker = cx.try_global::<ThemePickerWindow>()?.0.read(cx).ok()?;
+    picker.editing.as_ref().filter(|editing| editing.open).map(|editing| editing.space)
+}
+
+/// The picker, for the window it opens over to watch whether it still shows.
+pub fn entity(cx: &App) -> Option<Entity<ThemePicker>> {
+    cx.try_global::<ThemePickerWindow>()?.0.entity(cx).ok()
 }
 
 /// What a press at `x`, `y` from the card's top left lands on, with `theme` in the field.
@@ -375,6 +394,16 @@ fn knob_x(intensity: f32) -> f32 {
 /// The intensity for the knob's middle at `x` in the card.
 fn intensity_at(x: f32) -> f32 {
     ((x - KNOB_LEFT) / (KNOB_RIGHT - KNOB_LEFT)).clamp(0., 1.)
+}
+
+/// Whether what `drag` moves is at a stop it can't go past in `theme`: a handle on the field's
+/// rim, the intensity knob at either end, or the dial at the top, from either side.
+fn at_stop(drag: Drag, theme: &Theme) -> bool {
+    match drag {
+        Drag::Handle(..) => theme.x.hypot(theme.y) >= 1. - 1e-4,
+        Drag::Intensity => theme.intensity <= 0. || theme.intensity >= 1.,
+        Drag::Grain => theme.grain <= 0. || theme.grain >= 1.,
+    }
 }
 
 /// The grain for the pointer at `x`, `y` in the card: how far round the dial from its top,
@@ -506,6 +535,10 @@ impl ThemePicker {
             Drag::Grain => Theme { grain: grain_at(x, y, theme.grain), ..theme },
         };
         if moved != theme {
+            // A bump as it gets to a stop, not while it's held there (the owner's call).
+            if !at_stop(drag, &theme) && at_stop(drag, &moved) {
+                self.host.detent();
+            }
             editing.theme = Some(moved);
             self.changed(false, cx);
         }

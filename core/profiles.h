@@ -32,8 +32,16 @@ std::string DirOf(content::WebContents* contents);
 void LoadProfiles(const std::set<std::string>& dirs, base::OnceClosure done);
 // Keeps |profile| loaded while the core runs, with its search engine and downloads seen to. Once.
 void UseProfile(Profile* profile);
+// |profile|'s Profile if it's loaded. Else null, and loads it, once, then spaces_changed, so
+// Settings can show what a profile no Space is in keeps.
+Profile* ProfileOrLoad(bc_id profile);
 // Lets the profiles go, at quit.
 void ReleaseProfiles();
+// Blocks automatic Picture in Picture by default in every profile loaded while the user has it off
+// in Settings, as Chrome's own default does, so a site the user allows in its Site Controls still
+// may. Turned on again, the default goes back to Chrome's, but only when it |changed|, so a
+// default chosen in Chrome's settings stays.
+void ApplyAutoPictureInPicture(bool changed);
 // |profile|'s off-the-record profile, made if there's none: the session its private windows
 // share. Chrome destroys it once the last of their Browsers has gone, which ends the session, and
 // then private_session_ended. A session that has ended isn't handed out again while Chrome waits

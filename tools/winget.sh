@@ -24,14 +24,16 @@ name=$(cat "$app/branding/name")
 version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$app/Cargo.toml" | head -1)
 id=$(git config -f "$app/branding/winget.ini" winget.identifier)
 publisher=$(git config -f "$app/branding/winget.ini" winget.publisher)
-repository=$(git config -f "$root/engine/prebuilt.ini" prebuilt.url | sed -E 's#^(https://github.com/[^/]+/[^/]+)/.*#\1#')
+repository=$(git config -f "$root/engine/prebuilt.ini" prebuilt.repository)
 [ "$(basename "$installer")" = "$name-$version-x64-setup.exe" ] ||
   fail "$installer isn't $name-$version-x64-setup.exe, a release's installer from package.sh."
 case $url in
 https://*) ;;
 *) fail "winget downloads the installer over https, not $url." ;;
 esac
-sha256=$(sha256sum "$installer" | cut -d' ' -f1)
+# From stdin: given a Windows path, as RUNNER_TEMP is in Git Bash, sha256sum escapes its
+# backslashes and marks the line with a leading one.
+sha256=$(sha256sum <"$installer" | cut -d' ' -f1)
 
 dir=$3/manifests/$(echo "${id:0:1}" | tr '[:upper:]' '[:lower:]')/${id//.//}/$version
 mkdir -p "$dir"

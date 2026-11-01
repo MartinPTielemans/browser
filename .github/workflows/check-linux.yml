@@ -1,11 +1,13 @@
 # The browser on Linux, run and checked by app/check.sh (AGENTS.md, Verifying) under Xvfb and
-# openbox, on X11, on the Linux engine built from this commit's core: the safety net for what the
-# Mac and Linux share. Main's pushes and runs by hand only, on GitHub's hosted runners: never a
-# pull request, and never the self-hosted runner, which builds the engine. It never builds an
-# engine: it takes the newest engine-linux release in this commit's history (engine/fetch.sh), and
-# a commit whose core/public/browser_core.h no published engine has is skipped, as nothing can run
-# it. Every run in app/check/ shows in the summary: passed, failed, or skipped and why, with the
-# lines a run that passed skipped. Failures fail the job, which nothing waits on yet.
+# openbox, on X11, or by hand in a headless sway session on its Xwayland, then in that session on
+# Wayland, and by app/check/drops.sh under Wayland, on the Linux engine built from this commit's
+# core: the safety net for what the Mac and Linux share. Main's pushes and runs by hand only, on
+# GitHub's hosted runners: never a pull request, and never the self-hosted runner, which builds the
+# engine. It never builds an engine: it takes the newest engine-linux release in this commit's
+# history (engine/fetch.sh), and a commit whose core/public/browser_core.h no published engine has
+# is skipped, as nothing can run it. Every run in app/check/ shows in X11's summary: passed,
+# failed, or skipped and why, with the lines a run that passed skipped; Wayland's lists those it
+# did. Failures fail the job, which nothing waits on yet.
 name: Check on Linux
 
 on:
@@ -15,12 +17,21 @@ on:
   workflow_dispatch:
     inputs:
       runs:
-        description: The runs to do, such as "load tabs", or "all"; empty for the ones Linux passes
+        description: The runs to do, such as "load tabs drops", or "all"; empty for the ones Linux passes
         default: ''
+      session:
+        description: >-
+          Where check.sh runs the app: on X11 under Xvfb or sway's Xwayland, then on Wayland with
+          no runs named, or on Wayland alone
+        type: choice
+        options: [xvfb, sway, wayland]
+        default: xvfb
 
 concurrency:
   group: check-linux-${{ github.ref }}
-  cancel-in-progress: true
+  # Main's run in progress finishes, and while it runs a newer merge's pending run replaces the
+  # older pending one; a branch's newer push cancels its older run.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -34,7 +45,17 @@ jobs:
         working-directory: app
     env:
       # The runs that pass on X11 so far.
-      LINUX_RUNS: tabs window find agents spaces crash profiles private quit mcp
+      LINUX_RUNS: >-
+        tabs window find agents spaces crash profiles private quit mcp appearance access history
+        load preview import adblock adblock-lists passkeys onboarding links relaunch split
+        extensions capture popup pinned about windows dialogs trouble cards passwords updates
+        restore favorites keys
+      # The runs that pass on Wayland so far, in the headless sway session.
+      WAYLAND_RUNS: tabs
+      # The runs that don't apply to Linux, a line each with why, which the summary gives. They're
+      # skipped even when named.
+      LINUX_SKIPS: |
+        keychain: it checks the Mac's Keychain across a change of signing identity, in a check VM
     steps:
       # With the history, where fetch.sh looks for the engine's commit.
       - uses: actions/checkout@v4
@@ -59,22 +80,35 @@ jobs:
 
       # bindgen reads the core's header with libclang; GPUI links xcb and xkbcommon, and draws with
       # Vulkan, which the GPU-less runner has in Mesa's software driver, lavapipe. check.sh runs
-      # the app under Xvfb and openbox (BROWSER_XVFB), captures it with ImageMagick's import and
-      # reads pixels with ImageMagick, whose `magick` Ubuntu's 6.9 calls `convert`. Ubuntu's
-      # AppArmor denies Chromium's sandbox the user namespaces it needs, so the runner allows them,
-      # and the sandbox stays on.
+      # the app under Xvfb and openbox (BROWSER_XVFB), parks Xvfb's pointer with xdotool, captures
+      # it with ImageMagick's import and reads pixels with ImageMagick, whose `magick` Ubuntu's 6.9
+      # calls `convert`, and records it with ffmpeg (tools/window-record.sh). sway, grim and Xwayland
+      # run the headless sessions (tools/headless.sh). The access run reads the app's tree over
+      # AT-SPI, on buses of its own from dbus-daemon and at-spi2-core. check/ime.sh types through
+      # fcitx5, with check/vkbd's keyboard, whose keymap xkbcli makes.
+      # Ubuntu's AppArmor denies Chromium's sandbox the user namespaces it needs, so the runner
+      # allows them, and the sandbox stays on.
       - if: ${{ steps.engine.outputs.found == 'true' }}
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           sudo apt-get update -q
           sudo apt-get install -yq libclang-dev libfontconfig-dev libwayland-dev \
             libx11-xcb-dev libxkbcommon-x11-dev libvulkan1 mesa-vulkan-drivers libegl1 \
-            libgl1-mesa-dri xvfb xauth openbox imagemagick
+            libgl1-mesa-dri xvfb xauth openbox imagemagick xdotool ffmpeg sway grim xwayland \
+            dbus-daemon at-spi2-core fcitx5 libxkbcommon-tools
           rustup update stable --no-self-update
           mkdir -p "$RUNNER_TEMP/bin"
-          printf '#!/bin/sh\nexec convert "$@"\n' > "$RUNNER_TEMP/bin/magick"
+          # ImageMagick 6 has a tool for each of 7's magick subcommands, such as headless.sh's
+          # magick compare, and convert for the rest.
+          printf '#!/bin/sh\ncase $1 in compare|montage|identify) tool=$1; shift; exec "$tool" "$@" ;; esac\nexec convert "$@"\n' \
+            > "$RUNNER_TEMP/bin/magick"
           chmod +x "$RUNNER_TEMP/bin/magick"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      # The updates run builds ilo's Flatpak (tools/flatpak.sh) and updates it through Flatpak's
+      # portal and permission store, which only it needs.
+      - if: ${{ steps.engine.outputs.found == 'true' && (inputs.runs == 'all' || contains(format(' {0} ', inputs.runs), ' updates ')) }}
+        run: sudo apt-get install -yq flatpak flatpak-builder ostree xdg-desktop-portal
 
       - if: ${{ steps.engine.outputs.found == 'true' }}
         uses: actions/cache@v4
@@ -95,51 +129,133 @@ jobs:
       - if: ${{ steps.engine.outputs.found == 'true' }}
         env:
           RUNS: ${{ inputs.runs }}
-          BROWSER_XVFB: 1
+          SESSION: ${{ inputs.session || 'xvfb' }}
           # The runner's C.UTF-8 names no country, for which Chromium's search engines leave out
           # DuckDuckGo, the one the core picks, so the command bar would offer no search.
           LANG: en_US.UTF-8
         run: |
           out=$RUNNER_TEMP/check
           mkdir -p "$out"
+          XDG_RUNTIME_DIR=$(mktemp -d)
+          export XDG_RUNTIME_DIR
           # check.sh's own list, the runs it does with no names and the ones it does only when named.
           all=$(sed -n 's/^runs="\(\$runs \)\{0,1\}\(.*\)"$/\2/p; s/^named="\(.*\)"$/\1/p' check.sh | tr '\n' ' ')
-          case $RUNS in
-          '') runs=$LINUX_RUNS ;;
-          all) runs=$all ;;
-          *) runs=$RUNS ;;
+          # X11's runs, then Wayland's, unless runs are named or Wayland's alone are asked for.
+          case $SESSION in
+          wayland) sessions=wayland ;;
+          *) sessions=$SESSION; [ -n "$RUNS" ] || sessions="$SESSION wayland" ;;
           esac
-          {
-            echo "Under Xvfb and openbox, on X11."
-            echo
-            echo "| Run | Result |"
-            echo "|---|---|"
-          } >> "$GITHUB_STEP_SUMMARY"
           failed=0
-          for run in $all; do
-            case " $runs " in
-            *" $run "*)
-              start=$SECONDS
-              status=0
-              timeout 20m ./check.sh "$run" > "$out/$run.log" 2>&1 || status=$?
-              [ ! -d build/check ] || mv build/check "$out/$run"
-              pkill -9 -f "$PWD/build/Browser/" || true
-              # A run that passes may have skipped steps, or all of itself, such as when the app
-              # wasn't the active one.
-              skipped=$(grep '^skip: ' "$out/$run.log" | cut -c7- | tr '|\n' '/;' | sed 's/;$//')
-              if [ "$status" = 0 ]; then
-                result="passed in $((SECONDS - start)) s${skipped:+, skipping: $skipped}"
-              else
-                result="failed ($status): $(grep -m1 '^FAIL' "$out/$run.log" | cut -c7- | tr '|' '/')"
-                failed=1
-                echo "::error::The $run run failed. Its log: $run.log in the artifact."
-              fi
+          for session in $sessions; do
+            unset BROWSER_XVFB BROWSER_WAYLAND
+            where=
+            passing=$LINUX_RUNS
+            case $session in
+            xvfb) export BROWSER_XVFB=1; title="Under Xvfb and openbox, on X11." ;;
+            sway) title="In a headless sway session, on its Xwayland." ;;
+            wayland)
+              export BROWSER_WAYLAND=1
+              where=wayland/
+              passing=$WAYLAND_RUNS
+              title="In a headless sway session, on Wayland. The runs not listed aren't driven there yet."
               ;;
-            *) result="skipped: not in the runs Linux passes yet" ;;
             esac
-            echo "| $run | $result |" | tee -a "$GITHUB_STEP_SUMMARY"
+            dir=$out/$where
+            mkdir -p "$dir"
+            case $RUNS in
+            '') runs=$passing ;;
+            all) runs=$all ;;
+            *) runs=$RUNS ;;
+            esac
+            {
+              echo "$title"
+              echo
+              echo "| Run | Result |"
+              echo "|---|---|"
+            } >> "$GITHUB_STEP_SUMMARY"
+            for run in $all; do
+              why=$(printf '%s\n' "$LINUX_SKIPS" | sed -n "s/^$run: //p")
+              if [ -n "$why" ]; then
+                [ "$session" != wayland ] || continue
+                echo "| $run | not for Linux: $why |" | tee -a "$GITHUB_STEP_SUMMARY"
+                continue
+              fi
+              case " $runs " in
+              *" $run "*)
+                start=$SECONDS
+                status=0
+                # The updates run builds a Flatpak first.
+                limit=20m
+                [ "$run" != updates ] || limit=45m
+                timeout "$limit" ./check.sh "$run" > "$dir/$run.log" 2>&1 || status=$?
+                [ ! -d build/check ] || mv build/check "$dir/$run"
+                pkill -9 -f "$PWD/build/Browser/" || true
+                # A run that passes may have skipped steps, or all of itself, such as when the app
+                # wasn't the active one.
+                skipped=$(grep '^skip: ' "$dir/$run.log" | cut -c7- | tr '|\n' '/;' | sed 's/;$//')
+                if [ "$status" = 0 ]; then
+                  result="passed in $((SECONDS - start)) s${skipped:+, skipping: $skipped}"
+                else
+                  result="failed ($status): $(grep -m1 '^FAIL' "$dir/$run.log" | cut -c7- | tr '|' '/')"
+                  failed=1
+                  echo "::error::The $run run failed on $session. Its log: $where$run.log in the artifact."
+                fi
+                ;;
+              *)
+                [ "$session" != wayland ] || continue
+                result="skipped: not in the runs Linux passes yet"
+                ;;
+              esac
+              echo "| $run | $result |" | tee -a "$GITHUB_STEP_SUMMARY"
+            done
+            echo >> "$GITHUB_STEP_SUMMARY"
           done
           exit "$failed"
+
+      # Drags from other apps under Wayland, which check.sh's driver, X11's, can't make.
+      - if: ${{ !cancelled() && steps.engine.outputs.found == 'true' && (inputs.runs == '' || inputs.runs == 'all' || contains(inputs.runs, 'drops')) }}
+        env:
+          LANG: en_US.UTF-8
+        run: |
+          out=$RUNNER_TEMP/check
+          mkdir -p "$out"
+          XDG_RUNTIME_DIR=$(mktemp -d)
+          export XDG_RUNTIME_DIR
+          status=0
+          timeout 10m check/drops.sh > "$out/drops.log" 2>&1 || status=$?
+          [ ! -d build/check/drops ] || mv build/check/drops "$out/drops"
+          pkill -9 -f "$PWD/build/Browser/" || true
+          result=passed
+          if [ "$status" != 0 ]; then
+            result="failed ($status): $(grep -m1 '^FAIL' "$out/drops.log" | cut -c7- | tr '|' '/')"
+            echo "::error::Drops under Wayland failed. Its log: drops.log in the artifact."
+          fi
+          printf '\nUnder Wayland, in a headless sway session: check/drops.sh %s.\n' "$result" |
+            tee -a "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      # Typing through an input method, fcitx5, on Wayland and on sway's Xwayland, which check.sh's
+      # driver, typing plain keys, can't.
+      - if: ${{ !cancelled() && steps.engine.outputs.found == 'true' && (inputs.runs == '' || inputs.runs == 'all' || contains(inputs.runs, 'ime')) }}
+        env:
+          LANG: en_US.UTF-8
+        run: |
+          out=$RUNNER_TEMP/check
+          mkdir -p "$out"
+          XDG_RUNTIME_DIR=$(mktemp -d)
+          export XDG_RUNTIME_DIR
+          status=0
+          timeout 10m check/ime.sh > "$out/ime.log" 2>&1 || status=$?
+          [ ! -d build/check/ime ] || mv build/check/ime "$out/ime"
+          pkill -9 -f "$PWD/build/Browser/" || true
+          result=passed
+          if [ "$status" != 0 ]; then
+            result="failed ($status): $(grep -m1 '^FAIL' "$out/ime.log" | cut -c6- | tr '|' '/')"
+            echo "::error::Input methods failed. Its log: ime.log in the artifact."
+          fi
+          printf '\nOn Wayland and Xwayland, in headless sway sessions with fcitx5: check/ime.sh %s.\n' \
+            "$result" | tee -a "$GITHUB_STEP_SUMMARY"
+          exit "$status"
 
       - if: ${{ always() && steps.engine.outputs.found == 'true' }}
         uses: actions/upload-artifact@v4

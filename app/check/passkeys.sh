@@ -9,10 +9,6 @@
 # The domain is the check's alone. Agents never get DevTools: it runs any script in any page.
 
 passkeys_check() {
-  if [ "$(uname)" != Darwin ]; then
-    echo "skip: passkeys. The driver's layout, which finds the dialog, is the Mac's so far."
-    return 0
-  fi
   serve
   # The page's title says where it is: ready, registering, registered, signing in, signed in, or
   # failed with the error's name. "r" registers ada@check.test, "s" signs in with that passkey. A
@@ -56,18 +52,36 @@ requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
   step=0
   scratch=$(mktemp -d)
   mkdir "$scratch/profile"
-  mkfifo "$scratch/to-browser" "$scratch/from-browser" "$scratch/cdp"
-  # Each end of a pipe waits for the other to open, in this order: the driver's, the browser's
-  # DevTools pipe, then cdp.py's input.
-  BROWSER_DRIVE=1 BROWSER_URL="$page" BROWSER_PROFILE_DIR="$scratch/profile" \
-    "$browser" --remote-debugging-pipe < "$out/drive" 3< "$scratch/to-browser" \
-    4> "$scratch/from-browser" > "$log" 2>&1 &
-  pid=$!
-  python3 -I -u check/cdp.py "$scratch/to-browser" "$scratch/from-browser" /passkey.html \
-    < "$scratch/cdp" > "$cdp_log" 2>&1 &
-  helper=$!
-  exec 3> "$out/drive"
+  mkfifo "$scratch/cdp"
+  if windows; then
+    # Chrome on Windows takes its DevTools pipe as handles, which Git Bash can't give it, so
+    # DevTools listens on a loopback port instead, which the browser says on its standard error. A
+    # native program can't read Git Bash's fifo, so cat passes cdp.py its commands, and the page is
+    # named without its slash, which Git Bash would make a path of Git's own.
+    BROWSER_DRIVE=1 BROWSER_URL="$page" BROWSER_PROFILE_DIR="$scratch/profile" \
+      "$browser" --remote-debugging-port=0 < "$out/drive" > "$log" 2>&1 &
+    pid=$!
+    exec 3> "$out/drive"
+    await '^DevTools listening on ws://' || fail "DevTools didn't say where it listens"
+    socket=$(grep -m1 '^DevTools listening on ws://' "$log" | cut -d' ' -f4 | tr -d '\r')
+    cat "$scratch/cdp" | python3 -I -u check/cdp.py --socket "$socket" passkey.html \
+      > "$cdp_log" 2>&1 &
+    helper=$!
+  else
+    mkfifo "$scratch/to-browser" "$scratch/from-browser"
+    # Each end of a pipe waits for the other to open, in this order: the driver's, the browser's
+    # DevTools pipe, then cdp.py's input.
+    BROWSER_DRIVE=1 BROWSER_URL="$page" BROWSER_PROFILE_DIR="$scratch/profile" \
+      "$browser" --remote-debugging-pipe < "$out/drive" 3< "$scratch/to-browser" \
+      4> "$scratch/from-browser" > "$log" 2>&1 &
+    pid=$!
+    python3 -I -u check/cdp.py "$scratch/to-browser" "$scratch/from-browser" /passkey.html \
+      < "$scratch/cdp" > "$cdp_log" 2>&1 &
+    helper=$!
+    exec 3> "$out/drive"
+  fi
   exec 5> "$scratch/cdp"
+  echo authenticator >&5
   await_load
   tab=$(today | cut -d' ' -f1)
   await "^browser: title $tab ready\$" || fail "the passkey page didn't draw"
@@ -138,38 +152,58 @@ requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
     grep -q '^cdp: presence 0$' "$cdp_log" || fail "cdp.py didn't stop the key's touches"
     send key s
     expect "^browser: title $tab signing in\$" "\"s\" didn't start signing in again"
-    # Chrome's dialog, a child window more than the browser window had.
-    for _ in $(seq 100); do
-      send layout
-      [ "$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -c '^browser: layout child')" \
-        -gt "$children" ] && break
-      sleep 0.1
-    done
-    lines=$(sed -n "/^browser: drive $step: /,\$p" "$log")
-    dialog=$(echo "$lines" | grep '^browser: layout child' | sed -n "$((children + 1))p" |
-      sed 's/^browser: layout child //')
-    ../tools/window-screenshot.sh "$pid" "$out/passkeys-dialog.png" all ||
-      fail "no window to capture"
-    [ -n "$dialog" ] ||
-      fail "signing in, Chrome's passkey dialog wasn't a child window: $out/passkeys-dialog.png"
-    # Centred across the page: its middle and the page view's within a point.
-    view=$(echo "$lines" | grep -m1 '^browser: layout content' |
-      sed -n 's/.*, WebContentsViewCocoa \([0-9-]*\),[0-9-]* \([0-9]*\)x.*/\1 \2/p')
-    [ -n "$view" ] || fail "the layout had no page view under Chrome's passkey dialog"
-    x=${dialog%%,*}
-    width=${dialog#* }
-    width=${width%%x*}
-    offset=$(((2 * x + width) - (2 * ${view% *} + ${view#* })))
-    [ "$offset" -ge -2 ] && [ "$offset" -le 2 ] ||
-      fail "Chrome's passkey dialog at $dialog isn't centred across the page at $view (#611)"
+    # Chrome's dialog, a child window more than the browser window had, on Windows a window it
+    # owns. On Linux, Chrome draws it in its own window, which the X server doesn't see, so only
+    # escape below finds it there.
+    if [ "$(uname)" != Linux ]; then
+      for _ in $(seq 100); do
+        send layout
+        [ "$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -c '^browser: layout child')" \
+          -gt "$children" ] && break
+        sleep 0.1
+      done
+      lines=$(sed -n "/^browser: drive $step: /,\$p" "$log")
+      dialog=$(echo "$lines" | grep '^browser: layout child' | sed -n "$((children + 1))p" |
+        sed 's/^browser: layout child //')
+      ../tools/window-screenshot.sh "$pid" "$out/passkeys-dialog.png" all ||
+        fail "no window to capture"
+      [ -n "$dialog" ] ||
+        fail "signing in, Chrome's passkey dialog wasn't a child window: $out/passkeys-dialog.png"
+      # Centred across the page: its middle and the page view's within a point.
+      view=$(echo "$lines" | grep -m1 '^browser: layout content' |
+        sed -n 's/.*, WebContentsViewCocoa \([0-9-]*\),[0-9-]* \([0-9]*\)x.*/\1 \2/p')
+      [ -n "$view" ] || fail "the layout had no page view under Chrome's passkey dialog"
+      x=${dialog%%,*}
+      width=${dialog#* }
+      width=${width%%x*}
+      offset=$(((2 * x + width) - (2 * ${view% *} + ${view#* })))
+      [ "$offset" -ge -2 ] && [ "$offset" -le 2 ] ||
+        fail "Chrome's passkey dialog at $dialog isn't centred across the page at $view (#611)"
+    else
+      ../tools/window-screenshot.sh "$pid" "$out/passkeys-dialog.png" ||
+        fail "no window to capture"
+      dialog= view=
+      echo "skip: passkeys' dialog placement. On Linux Chrome draws the dialog in its own window," \
+        "where the X server can't find it."
+    fi
+    # Where the dialog can't be seen, escape goes again until it's up and closes it: the page does
+    # nothing with one.
     send key escape
+    if [ -z "$dialog" ]; then
+      from=$step
+      for _ in $(seq 100); do
+        sed -n "/^browser: drive $from: /,\$p" "$log" | grep -q "^browser: title $tab failed " && break
+        sleep 0.1
+        send key escape
+      done
+    fi
     expect "^browser: title $tab failed NotAllowedError\$" \
       "escape didn't close Chrome's passkey dialog and fail the page's request"
     exec 3>&- 5>&-
     quit
     echo "ok: a local page registered a passkey on a virtual security key and signed in with it," \
-      "and untouched, the key left Chrome's dialog up, a child window at $dialog centred across" \
-      "the page at $view, which escape closed. Window: $out/passkeys-dialog.png"
+      "and untouched, the key left Chrome's dialog up${dialog:+, a child window at $dialog centred}" \
+      "${view:+across the page at $view,} which escape closed. Window: $out/passkeys-dialog.png"
   fi
   kill "$helper" 2>/dev/null || true
   helper=

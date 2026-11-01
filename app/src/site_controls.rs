@@ -77,6 +77,9 @@ const ENGINE_NAME: &str = "Safari's engine";
 const AD_BLOCKING: &str = "icons/shield.svg";
 /// Ours: the site's logins, in place of Chrome's key icon and its manage bubble.
 const PASSWORDS: &str = "icons/key-round.svg";
+/// Ours: Developer Mode's row, as Arc's panel's isn't recorded, and its command's in the bar.
+const DEVELOPER_MODE: &str = "icons/square-code.svg";
+const DEVELOPER_MODE_NAME: &str = "Developer Mode";
 const PASSWORDS_NAME: &str = "Passwords";
 use crate::tokens::site_controls::MANAGED_OPACITY;
 use crate::tokens::site_controls::DIVIDER;
@@ -179,6 +182,9 @@ pub struct Site {
     /// there: a page that isn't http(s), one Safari's engine shows, a private window, or with
     /// blocking off in Settings.
     pub ad_blocking: Option<bool>,
+    /// Whether the site's tabs show in Developer Mode, none where that isn't the user's to change:
+    /// a page that isn't http(s), or a private window.
+    pub developer_mode: Option<bool>,
 }
 
 /// A turned-on extension, as its action is for the tab's page.
@@ -430,6 +436,9 @@ pub trait Host {
     /// Blocks ads and trackers on the site or lets them load, and reloads the page. The user's, as
     /// above.
     fn set_ad_blocking(&self, tab: u64, on: bool);
+    /// Turns Developer Mode on or off for the site, in the tab's profile. The user's view: agents
+    /// get none.
+    fn set_developer_mode(&self, tab: u64, on: bool);
     fn run(&self, run: Run, tab: u64, cx: &mut App);
     /// Shows ilo's menu of `items` at `position` in the panel's window, and calls `chosen` once it
     /// closes, with the index of the one chosen, if any.
@@ -559,10 +568,12 @@ fn layout(site: &Site, extensions: usize, beak: bool) -> Layout {
     }
 }
 
-/// The Settings heading's rows: Safari's engine, ad blocking, Passwords, the permissions, then
-/// Reset.
+/// The Settings heading's rows: Safari's engine, ad blocking, Developer Mode, Passwords, the
+/// permissions, then Reset.
 fn rows(site: &Site) -> usize {
-    let firsts = site.system_engine.is_some() as usize + site.ad_blocking.is_some() as usize;
+    let firsts = site.system_engine.is_some() as usize
+        + site.ad_blocking.is_some() as usize
+        + site.developer_mode.is_some() as usize;
     let logins = passwords::state(&site.logins).is_some() as usize;
     firsts + logins + site.permissions.len() + site.reset.is_some() as usize
 }
@@ -787,7 +798,10 @@ pub fn tab_closed(tab: u64, cx: &mut App) {
 fn describe(site: &Site) -> String {
     let ad_blocking = (site.ad_blocking.iter())
         .map(|&on| format!("Ad blocking {}", if on { "On" } else { "Off" }));
+    let developer_mode = (site.developer_mode.iter())
+        .map(|&on| format!("{DEVELOPER_MODE_NAME} {}", if on { "On" } else { "Off" }));
     let permissions: Vec<String> = ad_blocking
+        .chain(developer_mode)
         .chain(
             (site.permissions.iter())
                 .map(|permission| format!("{} {}", permission.name, permission.value.label())),
@@ -1062,6 +1076,17 @@ impl SiteControls {
             // check.sh reads this line.
             log!("browser: site controls set ad blocking {}", if on { "on" } else { "off" });
             self.host.set_ad_blocking(open.tab, on);
+            cx.notify();
+        }
+    }
+
+    /// Turns Developer Mode for the site the other way. The core reports the site again, which
+    /// redraws the row, and each of its tabs.
+    fn toggle_developer_mode(&mut self, on: bool, cx: &mut Context<Self>) {
+        if let Some(open) = self.open.as_ref().filter(|open| open.closing.is_none()) {
+            // check.sh reads this line.
+            log!("browser: site controls set developer mode {}", if on { "on" } else { "off" });
+            self.host.set_developer_mode(open.tab, on);
             cx.notify();
         }
     }
@@ -1551,6 +1576,16 @@ impl Render for SiteControls {
                     Self::row(&palette, "site-ad-blocking".into(), y, AD_BLOCKING, on, name, state);
                 let row = row.on_click(
                     cx.listener(move |panel, _, _, cx| panel.toggle_ad_blocking(!on, cx)),
+                );
+                rows.push(row.into_any_element());
+                y += ROW_PITCH;
+            }
+            if let Some(on) = site.developer_mode {
+                let state = Some(if on { "On" } else { "Off" }.into());
+                let (id, name) = ("site-developer-mode".into(), DEVELOPER_MODE_NAME.into());
+                let row = Self::row(&palette, id, y, DEVELOPER_MODE, on, name, state);
+                let row = row.on_click(
+                    cx.listener(move |panel, _, _, cx| panel.toggle_developer_mode(!on, cx)),
                 );
                 rows.push(row.into_any_element());
                 y += ROW_PITCH;

@@ -1,15 +1,20 @@
 //! The bar in an agent's Space (#365): while the agent is at work there, what it did last, with
 //! Take Over, which makes the tab the user's, and Stop; on a tab the user holds, Hand Back, which
-//! gives it back. ⌘↩ is Take Over or Hand Back, with focus in the page too. It's a card at the
-//! sidebar's foot, which GPUI draws, as the window's question cards are.
+//! gives it back. ⌘↩ is Take Over or Hand Back, and ⌘. Stop while the bar has it, with focus in
+//! the page too, and each button's tooltip shows its key. It's a card at the sidebar's foot, which
+//! GPUI draws, as the window's question cards are.
 
-use gpui::{Context, FontWeight, SharedString, div, prelude::*, px, rgba};
+use gpui::{App, Context, FontWeight, MouseButton, SharedString, div, prelude::*, px, rgba};
 
 use super::{
-    FOOTER_HEIGHT, Shell, TITLE,
+    Command, Shell, TITLE,
+    commands::{ShellHandle, keystroke_keys},
+    extensions::keystroke_text,
+    keys::user_keys,
     permission::{BUTTONS_TOP, card_button, card_listener},
 };
 use crate::agents::Status;
+use crate::tooltip::{Anchor, Tip};
 use crate::tokens::shell::permission::{BUTTON_GAP, DETAIL, GAP};
 
 /// What the bar shows.
@@ -21,7 +26,45 @@ pub(super) enum Bar {
     Held { name: SharedString, why: SharedString, tab: u64 },
 }
 
+/// The bar's Stop, which is Stop Loading's key elsewhere, so the bar takes it only while it shows
+/// Stop. Escape, Stop Loading's other key, stays the page's, as an agent stopped by a stray escape
+/// would lose its work.
+const STOP_KEY: &str = "cmd-.";
+
+/// The bar's buttons, by the ids their frames are kept under.
+const STOP: &str = "agent-stop";
+const PRIMARY: &str = "agent-primary";
+
+/// ⌘. for Stop while the UI has the keyboard, before it's Stop Loading. The page hands it over
+/// before it sees it (`run_agent_key`).
+pub(super) fn bind(cx: &mut App) {
+    cx.intercept_keystrokes(|event, _, cx| {
+        if crate::dialog::asking(cx) {
+            return;
+        }
+        let Some(shell) = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone()) else {
+            return;
+        };
+        let keystroke = keystroke_text(&event.keystroke);
+        if shell.update(cx, |shell, cx| shell.run_agent_key(&keystroke, cx)).unwrap_or(false) {
+            cx.stop_propagation();
+        }
+    })
+    .detach();
+}
+
 impl Shell {
+    /// Stops the agent at work in the Space shown if `keystroke` is the bar's Stop, and says
+    /// whether it did.
+    pub fn run_agent_key(&mut self, keystroke: &str, cx: &mut Context<Self>) -> bool {
+        let Some(Bar::Working { agent, .. }) = self.agent_bar().filter(|_| keystroke == STOP_KEY)
+        else {
+            return false;
+        };
+        self.browser.stop_agent(agent, cx);
+        true
+    }
+
     /// What the agents do and what the user holds from them, as the Agents tell every window.
     pub fn set_agent_status(&mut self, status: Vec<Status>, cx: &mut Context<Self>) {
         if self.agent_status != status {
@@ -63,7 +106,40 @@ impl Shell {
         }
     }
 
+    /// The pointer has come onto or left the bar's button `key`, whose tooltip shows its key:
+    /// ⌘. for Stop, and Back to Pinned URL's, ⌘↩ unless the user moved it, for the other.
+    fn hover_agent_button(&self, key: &'static str, hovered: bool, cx: &mut Context<Self>) {
+        let busy = self.dragging().is_some() || self.menu_row.is_some();
+        let frame = self.button_frames.borrow().get(key).copied();
+        let tip = (self.agent_bar().zip(frame).filter(|_| hovered && !busy)).map(|(bar, frame)| {
+            let (text, keys) = match (key, bar) {
+                (STOP, _) => ("Stop", keystroke_keys(STOP_KEY)),
+                (_, Bar::Working { .. }) => ("Take Over", user_keys(cx).chips(Command::BackToPinnedUrl)),
+                (_, Bar::Held { .. }) => ("Hand Back", user_keys(cx).chips(Command::BackToPinnedUrl)),
+            };
+            let keys = keys.into_iter().map(Into::into).collect();
+            (Tip { text: text.into(), keys }, Anchor::under(frame, self.viewport))
+        });
+        let working = matches!(self.agent_bar(), Some(Bar::Working { .. }));
+        self.agent_tip.set(tip.is_some().then_some(working));
+        self.hover_tip(tip, cx);
+    }
+
+    /// A click on a button ends its tooltip, as other buttons' do.
+    fn end_agent_tip(&self, cx: &mut Context<Self>) {
+        self.agent_tip.set(None);
+        self.browser.tooltip(None, cx);
+    }
+
     pub(super) fn agent_bar_card(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+        // A button that goes from under the pointer, as Hand Back does once it's clicked, sends no
+        // hover-out, so its tooltip ends here, or it shows later hanging from nothing.
+        let working = self.agent_bar().map(|bar| matches!(bar, Bar::Working { .. }));
+        if self.agent_tip.get().is_some_and(|was| Some(was) != working) {
+            self.agent_tip.set(None);
+            let browser = self.browser.clone();
+            cx.defer(move |cx| browser.tooltip(None, cx));
+        }
         let Some(bar) = self.agent_bar() else {
             // Drawn again, it's logged again.
             self.agent_bar_drawn.set(None);
@@ -84,12 +160,22 @@ impl Shell {
             Bar::Working { .. } => card_button(&self.palette, "agent-take-over", "Take Over"),
             Bar::Held { .. } => card_button(&self.palette, "agent-hand-back", "Hand Back"),
         };
-        let primary = primary.on_click(cx.listener(|shell, _, _, cx| shell.agent_bar_primary(cx)));
+        let primary = (primary.relative().child(self.button_frame(PRIMARY)))
+            .on_hover(cx.listener(|shell, hovered: &bool, _, cx| {
+                shell.hover_agent_button(PRIMARY, *hovered, cx)
+            }))
+            .on_mouse_down(MouseButton::Left, cx.listener(|shell, _, _, cx| shell.end_agent_tip(cx)))
+            .on_click(cx.listener(|shell, _, _, cx| shell.agent_bar_primary(cx)));
         let stop = match &bar {
             Bar::Working { agent, .. } => {
                 let agent = agent.clone();
-                let stop = card_button(&self.palette, "agent-stop", "Stop");
-                Some(stop.on_click(cx.listener(move |shell, _, _, cx| {
+                let stop = card_button(&self.palette, STOP, "Stop").relative();
+                Some(stop.child(self.button_frame(STOP)).on_hover(cx.listener(
+                    |shell, hovered: &bool, _, cx| shell.hover_agent_button(STOP, *hovered, cx),
+                )).on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|shell, _, _, cx| shell.end_agent_tip(cx)),
+                ).on_click(cx.listener(move |shell, _, _, cx| {
                     shell.browser.stop_agent(agent.clone(), cx)
                 })))
             }
@@ -99,7 +185,7 @@ impl Shell {
         Some(
             self.plate("agent-bar")
                 .top(gpui::auto())
-                .bottom(px(FOOTER_HEIGHT + GAP))
+                .bottom(px(self.list_bottom() + GAP))
                 .child(listener)
                 .child(
                     div()
@@ -124,9 +210,10 @@ impl Shell {
 mod tests {
     use std::rc::Rc;
 
-    use gpui::{AppContext, Entity, SharedString, TestAppContext, point, px};
+    use gpui::{AppContext, Entity, Modifiers, SharedString, TestAppContext, point, px};
 
-    use super::Bar;
+    use super::{Bar, PRIMARY, STOP};
+    use crate::shell::commands::keystroke_keys;
     use crate::agents::Status;
     use crate::shell::{Command, Folders, Shell, recorder::Recorder};
 
@@ -176,6 +263,100 @@ mod tests {
         assert_eq!(host.take(), ["take over claude-code 20", "select 20"]);
         shell.update(cx, |shell, cx| shell.set_space(1, cx));
         assert_eq!(shell.read_with(cx, |shell, _| shell.agent_bar()), None, "the user's Space");
+    }
+
+    /// ⌘. is the bar's Stop while it shows one, and the page hands it over too. Escape, and ⌘. on a
+    /// tab the user holds, where the bar has no Stop, stay Stop Loading's.
+    #[gpui::test]
+    fn command_period_stops_the_agent_at_work(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        cx.update(crate::shell::bind_keys);
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            shell.set_spaces(
+                vec![(2, "Research".into(), None, 0, "".into(), "Claude Code".into(), "".into())],
+                cx,
+            );
+            shell.set_tabs(2, Vec::new(), vec![20, 21], Vec::new(), Folders::default(), cx);
+            shell.set_space(2, cx);
+            shell.set_selected(21, cx);
+            shell.set_agent_status(status(Vec::new()), cx);
+            shell.agent_acted("claude-code".into(), 20, cx);
+        });
+        cx.update(|window, cx| window.focus(&shell.read(cx).focus_handle.clone(), cx));
+        host.take();
+        cx.simulate_keystrokes("escape");
+        assert!(!host.take().contains(&"stop agent claude-code".to_string()));
+        cx.simulate_keystrokes("cmd-.");
+        assert_eq!(host.take(), ["stop agent claude-code"]);
+        assert!(shell.update(cx, |shell, cx| shell.run_agent_key("cmd-.", cx)), "from the page");
+        assert_eq!(host.take(), ["stop agent claude-code"]);
+
+        let held = vec![(21, "Sign in to example.com".into())];
+        shell.update(cx, |shell, cx| shell.set_agent_status(status(held), cx));
+        cx.simulate_keystrokes("cmd-.");
+        assert!(!host.take().contains(&"stop agent claude-code".to_string()));
+        assert!(!shell.update(cx, |shell, cx| shell.run_agent_key("cmd-.", cx)));
+    }
+
+    /// Each button's tooltip shows its key, ⌘. for Stop and ⌘↩ for Take Over and Hand Back, so
+    /// the keys are found where the buttons are.
+    #[gpui::test]
+    fn the_bars_tooltips_show_its_keys(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            shell.set_spaces(
+                vec![(2, "Research".into(), None, 0, "".into(), "Claude Code".into(), "".into())],
+                cx,
+            );
+            shell.set_tabs(2, Vec::new(), vec![20, 21], Vec::new(), Folders::default(), cx);
+            shell.set_space(2, cx);
+            shell.set_selected(21, cx);
+            shell.set_agent_status(status(Vec::new()), cx);
+            shell.agent_acted("claude-code".into(), 20, cx);
+        });
+        cx.run_until_parked();
+        let tip = |cx: &mut gpui::VisualTestContext, key: &'static str| {
+            let at = shell.read_with(cx, |shell, _| shell.button_frames.borrow()[key].center());
+            cx.simulate_mouse_move(point(px(0.), px(0.)), None, Modifiers::none());
+            cx.run_until_parked();
+            host.take();
+            cx.simulate_mouse_move(at, None, Modifiers::none());
+            cx.run_until_parked();
+            host.take().into_iter().find(|line| line.starts_with("tooltip"))
+        };
+        let back = keystroke_keys("cmd-enter").concat();
+        let stop = format!("tooltip Stop {}", keystroke_keys("cmd-.").concat());
+        assert_eq!(tip(cx, STOP), Some(stop));
+        assert_eq!(tip(cx, PRIMARY), Some(format!("tooltip Take Over {back}")));
+
+        let held = vec![(21, "Sign in to example.com".into())];
+        shell.update(cx, |shell, cx| shell.set_agent_status(status(held), cx));
+        cx.run_until_parked();
+        assert_eq!(tip(cx, PRIMARY), Some(format!("tooltip Hand Back {back}")));
+
+        // The click hands the tab back, and the bar goes from under the pointer with no hover-out,
+        // so the click itself ends the tooltip.
+        let at = shell.read_with(cx, |shell, _| shell.button_frames.borrow()[PRIMARY].center());
+        cx.simulate_click(at, Modifiers::none());
+        cx.run_until_parked();
+        let asked = host.take();
+        let ended = asked.iter().position(|line| line == "tooltip none");
+        let handed = asked.iter().position(|line| line == "hand back 21");
+        assert!(ended.is_some() && handed.is_some(), "{asked:?}");
+
+        // A bar that changes under the pointer with no click, as when the agent hands the tab
+        // back itself, ends the tooltip of the button that went too.
+        let held = vec![(21, "Sign in to example.com".into())];
+        shell.update(cx, |shell, cx| shell.set_agent_status(status(held), cx));
+        cx.run_until_parked();
+        assert_eq!(tip(cx, PRIMARY), Some(format!("tooltip Hand Back {back}")));
+        shell.update(cx, |shell, cx| shell.set_agent_status(status(Vec::new()), cx));
+        cx.run_until_parked();
+        assert_eq!(host.take(), ["tooltip none"]);
     }
 
     /// On a tab the user holds the bar says so, the row's mark is a hollow ring, and Hand Back, or

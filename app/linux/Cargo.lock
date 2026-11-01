@@ -15,8 +15,6 @@ dependencies = [
 [[package]]
 name = "accesskit_atspi_common"
 version = "0.19.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "023da0e5097f46df7092d5280b02efb9bbf8d93298daeced42652463e357d636"
 dependencies = [
  "accesskit",
  "accesskit_consumer",
@@ -634,6 +632,7 @@ dependencies = [
 name = "browser"
 version = "0.1.0"
 dependencies = [
+ "async-io",
  "bindgen",
  "cc",
  "emojis",
@@ -651,7 +650,11 @@ dependencies = [
  "rusqlite",
  "serde_json",
  "unicode-segmentation",
+ "wayland-client",
+ "wayland-protocols-misc",
+ "wayland-protocols-wlr",
  "x11rb",
+ "xkbcommon",
  "zbus",
 ]
 
@@ -663,8 +666,15 @@ dependencies = [
  "gpui",
  "gpui_linux",
  "gpui_platform",
+ "image",
  "raw-window-handle",
+ "serde_json",
+ "wayland-client",
+ "wayland-protocols-misc",
+ "wayland-protocols-wlr",
  "x11rb",
+ "xkbcommon",
+ "zbus",
 ]
 
 [[package]]
@@ -5695,6 +5705,19 @@ dependencies = [
  "bitflags 2.13.1",
  "wayland-backend",
  "wayland-client",
+ "wayland-scanner",
+]
+
+[[package]]
+name = "wayland-protocols-misc"
+version = "0.3.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e9567599ef23e09b8dad6e429e5738d4509dfc46b3b21f32841a304d16b29c8"
+dependencies = [
+ "bitflags 2.13.1",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-protocols",
  "wayland-scanner",
 ]
 

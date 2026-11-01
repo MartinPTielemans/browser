@@ -1,0 +1,21 @@
+diff --git a/src/node.rs b/src/node.rs
+index ce197b1..5f8275a 100644
+--- a/src/node.rs
++++ b/src/node.rs
+@@ -380,6 +380,16 @@ impl NodeWrapper<'_> {
+             atspi_state.insert(State::Focused);
+         }
+ 
++        // ilo: a submenu's item or a folder says it opens and whether it's open, as upstream's
++        // AccessKit/accesskit#665 has it, which no release has yet.
++        if let Some(expanded) = state.data().is_expanded() {
++            atspi_state.insert(State::Expandable);
++            atspi_state.insert(match expanded {
++                true => State::Expanded,
++                false => State::Collapsed,
++            });
++        }
++
+         atspi_state
+     }
+ 

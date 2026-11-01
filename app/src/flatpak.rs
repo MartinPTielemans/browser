@@ -5,9 +5,14 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::rc::Rc;
+use std::time::Duration;
 
-use futures_lite::StreamExt;
+use futures_lite::{Stream, StreamExt, future};
+use gpui::{App, Global};
 use zbus::zvariant::{Fd, OwnedObjectPath, OwnedValue, Value};
+
+use crate::dialog::{self, Question, Tone};
 
 const PORTAL: &str = "org.freedesktop.portal.Flatpak";
 const PATH: &str = "/org/freedesktop/portal/Flatpak";
@@ -155,23 +160,181 @@ impl Portal {
     }
 }
 
+/// How long an install waits on Update, which answers only once the user has said whether ilo may
+/// update itself: a desktop with nothing to ask it with never answers (#877).
+pub const ANSWER: Duration = Duration::from_secs(120);
+
+/// What an install that waited out `ANSWER` says.
+pub const UNANSWERED: &str = concat!(
+    "Flatpak asked whether ",
+    env!("APP_NAME"),
+    " may update itself, and nothing answered."
+);
+
 /// Follows the update monitor until the portal goes, installing each build it announces, and
-/// tells `changed` each new state.
-pub async fn watch(portal: &Portal, mut events: Events, mut changed: impl FnMut(&State)) {
+/// again on each of `retries` after a failure, and tells `changed` each new state. An install
+/// waits up to `answer` for the portal; an answer after that still moves the state on.
+pub async fn watch(
+    portal: &Portal,
+    mut events: Events,
+    mut retries: impl Stream<Item = ()> + Unpin,
+    answer: Duration,
+    mut changed: impl FnMut(&State),
+) {
+    enum Heard {
+        Said(zbus::Result<zbus::Message>),
+        Retry,
+    }
     let mut state = State::Current;
-    while let Some(message) = events.0.next().await {
-        let Some(event) = message.ok().as_ref().and_then(Event::read) else {
-            continue;
+    loop {
+        let said = async { events.0.next().await.map(Heard::Said) };
+        // Retries that have ended leave the events alone.
+        let retry = async {
+            match retries.next().await {
+                Some(()) => Some(Heard::Retry),
+                None => future::pending().await,
+            }
         };
-        let (next, install) = state.after(&event);
+        let (next, install) = match future::or(said, retry).await {
+            None => return,
+            Some(Heard::Retry) if matches!(state, State::Failed(_)) => (State::Installing, true),
+            Some(Heard::Retry) => continue,
+            Some(Heard::Said(message)) => {
+                let Some(event) = message.ok().as_ref().and_then(Event::read) else {
+                    continue;
+                };
+                state.after(&event)
+            }
+        };
         if next != state {
             state = next;
             changed(&state);
         }
-        if install && let Err(error) = portal.update().await {
-            state = State::Failed(error.to_string());
+        if install && let Some(failed) = install_waiting(portal, answer).await {
+            state = failed;
             changed(&state);
         }
+    }
+}
+
+/// Asks the portal to install, waiting up to `answer`; the failure, if it fails or never answers.
+async fn install_waiting(portal: &Portal, answer: Duration) -> Option<State> {
+    let answered = async { Some(portal.update().await) };
+    let unanswered = async {
+        async_io::Timer::after(answer).await;
+        None
+    };
+    match future::or(answered, unanswered).await {
+        Some(Ok(())) => None,
+        Some(Err(error)) => Some(State::Failed(error.to_string())),
+        None => Some(State::Failed(UNANSWERED.into())),
+    }
+}
+
+/// Where the update stands as the user is told, once the portal has answered, what Restart runs:
+/// the portal's start of the newest build, and the quit, and what Try Again runs after a failure.
+#[derive(Default)]
+struct Told {
+    state: Option<State>,
+    restart: Option<Rc<dyn Fn(&mut App)>>,
+    retry: Option<Rc<dyn Fn(&mut App)>>,
+}
+
+impl Global for Told {}
+
+/// The portal answered: Restart runs `restart`.
+pub fn on_restart(restart: impl Fn(&mut App) + 'static, cx: &mut App) {
+    cx.default_global::<Told>().restart = Some(Rc::new(restart));
+}
+
+/// The portal answered: Try Again, after a failed install, runs `retry`.
+pub fn on_retry(retry: impl Fn(&mut App) + 'static, cx: &mut App) {
+    cx.default_global::<Told>().retry = Some(Rc::new(retry));
+}
+
+/// Try Again's presses, as `watch` takes them; made here, as the crate that builds the app on
+/// Linux has no futures of its own.
+pub fn retries(cx: &mut App) -> futures::channel::mpsc::UnboundedReceiver<()> {
+    let (retry, retries) = futures::channel::mpsc::unbounded();
+    on_retry(move |_| _ = retry.unbounded_send(()), cx);
+    retries
+}
+
+/// The update is at `state` now, which once a build is ready offers to restart into it.
+pub fn changed(state: State, cx: &mut App) {
+    let ready = state == State::Ready;
+    cx.default_global::<Told>().state = Some(state);
+    if ready {
+        check(cx);
+    }
+}
+
+/// Check for Updates…. Flatpak's portal can't be asked to look now, as it looks every half hour
+/// by itself, so this says where the update stands, offers the restart once a build is ready, or
+/// another try after an install failed.
+pub fn check(cx: &mut App) {
+    let told = cx.default_global::<Told>();
+    let failed = matches!(told.state, Some(State::Failed(_)));
+    let action = if failed { told.retry.clone() } else { told.restart.clone() };
+    let question = question(told.state.as_ref(), told.retry.is_some());
+    dialog::pose(
+        question,
+        Box::new(move |_, cx| {
+            if let Some(action) = action {
+                action(cx)
+            }
+        }),
+        cx,
+    );
+}
+
+/// What Check for Updates… asks or says at `state`, None before the portal has answered, and
+/// whether it offers to try again after a failure, which needs the portal.
+pub fn question(state: Option<&State>, retries: bool) -> Question {
+    let (message, detail) = match state {
+        Some(State::Ready) => {
+            return Question {
+                action: "Restart".into(),
+                cancel: "Later".into(),
+                ..notice(
+                    concat!("A new version of ", env!("APP_NAME"), " is ready"),
+                    concat!("Restart ", env!("APP_NAME"), " to use it.").into(),
+                )
+            };
+        }
+        Some(State::Installing) => (
+            concat!(env!("APP_NAME"), " is updating"),
+            "It will offer to restart once the new version is in.".to_string(),
+        ),
+        Some(State::Failed(error)) => {
+            let failed = notice(concat!(env!("APP_NAME"), " couldn’t update"), error.clone());
+            if !retries {
+                return failed;
+            }
+            return Question { action: "Try Again".into(), cancel: "Later".into(), ..failed };
+        }
+        Some(State::Current) | None => (
+            "No update yet",
+            concat!(env!("APP_NAME"), " looks for one every half hour while it’s open.").into(),
+        ),
+    };
+    notice(message, detail)
+}
+
+/// A dialog that only tells, with OK.
+fn notice(message: &str, detail: String) -> Question {
+    Question {
+        icon: None,
+        message: message.to_string().into(),
+        detail: detail.into(),
+        list: Vec::new(),
+        action: "".into(),
+        cancel: "OK".into(),
+        tone: Tone::Accent,
+        also: None,
+        fields: Vec::new(),
+        check: None,
+        return_cancels: false,
     }
 }
 

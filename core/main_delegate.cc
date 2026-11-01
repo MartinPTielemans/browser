@@ -3,9 +3,11 @@
 #include <cstdio>
 #include <stdlib.h>
 
+#include <algorithm>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -14,16 +16,25 @@
 #include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/no_destructor.h"
+#include "base/scoped_multi_source_observation.h"
+#include "base/scoped_observation.h"
 #include "base/task/single_thread_task_runner.h"
+#include "base/time/time.h"
 #include "browser_core/ad_block.h"
 #include "browser_core/agent_autofill.h"
+#include "browser_core/auto_archive.h"
+#include "browser_core/cast_dialog.h"
 #include "browser_core/crash_reports.h"
+#include "browser_core/downloads.h"
+#include "browser_core/developer_mode.h"
 #include "browser_core/drm_request.h"
 #include "browser_core/hooks.h"
 #include "browser_core/host.h"
 #include "browser_core/install_question.h"
 #include "browser_core/leave_dialog.h"
 #include "browser_core/link_preview.h"
+#include "browser_core/mini_player.h"
+#include "browser_core/notes.h"
 #include "browser_core/open_app_dialog.h"
 #include "browser_core/page_menu.h"
 #include "browser_core/password_offer.h"
@@ -31,6 +42,7 @@
 #include "browser_core/platform/keychain.h"
 #include "browser_core/platform/native_hosts.h"
 #include "browser_core/profiles.h"
+#include "browser_core/search.h"
 #include "browser_core/session.h"
 #include "browser_core/sign_in_dialog.h"
 #include "browser_core/system_engine.h"
@@ -38,18 +50,27 @@
 #include "browser_core/widevine.h"
 #include "browser_core/window.h"
 #include "build/build_config.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_browser_main.h"
 #include "chrome/browser/chrome_browser_main_extra_parts.h"
 #include "chrome/browser/chrome_content_browser_client.h"
 #include "chrome/browser/devtools/chrome_devtools_manager_delegate.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
+#include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/lifetime/termination_notification.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/profiles/profile_manager_observer.h"
+#include "chrome/browser/profiles/profile_observer.h"
+#include "chrome/browser/ui/startup/startup_tab.h"
+#include "chrome/browser/ui/startup/startup_tab_provider.h"
 #include "chrome/common/chrome_content_client.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/profiler/main_thread_stack_sampling_profiler.h"
 #include "components/keep_alive_registry/keep_alive_types.h"
 #include "components/keep_alive_registry/scoped_keep_alive.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/browser/web_contents_view_delegate.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "url/gurl.h"
@@ -74,9 +95,8 @@ namespace {
 
 bc_host g_host;
 
-#if BUILDFLAG(IS_MAC)
-// The links another app sent, to the app. Only pages and files: AppController strips Chrome's
-// own direct-launch scheme first, and any other scheme an app sends is no page to show.
+// The links another app sent, to the app. Only pages and files: Chrome strips its own
+// direct-launch scheme first, and any other scheme an app sends is no page to show.
 void OpenLinks(const std::vector<GURL>& urls) {
   std::vector<std::string> specs;
   for (const GURL& url : urls) {
@@ -93,6 +113,26 @@ void OpenLinks(const std::vector<GURL>& urls) {
   }
   g_host.open_links(g_host.context, links.data(), links.size());
 }
+
+#if !BUILDFLAG(IS_MAC)
+// The links in a launch's command line, read as Chrome reads them: paths relative to |cur_dir|,
+// and "? words" searched with the profile's engine, which needs a profile.
+void OpenCommandLine(const base::CommandLine& command_line,
+                     const base::FilePath& cur_dir,
+                     Profile* profile) {
+  if (!profile) {
+    profile = ProfileManager::GetLastUsedProfileIfLoaded();
+  }
+  if (!profile) {
+    return;
+  }
+  std::vector<GURL> urls;
+  for (const StartupTab& tab :
+       StartupTabProviderImpl().GetCommandLineTabs(command_line, cur_dir, profile)) {
+    urls.push_back(tab.url);
+  }
+  OpenLinks(urls);
+}
 #endif
 
 // A host's manifest from another browser's folders, said in the log, as the user can't see where
@@ -108,12 +148,25 @@ base::FilePath FindNativeHost(const std::string& name) {
 }
 
 // Keeps the browser process up while it has no windows, which Chrome would otherwise quit at, and
-// tells the app when it can call in and when it has to stop.
-class ExtraParts : public ChromeBrowserMainExtraParts {
+// tells the app when it can call in and when it has to stop. After that it logs the stages of
+// Chrome's teardown as each starts, with the time since the stop, so a slow quit says which it
+// was in (#959): the profiles, Chrome's known hang on the Mac, then the threads and their
+// blocking tasks.
+class ExtraParts : public ChromeBrowserMainExtraParts,
+                   public ProfileManagerObserver,
+                   public ProfileObserver {
  public:
+  // Chrome has just set its crash keys again, with the switches about:flags added.
+  void PreCreateThreads() override { crash_reports::LeaveOutFolders(); }
+
   // Before Chrome stops taking factories, as the first profile is made.
   void PreProfileInit() override {
     system_engine::RegisterProfilePrefs();
+    RegisterSearchPrefs();
+    RegisterArchivePrefs();
+    RegisterDownloadPrefs();
+    developer_mode::RegisterProfilePrefs();
+    notes::RegisterProfilePrefs();
     widevine::Start();
   }
 
@@ -150,22 +203,84 @@ class ExtraParts : public ChromeBrowserMainExtraParts {
     widevine::Stop();
     FlushSession();
     Window::CloseAll();
+    Tab::StopHearingCaptures();
     ReleaseProfiles();
     if (g_host.stopping) {
       g_host.stopping(g_host.context);
     }
+    stopped_ = base::TimeTicks::Now();
+    ProfileManager* manager = g_browser_process->profile_manager();
+    if (!manager) {
+      return;
+    }
+    manager_observation_.Observe(manager);
+    for (Profile* profile : manager->GetLoadedProfiles()) {
+      profile_observations_.AddObservation(profile);
+      for (Profile* off_the_record : profile->GetAllOffTheRecordProfiles()) {
+        profile_observations_.AddObservation(off_the_record);
+      }
+    }
+  }
+
+  // Every thread has stopped, the thread pool's blocking tasks done; then Chrome lets go of the
+  // browser process and returns to the app. Not after a start that never ran the loop.
+  void PostDestroyThreads() override {
+    if (!stopped_.is_null()) {
+      LogStage("threads stopped");
+    }
+  }
+
+  void OnProfileManagerDestroying() override {
+    LogStage("profiles going");
+    manager_observation_.Reset();
+  }
+
+  void OnProfileWillBeDestroyed(Profile* profile) override {
+    std::string name = profile->GetBaseName().AsUTF8Unsafe();
+    LogStage("profile " + name + (profile->IsOffTheRecord() ? " private" : "") + " going");
+    profile_observations_.RemoveObservation(profile);
   }
 
  private:
+  void LogStage(const std::string& stage) {
+    fprintf(stderr, "browser: quit: %s at %lld ms\n", stage.c_str(),
+            static_cast<long long>((base::TimeTicks::Now() - stopped_).InMilliseconds()));
+  }
+
   void OnAppTerminating() {
+    // check.sh reads this line. It names the way a quit came, whatever started it: the app's
+    // own (bc_quit) logs its reason before this, and the system's Apple Event on the Mac too.
+    fprintf(stderr, "browser: terminating, %s\n",
+            ShutdownName(browser_shutdown::GetShutdownType()));
     keep_alive_.reset();
     // A remote-debugging switch, with the window Chrome doesn't open at startup, has Chrome hold
     // the browser up until a client closes it over the protocol, so the user's quit never ended.
     ChromeDevToolsManagerDelegate::AllowBrowserToClose();
   }
 
+  static const char* ShutdownName(browser_shutdown::ShutdownType type) {
+    switch (type) {
+      case browser_shutdown::ShutdownType::kNotValid:
+        return "no shutdown type";
+      case browser_shutdown::ShutdownType::kWindowClose:
+        return "the last window closed";
+      case browser_shutdown::ShutdownType::kBrowserExit:
+        return "an exit asked for";
+      case browser_shutdown::ShutdownType::kEndSession:
+        return "the session ending";
+      case browser_shutdown::ShutdownType::kSilentExit:
+        return "a silent exit";
+      case browser_shutdown::ShutdownType::kOtherExit:
+        return "another exit";
+    }
+    return "an unknown shutdown type";
+  }
+
   std::unique_ptr<ScopedKeepAlive> keep_alive_;
   base::CallbackListSubscription app_terminating_;
+  base::TimeTicks stopped_;
+  base::ScopedObservation<ProfileManager, ProfileManagerObserver> manager_observation_{this};
+  base::ScopedMultiSourceObservation<Profile, ProfileObserver> profile_observations_{this};
 };
 
 class ContentBrowserClient : public ChromeContentBrowserClient {
@@ -233,25 +348,32 @@ void Install(const bc_host& host) {
   g_host = host;
   g_browser_core_supplies_windows = true;
   g_browser_core_adjust_navigate = &Window::AdjustNavigate;
+  // A tab's Cast dialog is the app's card, in place of the Views dialog.
+  g_browser_core_cast_dialog = &CastDialog::For;
   g_browser_core_can_dock_devtools = &Window::CanDockDevTools;
   g_browser_core_update_devtools = &Window::UpdateDevTools;
   g_browser_core_trim_page_menu = &Window::TrimPageMenu;
   g_browser_core_show_page_menu = &PageMenu::Show;
   g_browser_core_update_target_url = &Tab::LinkTargetChanged;
+  content::SetPageLinkDragHandler(&Tab::LinkDragged);
   g_browser_core_permission_prompt = &PermissionQuestion::Create;
   g_browser_core_extension_install_dialog = &InstallQuestion::Ask;
   g_browser_core_populate_frame_binders = &PopulateFrameBinders;
   g_browser_core_password_prompt = &PasswordOffer::Prompt;
 #if BUILDFLAG(IS_MAC)
   g_browser_core_open_links = &OpenLinks;
+#else
+  g_browser_core_open_command_line = &OpenCommandLine;
 #endif
   g_browser_core_page_hung = &Tab::PageHung;
   g_browser_core_offline_game = &Tab::GameRunning;
   g_browser_core_split_together = &Window::SplitTogether;
+  g_browser_core_activate_contents = &Window::ActivateContents;
   g_browser_core_find_native_host = &FindNativeHost;
   g_browser_core_login_handler = &SignInDialog::Create;
   g_browser_core_external_protocol_dialog = &OpenAppDialog::Ask;
   SetUpAdBlock();
+  SetUpMiniPlayer();
   g_browser_core_component_allowed = &widevine::MayUpdate;
   g_browser_core_no_passwords = &IsAgentTab;
   g_browser_core_no_autofill = &IsAgentTab;
@@ -264,7 +386,16 @@ int Run(int argc, const char** argv, const bc_host& host) {
   return 1;
 #else
   Install(host);
-  return ChromeMain(argc, argv);
+  // Only the browser's process logs its end: a helper's has a type.
+  const bool browser = std::none_of(argv, argv + argc, [](const char* arg) {
+    return std::string_view(arg).starts_with("--type=");
+  });
+  const int status = ChromeMain(argc, argv);
+  if (browser) {
+    // check.sh reads this line, the last the browser logs as it ends cleanly.
+    fprintf(stderr, "browser: exited with status %d\n", status);
+  }
+  return status;
 #endif
 }
 
@@ -341,6 +472,16 @@ std::optional<int> MainDelegate::BasicStartupComplete() {
     features += features.empty() ? "" : ",";
     command_line->AppendSwitchASCII(switches::kEnableFeatures,
                                     features + features::kWebContentsDiscard.name);
+    // Blink's eye in a password field, Chrome's on Windows: it shows only once the user types into
+    // the empty field, and goes, masking it again, as the field loses focus or is filled in or set
+    // by the page, so a saved password is never shown. The core blurs a tab's page each time the
+    // tab becomes an agent's to act in, so no agent sees one the user showed (agent_session.cc).
+    std::string blink = command_line->GetSwitchValueASCII(switches::kEnableBlinkFeatures);
+    blink += blink.empty() ? "" : ",";
+    // And ⌥-click on a link opens it in a split view, as Arc's does, not Chrome's download
+    // (chromium-core-alt-click-split.patch).
+    command_line->AppendSwitchASCII(switches::kEnableBlinkFeatures,
+                                    blink + "PasswordReveal,AltClickSplitView");
 #if BUILDFLAG(IS_MAC)
     platform::NameKeychainItem();
 #endif
@@ -355,6 +496,7 @@ void MainDelegate::PreSandboxStartup() {
   }
   ChromeMainDelegate::PreSandboxStartup();
   crash_reports::LeaveOutPages();
+  crash_reports::LeaveOutFolders();
 }
 
 #if BUILDFLAG(IS_LINUX)
@@ -362,6 +504,7 @@ void MainDelegate::ZygoteForked() {
   // Chrome's starts Crashpad in a page's process as the zygote forks it.
   ChromeMainDelegate::ZygoteForked();
   crash_reports::LeaveOutPages();
+  crash_reports::LeaveOutFolders();
 }
 #endif
 

@@ -4,14 +4,16 @@
 use std::rc::Rc;
 
 use gpui::{
-    Modifiers, MouseButton, ScrollDelta, ScrollEvent, TestAppContext, VisualTestContext,
-    point, px,
+    Modifiers, MouseButton, Pixels, Point, ScrollDelta, ScrollEvent, TestAppContext,
+    VisualTestContext, point, px,
 };
 
 use crate::{
     dock_dot::QUIET,
     hover_card::{Action, Event},
+    icon_picker::{self, Picked, Recents, Subject},
     shell::{Folders, Page, Row, Shell, recorder::Recorder},
+    theme_picker,
 };
 
 /// A drawn shell with the pinned tab 1, the Today tabs 2, 3 and 4, and the favorite 10, showing 2.
@@ -150,6 +152,54 @@ fn a_rows_menu_closes_the_card(cx: &mut TestAppContext) {
     assert!(!host.take().iter().any(|call| call.starts_with("card rest")));
 }
 
+/// The pickers' windows, which show nowhere.
+struct NoWhere;
+
+impl theme_picker::Host for NoWhere {
+    fn show(&self, _: f32, _: f32, _: &[(f32, f32, f32)]) {}
+
+    fn hide(&self) {}
+
+    fn detent(&self) {}
+}
+
+impl icon_picker::Host for NoWhere {
+    fn show(&self, _: f32, _: f32) {}
+
+    fn hide(&self) {}
+
+    fn keep_recents(&self, _: &str) {}
+}
+
+/// The theme picker, as Edit Space opens it beside the sidebar, sends the card showing away, and
+/// none rests while it or the icon picker shows, as the card would be under it (#1071).
+#[gpui::test]
+fn a_picker_closes_the_card(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        theme_picker::open(Rc::new(NoWhere), cx);
+        icon_picker::open(Rc::new(NoWhere), Recents::default(), cx);
+    });
+    let (shell, cx, host) = with_tabs(cx);
+    let rests = |cx: &mut VisualTestContext, tab: u64| {
+        shell.update(cx, |shell, cx| shell.hover_card(Row::Tab(tab), true, cx));
+        host.take().iter().any(|call| call.starts_with("card rest"))
+    };
+    rest_on(&shell, cx, &host, 3);
+    shell.update(cx, |shell, cx| shell.show_theme_picker(1, point(200., 100.), cx));
+    assert!(host.take().contains(&"card close".to_string()));
+    assert!(!rests(cx, 4), "the theme picker shows");
+    cx.update(|_, cx| theme_picker::dismissed(cx));
+    assert!(rests(cx, 4), "the theme picker closed");
+
+    shell.update(cx, |_, cx| {
+        let picked: Picked = Rc::new(|_, _| {});
+        icon_picker::show(Subject::Tab(3), "".into(), point(0., 0.), picked, cx);
+    });
+    assert!(!rests(cx, 4), "the icon picker shows");
+    cx.update(|_, cx| icon_picker::dismissed(cx));
+    assert!(rests(cx, 4), "the icon picker closed");
+}
+
 /// Each button makes the call the row's menu makes, or for Split, the one its drag onto the page
 /// makes, beside the tab shown.
 #[gpui::test]
@@ -167,6 +217,41 @@ fn the_buttons_make_the_menus_calls(cx: &mut TestAppContext) {
     assert_eq!(act(cx, 4, Action::Favorite), [format!("favorite 4 {}", usize::MAX)]);
     assert_eq!(act(cx, 10, Action::Unfavorite), ["move 10 false 0 0"]);
     assert_eq!(act(cx, 3, Action::Split), ["split 3 2 false"]);
+}
+
+/// While a page shares another tab, the card of a tab Chrome would offer instead has Share This
+/// Tab Instead, which has the core switch the share to it; the others' cards don't.
+#[gpui::test]
+fn a_tab_to_share_instead_offers_it(cx: &mut TestAppContext) {
+    let (shell, cx, host) = with_tabs(cx);
+    shell.update(cx, |shell, cx| {
+        let page = Page { share_instead: true, ..shell.page(3) };
+        shell.set_page(3, page, cx);
+    });
+    assert_eq!(rest_on(&shell, cx, &host, 4), "card rest 4 pin favorite split picture");
+    assert_eq!(
+        rest_on(&shell, cx, &host, 3),
+        "card rest 3 pin favorite split share-instead picture"
+    );
+    let rest = host.card.borrow().clone().unwrap();
+    cx.update(|_, cx| (rest.events)(3, Event::Act(Action::ShareInstead), cx));
+    cx.run_until_parked();
+    assert!(host.take().contains(&"share instead 3".to_owned()));
+}
+
+/// The sidebar shown over the page while hidden has the cards it has docked, Split and all.
+#[gpui::test]
+fn a_hidden_sidebars_card_splits(cx: &mut TestAppContext) {
+    let (shell, cx, host) = with_tabs(cx);
+    shell.update(cx, |shell, cx| shell.toggle_sidebar(cx));
+    cx.run_until_parked();
+    assert!(shell.read_with(cx, |shell, _| shell.sidebar_hidden));
+    host.take();
+    assert_eq!(rest_on(&shell, cx, &host, 3), "card rest 3 pin favorite split picture");
+    let rest = host.card.borrow().clone().unwrap();
+    cx.update(|_, cx| (rest.events)(3, Event::Act(Action::Split), cx));
+    cx.run_until_parked();
+    assert_eq!(host.take_edits(), ["split 3 2 false"]);
 }
 
 /// The tabs a run of switches hides are pictured once it's over, never on a switch; the tab shown
@@ -209,4 +294,142 @@ fn a_card_showing_pictures_its_tab_again(cx: &mut TestAppContext) {
         asked.extend(host.take());
     }
     assert_eq!(asked, ["card picture 3"]);
+}
+
+/// A drawn shell with the pinned tab 1, then the closed folder 5 holding 6 and the open folder 7,
+/// which holds 8, and the open folder 9 holding 10, with the Today tab 2 shown.
+fn with_folders(
+    cx: &mut TestAppContext,
+) -> (gpui::Entity<Shell>, &mut VisualTestContext, Rc<Recorder>) {
+    let host = Rc::new(Recorder::default());
+    let browser = host.clone();
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+    let folders = Folders {
+        folders: [
+            (5, ("Reading".into(), false)),
+            (7, ("Rust".into(), true)),
+            (9, ("Work".into(), true)),
+        ]
+        .into(),
+        parents: [(6, 5), (7, 5), (8, 7), (10, 9)].into(),
+        ..Default::default()
+    };
+    shell.update(cx, |shell, cx| {
+        shell.set_spaces(vec![(1, "Work".into(), None, 1, "".into(), "".into(), "".into())], cx);
+        shell.set_space(1, cx);
+        shell.set_tabs(1, vec![1, 5, 6, 7, 8, 9, 10], vec![2], Vec::new(), folders, cx);
+        for (tab, title) in [(1, "Mail"), (2, "Docs"), (6, "News"), (8, "Book"), (10, "Wiki")] {
+            shell.set_title(tab, title.into(), cx);
+            let url = format!("https://www.{}.example/", title.to_lowercase());
+            shell.set_page(tab, Page { url: url.into(), ..Default::default() }, cx);
+        }
+        shell.set_selected(2, cx);
+    });
+    cx.run_until_parked();
+    host.take();
+    (shell, cx, host)
+}
+
+/// A point off every row, where the pointer is last seen as it leaves one.
+const OFF: Point<Pixels> = point(px(-100.), px(-100.));
+
+/// What the shell asks of the folder preview as the pointer moves onto `row`'s row.
+fn preview_on(shell: &gpui::Entity<Shell>, cx: &mut VisualTestContext, row: u64) {
+    shell.update(cx, |shell, cx| {
+        let at = shell.tip_frames.borrow().get(&row).map_or(OFF, |frame| frame.center());
+        shell.pointer_to(at, cx);
+        shell.folder_preview(Row::Tab(row), true, cx)
+    });
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn a_closed_folder_previews_the_tabs_in_it_and_in_its_folders(cx: &mut TestAppContext) {
+    let (shell, cx, host) = with_folders(cx);
+    preview_on(&shell, cx, 5);
+    assert_eq!(host.take(), ["folder preview rest 5 6 8"]);
+    let titles: Vec<String> = (host.folder_preview.borrow().iter())
+        .flat_map(|rest| rest.items.iter().map(|item| item.title.to_string()))
+        .collect();
+    assert_eq!(titles, ["News", "Book"]);
+    // An open folder's rows show what's in it, and a tab has its card instead.
+    preview_on(&shell, cx, 9);
+    preview_on(&shell, cx, 1);
+    assert!(host.take().is_empty());
+    shell.update(cx, |shell, cx| {
+        shell.pointer_to(OFF, cx);
+        shell.folder_preview(Row::Tab(5), false, cx)
+    });
+    assert_eq!(host.take(), ["folder preview left 5"]);
+}
+
+/// A hover lost while the preview is open, with the pointer last moved onto the folder's row, isn't
+/// the pointer leaving: the browser window loses the hover with no move as the preview takes the
+/// keyboard, and GPUI may then say the pointer is wherever the system's cursor is. Its next move
+/// off the row is the leave.
+#[gpui::test]
+fn the_preview_hears_the_pointer_leave_only_once_it_moves_off_the_row(cx: &mut TestAppContext) {
+    let (shell, cx, host) = with_folders(cx);
+    preview_on(&shell, cx, 5);
+    host.take();
+    let row = shell.read_with(cx, |shell, _| shell.tip_frames.borrow()[&5]);
+    shell.update(cx, |shell, cx| shell.folder_preview(Row::Tab(5), false, cx));
+    assert!(host.take().is_empty(), "a hover none while the preview was open let it go");
+    shell.update(cx, |shell, cx| shell.pointer_to(row.center(), cx));
+    assert!(host.take().is_empty(), "a move on the row let the preview go");
+    shell.update(cx, |shell, cx| shell.pointer_to(OFF, cx));
+    assert_eq!(host.take(), ["folder preview left 5"]);
+    shell.update(cx, |shell, cx| shell.pointer_to(OFF, cx));
+    assert!(host.take().is_empty(), "the preview heard the pointer leave twice");
+}
+
+#[gpui::test]
+fn the_tab_chosen_in_a_preview_shows_with_its_page_focused(cx: &mut TestAppContext) {
+    let (shell, cx, host) = with_folders(cx);
+    preview_on(&shell, cx, 5);
+    host.take();
+    let rest = host.folder_preview.borrow().clone().expect("no preview asked for");
+    cx.update(|_, cx| (rest.chosen)(8, cx));
+    cx.run_until_parked();
+    let asked = host.take();
+    assert!(asked.contains(&"select 8".to_string()), "{asked:?}");
+    assert!(asked.contains(&"focus page".to_string()), "{asked:?}");
+}
+
+#[gpui::test]
+fn a_press_or_a_menu_ends_the_preview(cx: &mut TestAppContext) {
+    let (shell, cx, host) = with_folders(cx);
+    shell.update(cx, |shell, cx| shell.end_hovers(cx));
+    assert!(host.take().contains(&"folder preview close".to_string()));
+    // Nor does one open while a row has its menu up.
+    shell.update(cx, |shell, cx| shell.tab_menu(5, point(px(100.), px(200.)), cx));
+    host.take();
+    preview_on(&shell, cx, 5);
+    assert!(host.take().iter().all(|call| !call.starts_with("folder preview rest")));
+}
+
+/// A hidden sidebar out over the page counts its row's card as its own (#830): the pointer past
+/// the panel but on the card keeps it out, back over the panel too, and once it's off both, the
+/// sidebar slides away and the card goes with it.
+#[gpui::test]
+fn a_hidden_sidebar_stays_out_while_the_pointer_is_on_a_row_s_card(cx: &mut TestAppContext) {
+    let (shell, cx, host) = with_tabs(cx);
+    shell.update(cx, |shell, cx| {
+        shell.sidebar_hidden = true;
+        shell.set_revealed(true, cx);
+    });
+    rest_on(&shell, cx, &host, 3);
+    let rest = host.card.borrow().clone().unwrap();
+    // As the Mac host has it, the card hears a move before the reveal does, in the same turn.
+    let pointer = |cx: &mut VisualTestContext, on: bool, x: f32| {
+        cx.update(|_, cx| (rest.events)(3, Event::Pointer(on), cx));
+        shell.update(cx, |shell, cx| shell.pointer_at(x, cx));
+        cx.run_until_parked();
+        let closed = host.take().contains(&"card close".to_string());
+        (shell.read_with(cx, |shell, _| shell.revealed), closed)
+    };
+    assert_eq!(pointer(cx, true, 600.), (true, false), "on the card, past the panel");
+    assert_eq!(pointer(cx, false, 100.), (true, false), "off the card, back over the panel");
+    assert_eq!(pointer(cx, true, 600.), (true, false), "on the card again");
+    assert_eq!(pointer(cx, false, 700.), (false, true), "off both, onto the page");
 }

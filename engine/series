@@ -20,6 +20,8 @@ ours/chromium-extensions-web-store.patch
 ours/chromium-core-password-prompt.patch
 ours/chromium-rust-std-component-link.patch
 ours/chromium-prefs-passwords-autofill-on.patch
+ours/chromium-passwords-generation-this-device.patch
+ours/chromium-search-default-duckduckgo.patch
 ours/chromium-core-sad-tab.patch
 ours/chromium-os-crypt-keychain-name.patch
 ours/chromium-disk-check-period.patch
@@ -27,6 +29,7 @@ ours/chromium-drm-request.patch
 ours/chromium-widevine-component.patch
 ours/chromium-core-page-stretch.patch
 ours/chromium-core-open-links.patch
+ours/chromium-core-open-command-line.patch
 ours/chromium-core-link-target.patch
 ours/chromium-core-hung-page.patch
 ours/chromium-core-error-page.patch
@@ -35,11 +38,19 @@ ours/chromium-core-native-host-fallback.patch
 ours/chromium-crashpad-start.patch
 ours/chromium-crashpad-mac-handler.patch
 ours/chromium-crashpad-mac-async-start.patch
+ours/chromium-crash-keys-no-home.patch
 ours/chromium-windows-product-folder.patch
 ours/chromium-windows-app-names.patch
+ours/chromium-windows-package-app-id.patch
 ours/chromium-xcode-build-define.patch
 ours/chromium-core-login-dialog.patch
 ours/chromium-core-external-protocol-dialog.patch
 ours/chromium-core-ad-block.patch
 ours/chromium-core-split-switch.patch
 ours/chromium-core-agent-no-autofill.patch
+ours/chromium-core-mini-player.patch
+ours/chromium-core-activate-tab.patch
+ours/chromium-core-cast-dialog.patch
+ours/chromium-core-page-link-drag.patch
+ours/chromium-center-selection.patch
+ours/chromium-core-alt-click-split.patch
