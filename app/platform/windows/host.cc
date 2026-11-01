@@ -2717,6 +2717,18 @@ void host_add_hover_card(void* card_view, double margin, void (*)(void)) {
 
 void host_show_hover_card(void* ui_view, double left, double top, double, double) {
   Show(g_card, ui_view, left - g_card_margin, top - g_card_margin, -1, -1, false);
+  HWND root = Root(ui_view);
+  RECT frame;
+  if (root && g_card.hwnd && IsWindowVisible(g_card.hwnd) && GetWindowRect(g_card.hwnd, &frame)) {
+    // Where the window really is, in the browser window's points, for check.sh to compare with
+    // where the UI asked, as the Mac's and Linux's hosts log it.
+    POINT at{frame.left, frame.top};
+    ScreenToClient(root, &at);
+    const double scale = Scale(root);
+    fprintf(stderr, "browser: hover card window at %g %g\n", at.x / scale + g_card_margin,
+            at.y / scale + g_card_margin);
+  }
+  LogShown(g_card, "hover card");
 }
 
 void host_hide_hover_card(void) {
