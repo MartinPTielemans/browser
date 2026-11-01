@@ -33,8 +33,8 @@
 //! without one. pip doubleclick, pip wheel, and pip press, dragto and release work in it, at
 //! points from its top-left corner as the command finds it, or as it was at the press. pip press,
 //! dragto and release alone move the display's pointer, through XTest, onto the window only, and
-//! the release puts it back. A dragto after the first, which went past the drag threshold, is done
-//! once the window manager moves or sizes the window with it.
+//! the release puts it back once the window manager lets go of it. A dragto after the first, which
+//! went past the drag threshold, is done once the window manager moves or sizes the window with it.
 //!
 //! It logs as drive.mm does: "browser: drive <n>: <command>" as command n arrives, "browser: drive
 //! <n>: can't do that" for one it can't, and "browser: drive <n> done, key <window>, focus <view>,
@@ -67,8 +67,8 @@ use x11rb::{
         xtest::ConnectionExt as _,
         xproto::{
             self, ButtonPressEvent, ChangeWindowAttributesAux, ConfigureWindowAux,
-            ConnectionExt as _, EnterNotifyEvent, EventMask, KeyButMask, KeyPressEvent,
-            MotionNotifyEvent, StackMode,
+            ConnectionExt as _, EnterNotifyEvent, EventMask, GrabMode, GrabStatus, KeyButMask,
+            KeyPressEvent, MotionNotifyEvent, StackMode,
         },
     },
     rust_connection::RustConnection,
@@ -112,13 +112,15 @@ pub fn start() {
                     log!("browser: drive {n}: can't do that");
                 }
                 let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
-                match (ACTIVATING.take(), RESIZING.take(), PIP_DRAGGING.take()) {
+                let pip = (PIP_DRAGGING.take(), PIP_RELEASED.take());
+                match (ACTIVATING.take(), RESIZING.take(), pip) {
                     (Some(window), _, _) => await_focus(n, window, until),
                     (_, Some((gpui, width, height)), _) => {
                         await_size(n, gpui, (width, height), until)
                     }
-                    (_, _, Some(drag)) => await_pip_drag(n, drag, 0, until),
-                    (None, None, None) => settle(n),
+                    (_, _, (Some(drag), _)) => await_pip_drag(n, drag, 0, until),
+                    (_, _, (_, Some(back))) => await_pip_release(n, back, 0, until),
+                    (None, None, (None, None)) => settle(n),
                 }
             }));
         }
@@ -241,6 +243,8 @@ thread_local! {
     /// The drag of the Mini Player a pip dragto made, which it's done once the window manager
     /// moves or sizes the window with it.
     static PIP_DRAGGING: Cell<Option<PipDrag>> = const { Cell::new(None) };
+    /// Where a pip release puts the pointer back, once the window manager lets go of it.
+    static PIP_RELEASED: Cell<Option<(i16, i16)>> = const { Cell::new(None) };
     /// The window the pointer is in, which hears it leave.
     static HOVERED: Cell<Option<Target>> = const { Cell::new(None) };
     /// The modifiers the flags command holds, in an X state, which the keys go with until it lets
@@ -2199,7 +2203,8 @@ fn mini_player_command<'a>(mut words: impl Iterator<Item = &'a str>) -> Option<(
 /// pip press, pip dragto and pip release <x> <y>, at points where the window was at the press: the
 /// display's own pointer, through XTest. Sent events can't move it, as the window manager moves it
 /// with the pointer the X server has, as a hand moves it. A dragto after the first waits for the
-/// window manager to have the drag (await_pip_drag).
+/// window manager to have the drag (await_pip_drag), and the release for it to let go before the
+/// pointer goes back (await_pip_release).
 fn hold_mini_player(window: xproto::Window, step: &str, x: f64, y: f64) -> Option<()> {
     let server = server()?;
     let (connection, root) = &*server;
@@ -2240,8 +2245,8 @@ fn hold_mini_player(window: xproto::Window, step: &str, x: f64, y: f64) -> Optio
         return Some(());
     }
     PIP_HELD.set(None);
-    fake(xproto::BUTTON_RELEASE_EVENT, 1, to)?;
-    fake(xproto::MOTION_NOTIFY_EVENT, 0, held.back)
+    PIP_RELEASED.set(Some(held.back));
+    fake(xproto::BUTTON_RELEASE_EVENT, 1, to)
 }
 
 /// A press on the Mini Player through XTest: where it was in the window and on the screen, where
@@ -2315,6 +2320,42 @@ fn await_pip_drag(n: u64, drag: PipDrag, again: u32, until: std::time::Instant) 
     settle(n);
 }
 
+/// Reports command `n`, a pip release, done once the window manager has let go of the pointer, and
+/// puts the pointer `back` then. A window manager moving a window takes each motion it has read by
+/// then at once, so openbox, reading the release and a motion after it together, moved the window
+/// to the motion's place before the release ended the move, to the screen's corner where the
+/// pointer waits (#1151). `again` counts the times it looked again, which the log tells.
+fn await_pip_release(n: u64, back: (i16, i16), again: u32, until: std::time::Instant) {
+    let free = pointer_free();
+    if !free && std::time::Instant::now() < until {
+        after(10, Box::new(move || await_pip_release(n, back, again + 1, until)));
+        return;
+    }
+    match free {
+        false => log!("browser: drive {n}: the window manager held the pointer after the release"),
+        true if again > 0 => log!("browser: drive {n}: the window manager let go after {again}"),
+        true => {}
+    }
+    fake_pointer(xproto::MOTION_NOTIFY_EVENT, 0, back);
+    settle(n);
+}
+
+/// Whether no client has the pointer grabbed, as a window manager has while it moves a window:
+/// the driver's own grab of it, let go of at once, is taken.
+fn pointer_free() -> bool {
+    let Some(server) = server() else { return true };
+    let (connection, root) = &*server;
+    let (mode, now) = (GrabMode::ASYNC, x11rb::CURRENT_TIME);
+    let mask = EventMask::NO_EVENT;
+    let none = x11rb::NONE;
+    let grab = connection.grab_pointer(false, *root, mask, mode, mode, none, none, now);
+    match grab.ok().and_then(|cookie| cookie.reply().ok()) {
+        Some(reply) if reply.status != GrabStatus::SUCCESS => false,
+        Some(_) => connection.ungrab_pointer(now).ok().and_then(|c| c.check().ok()).is_some(),
+        None => true,
+    }
+}
+
 /// Logs the Mini Player's frame each time `window`, it, moves or resizes, from a thread of its own
 /// on a connection of its own, as watch_zoom does.
 fn watch_mini_player(window: xproto::Window) {
@@ -2330,16 +2371,20 @@ fn watch_mini_player(window: xproto::Window) {
         std::thread::spawn(move || {
             while let Ok(event) = reader.wait_for_event() {
                 match event {
-                    // Placed in the root's terms, as the event places it only where no window
-                    // manager reparents it, as none does in sway, but openbox does.
+                    // Placed in the root's terms. A window manager that reparents it, as openbox
+                    // does, sends those itself (ICCCM 4.1.5), and the window may be elsewhere by
+                    // the time it's asked. One that doesn't, as sway, has the X server send them.
                     Event::ConfigureNotify(e) => {
-                        let Some(at) = (reader.translate_coordinates(e.window, root, 0, 0).ok())
-                            .and_then(|cookie| cookie.reply().ok())
-                        else {
-                            continue;
+                        let sent = e.response_type & 0x80 != 0;
+                        let at = match sent {
+                            true => Some((e.x, e.y)),
+                            false => (reader.translate_coordinates(e.window, root, 0, 0).ok())
+                                .and_then(|cookie| cookie.reply().ok())
+                                .map(|at| (at.dst_x, at.dst_y)),
                         };
+                        let Some(at) = at else { continue };
                         let scale = f64::from_bits(SCALE.load(Ordering::Relaxed));
-                        let [x, y] = [at.dst_x, at.dst_y].map(|n| f64::from(n) / scale);
+                        let [x, y] = [at.0, at.1].map(|n| f64::from(n) / scale);
                         let [width, height] = [e.width, e.height].map(|n| f64::from(n) / scale);
                         log!("browser: pip at {x:.0} {y:.0} {width:.0} {height:.0}");
                     }
