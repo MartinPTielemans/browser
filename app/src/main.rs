@@ -49,6 +49,9 @@ mod drop_targets;
 #[cfg(target_os = "windows")]
 #[path = "../platform/windows/drive_menus.rs"]
 mod drive_menus;
+#[cfg(target_os = "windows")]
+#[path = "../platform/windows/fade.rs"]
+mod fade;
 mod find_bar;
 mod import_host;
 #[cfg(target_os = "linux")]
@@ -691,6 +694,14 @@ fn update_app_later(change: impl FnOnce(&mut App) + 'static) {
         let executor = cx.foreground_executor().clone();
         executor.spawn(async move { cx.update(change) }).detach();
     }
+}
+
+/// The view of a window the host fades, as the tooltip's: on Windows the app paints its fades.
+fn fading_view(window: &mut Window) -> *mut c_void {
+    let view = ns_view(window);
+    #[cfg(target_os = "windows")]
+    fade::attach(window, view);
+    view
 }
 
 /// The window's NSView, for the host.
@@ -4373,7 +4384,7 @@ fn finish_opening(
     // Their windows reach this far past the plate, for its shadow.
     let margin = f64::from(browser::elevation::WINDOW_MARGIN);
     if let Some(tip) = tooltip::open(Rc::new(TooltipHost), cx)
-        && let Ok(view) = tip.update(cx, |_, window, _| ns_view(window))
+        && let Ok(view) = tip.update(cx, |_, window, _| fading_view(window))
     {
         unsafe { platform::host_add_tooltip(view, margin, tooltip_away) };
     }
@@ -4387,7 +4398,7 @@ fn finish_opening(
     }
     if let Some(target) =
         link_target::open(Rc::new(LinkTargetHost), move |cx| look(cx).unwrap_or_default(), cx)
-        && let Ok(view) = target.update(cx, |_, window, _| ns_view(window))
+        && let Ok(view) = target.update(cx, |_, window, _| fading_view(window))
     {
         unsafe { platform::host_add_link_target(view, margin, link_pointer) };
     }
