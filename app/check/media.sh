@@ -302,19 +302,8 @@ expect "^browser: title $f asked 1\$" "blocked in its Site Controls, the call st
 floats Allow
 shown "$b"
 expect "^browser: title $f floating\$" "allowed in its Site Controls, the call didn't float"
-shown "$f"
-expect "^browser: title $f landed\$" "the call allowed to float didn't come back with its tab"
-send click $page_point
-floats Ask
-mini_player off
-shown "$b"
-shown_again "$f"
-send key k
-expect "^browser: title $f asked 2\$" "with the Mini Player off in Settings, the call still floated"
-send click $page_point
-mini_player on
-shown "$b"
-expect "^browser: title $f floating\$" "with the Mini Player on again, the call didn't float"
+# Allowed, it floats without Chrome's prompt, which on X11 is a window of its own over the
+# call's bottom right corner while it shows (#1263).
 # The call's window moves and sizes as Chrome's does, by its frame, so the page keeps its own
 # scroll, pinch and double-click: a drag on its top bar, off the buttons at its ends, moves it, and
 # one from its bottom right corner, in the 10 its edges keep for sizing, sizes it. The window
@@ -339,9 +328,25 @@ if [ "$(uname)" = Linux ]; then
     h <= ph + 40" "a drag from the floating call's corner didn't size it"
   ../tools/window-screenshot.sh "$pid" "$out/media-call-floating.png" all ||
     fail "no window to capture"
+  # A press on the call's window gives it the keys, as Chrome's does, so a click gives the
+  # browser window them back for the tab switch below.
+  send click $page_point
 else
   echo "skip: moving and sizing the floating call on $(uname): drive.mm has no pip."
 fi
+shown "$f"
+expect "^browser: title $f landed\$" "the call allowed to float didn't come back with its tab"
+send click $page_point
+floats Ask
+mini_player off
+shown "$b"
+shown_again "$f"
+send key k
+expect "^browser: title $f asked 2\$" "with the Mini Player off in Settings, the call still floated"
+send click $page_point
+mini_player on
+shown "$b"
+expect "^browser: title $f floating\$" "with the Mini Player on again, the call didn't float"
 shown "$f"
 expect "^browser: title $f landed\$" "the call floating again didn't come back with its tab"
 send click $page_point
