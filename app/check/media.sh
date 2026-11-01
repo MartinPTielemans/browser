@@ -183,6 +183,24 @@ expect "^browser: page $a camera 0 microphone 0 sharing 0 shared 0\$" \
 expect "^browser: page $c camera 0 microphone 0 sharing 0 shared 0\$" \
   "the tab shared kept its mark once the share ended"
 
+# mini_player_at <condition> <failure>: waits for the Picture in Picture window logged since the
+# last command at a frame, x, y, w and h, for which awk's <condition> holds of the last px, py, pw
+# and ph, then makes it the last.
+mini_player_at() {
+  for _ in $(seq 100); do
+    at=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep '^browser: pip at ' | tail -1 |
+      cut -d' ' -f4-)
+    if [ -n "$at" ] && echo "$at" | awk -v px="$px" -v py="$py" -v pw="$pw" -v ph="$ph" \
+      "{ x = \$1; y = \$2; w = \$3; h = \$4; exit !($1) }"; then
+      read -r px py pw ph <<EOF
+$at
+EOF
+      return 0
+    fi
+    sleep 0.1
+  done
+  fail "$2"
+}
 # A call floats once its tab is hidden, as Arc's does: Chrome's automatic Picture in Picture for a
 # page using the camera that asks for it with its media session, on https or a file alone. So a
 # page from the https server, from the command bar, whose "c" calls and which says when its window
@@ -302,6 +320,49 @@ send click $page_point
 mini_player on
 shown "$b"
 expect "^browser: title $f floating\$" "with the Mini Player on again, the call didn't float"
+# The call's window moves and sizes as Chrome's does, by its frame, so the page keeps its own
+# scroll, pinch and double-click: a drag on its top bar, off the buttons at its ends, moves it, and
+# one from its bottom right corner, in the 10 its edges keep for sizing, sizes it. The window
+# manager does both, with the display's pointer. Linux alone: drive.mm doesn't find it yet.
+if [ "$(uname)" = Linux ]; then
+  px=0 py=0 pw=0 ph=0
+  send pip
+  mini_player_at 1 "the floating call had no window"
+  # Up and left, as it floats in the screen's bottom right: the window manager moves it with the
+  # pointer from where Chromium hands the drag over, at the press or past the drag's threshold.
+  send pip press $((pw / 2)) 17
+  send pip dragto $((pw / 2 - 10)) 17
+  send pip dragto $((pw / 2 - 150)) -23
+  send pip release $((pw / 2 - 150)) -23
+  mini_player_at "x >= px - 150 && x <= px - 140 && y == py - 40 && w == pw && h == ph" \
+    "a drag on the floating call's top bar didn't move it"
+  send pip press $((pw - 3)) $((ph - 3))
+  send pip dragto $((pw + 7)) $((ph + 7))
+  send pip dragto $((pw + 57)) $((ph + 37))
+  send pip release $((pw + 57)) $((ph + 37))
+  mini_player_at "x == px && y == py && w >= pw + 50 && w <= pw + 60 && h >= ph + 30 &&
+    h <= ph + 40" "a drag from the floating call's corner didn't size it"
+  # diag #1161: dragged down by its top bar until its bottom is 40 below the 800-tall screen, with
+  # Chrome's automatic Picture in Picture prompt in it, it stays where it was dropped, its size.
+  d=$((800 - py - ph + 40))
+  echo "diag 1161: from $px $py $pw $ph down $d"
+  send pip press $((pw / 2)) 17
+  send pip dragto $((pw / 2)) 27
+  send pip dragto $((pw / 2)) $((17 + d))
+  send pip release $((pw / 2)) $((17 + d))
+  mini_player_at "x == px && y == py + $d && w == pw && h == ph" \
+    "dragged partly below the screen, the floating call didn't go there"
+  sleep 2
+  grep '^browser: pip at ' "$log" | tail -4
+  mini_player_at "x == px && y == py && w == pw && h == ph" \
+    "dragged partly below the screen, the floating call moved or grew (#1161)"
+  ../tools/window-screenshot.sh "$pid" "$out/media-call-below.png" all || fail "no window to capture"
+  echo "diag 1161: it stayed at $px $py $pw $ph"
+  ../tools/window-screenshot.sh "$pid" "$out/media-call-floating.png" all ||
+    fail "no window to capture"
+else
+  echo "skip: moving and sizing the floating call on $(uname): drive.mm has no pip."
+fi
 shown "$f"
 expect "^browser: title $f landed\$" "the call floating again didn't come back with its tab"
 send click $page_point
@@ -456,24 +517,6 @@ expect "^browser: title $v floating\$" "the video menu's Picture in Picture didn
 # The floating video, the Mini Player, moves with a scroll or a drag, and ⌘-scroll, Ctrl-scroll
 # off the Mac, sizes it about its middle. A double-click on it, with another tab shown, shows its
 # tab and lands it. Linux alone: drive.mm doesn't find the Mini Player yet.
-# mini_player_at <condition> <failure>: waits for the Mini Player logged since the last command at
-# a frame, x, y, w and h, for which awk's <condition> holds of the last px, py, pw and ph, then
-# makes it the last.
-mini_player_at() {
-  for _ in $(seq 100); do
-    at=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep '^browser: pip at ' | tail -1 |
-      cut -d' ' -f4-)
-    if [ -n "$at" ] && echo "$at" | awk -v px="$px" -v py="$py" -v pw="$pw" -v ph="$ph" \
-      "{ x = \$1; y = \$2; w = \$3; h = \$4; exit !($1) }"; then
-      read -r px py pw ph <<EOF
-$at
-EOF
-      return 0
-    fi
-    sleep 0.1
-  done
-  fail "$2"
-}
 if [ "$(uname)" = Linux ]; then
   px=0 py=0 pw=0 ph=0
   send pip
