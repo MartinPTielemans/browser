@@ -467,6 +467,7 @@ expect "^$c_page\$" "c's tab came back without its history: $(grep "^browser: pa
 # reached it.
 send menu Settings…
 expect '^browser: settings shown General$' "Settings… didn't show General"
+settings_drew General
 # Where Settings drew the switch, which differs by OS: it logs that once a place.
 await '^browser: settings switch unload idle tabs at ' || fail "Settings didn't draw Unload tabs' switch"
 unload_switch=$(sed -n 's/^browser: settings switch unload idle tabs at //p' "$log" | tail -1)
@@ -482,6 +483,7 @@ expect 'browser: idle tabs checked$' "showing a tab didn't check for tabs unseen
 since $aged | grep -q "browser: tab $c without its page\$" && fail "a tab let go of its page with the switch off"
 send menu Settings…
 expect '^browser: settings shown General$' "Settings… didn't bring Settings back to the front"
+settings_drew General
 send clickkey $unload_switch
 expect '^browser: unload idle tabs on$' "a click on Unload tabs' switch didn't turn it on"
 expect "browser: tab $c without its page\$" "turning the switch on didn't unload the tab unseen 2 hours"
@@ -501,6 +503,7 @@ send state
 if windows; then
   send menu Settings…
   expect '^browser: settings shown General$' "Settings… didn't show General after its close button"
+  settings_drew General
   post key f4 ctrl
   expect '^browser: settings hidden$' "Alt+F4 didn't hide Settings"
   await "^browser: drive $step done" || fail "the driver didn't finish Alt+F4 in Settings"

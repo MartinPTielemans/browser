@@ -99,6 +99,11 @@ extern media_router::MediaRouterDialogController* (*g_browser_core_cast_dialog)(
 extern bool (*g_browser_core_can_dock_devtools)(BrowserWindowInterface* browser);
 extern void (*g_browser_core_update_devtools)(BrowserWindowInterface* browser,
                                               content::WebContents* inspected);
+// The same, as those DevTools show once their frontend has loaded, where Chrome gives them the
+// keyboard: the core does once they're laid out past the page, which covers them until the
+// frontend's first bounds.
+extern void (*g_browser_core_show_devtools)(BrowserWindowInterface* browser,
+                                            content::WebContents* inspected);
 
 // chrome/browser/renderer_context_menu/render_view_context_menu.cc: takes out of a page's context
 // menu the items Arc's leaves out and those |browser|'s window can't do, once Chrome has filled it

@@ -419,6 +419,8 @@ impl Browser for Fake {
         0
     }
 
+    fn open_behind(&self, _: &[String], _: bool, _: u64, _: usize, _: &mut App) {}
+
     fn create_folder(&self, _: u64, name: &str, folder: u64, index: usize, cx: &mut App) -> u64 {
         let id = self.next_id.get();
         self.next_id.set(id + 1);
