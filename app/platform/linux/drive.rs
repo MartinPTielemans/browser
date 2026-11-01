@@ -1750,12 +1750,14 @@ fn run_command(line: &str) -> Option<()> {
                 Some(step) => (3, step),
                 None => (1, action),
             };
-            let held = button_mask(which);
+            // The keys named after the point, such as ⌥ for a drag that drops a copy.
+            let keys = click_modifiers(words);
+            let held = button_mask(which) | keys;
             if step == "press" {
                 let at = target_at(x, y)?;
                 PRESSED.set(Some(at));
                 first_press(at, which, false);
-                return button(at, which, true, none);
+                return button(at, which, true, none | keys);
             }
             let to = target_in(driven()?.window, x, y)?;
             let to = match PRESSED.get() {

@@ -464,6 +464,14 @@ void host_show_window_buttons(void* ui_view, bool shown);
 // Does what a click on the close (0), minimize (1) or zoom (2) button of |ui_view|'s window does.
 void host_press_window_button(void* ui_view, int button);
 
+#ifdef _WIN32
+// Windows' alone, whose browser window has no title bar for these: moves |ui_view|'s window with
+// the pointer until the button that's down comes up, as a drag on a title bar does, and whether
+// it's maximized. Linux has the core's (bc_window_start_move, bc_window_is_maximized).
+void host_start_window_move(void* ui_view);
+bool host_window_maximized(void* ui_view);
+#endif
+
 // Makes the window of |reveal_view| the sidebar reveal of |ui_view|'s window, which shows over its
 // left edge without taking the keyboard. It starts hidden. While it shows, |pointer_moved| hears,
 // with |ui_view|, where the pointer is across the window's content, in points from its left edge,
@@ -565,6 +573,14 @@ void host_video_close(void* video);
 // Puts |text| on the clipboard. A driven run puts it on a pasteboard of its own instead, so checks
 // never touch the user's clipboard.
 void host_copy(const char* text);
+
+// Whether the key event being handled now is the key repeating as it's held, not a press. False
+// where the host can't tell.
+bool host_key_repeated(void);
+
+// Copies the text host_copy's clipboard or pasteboard holds into |text|, |capacity| bytes with its
+// NUL, and returns its whole length in bytes without the NUL, 0 if it holds none.
+size_t host_paste(char* text, size_t capacity);
 
 // Opens |url| in Safari, which plays the protected video the engine can't. A driven run only logs it,
 // so checks never launch Safari.

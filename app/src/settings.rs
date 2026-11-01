@@ -208,6 +208,9 @@ impl Keys {
     }
 }
 
+/// The choice that has a command's keys reach ilo before the page.
+const PREFER_ILO: &str = concat!("Prefer ", env!("APP_NAME"));
+
 /// The Shortcuts tab, every command the user can give keys, in the menus' order and names.
 const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
     (
@@ -341,6 +344,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Check for Updates", Keys::Of(Command::CheckForUpdates)),
             ("Settings", Keys::Of(Command::Settings)),
             ("Import from Other Browsers", Keys::Of(Command::Import)),
+            ("Privacy Policy", Keys::Of(Command::PrivacyPolicy)),
             ("Passwords", Keys::Of(Command::Passwords)),
             ("Site Search Settings", Keys::Of(Command::SiteSearchSettings)),
             // main.rs binds these.
@@ -698,6 +702,10 @@ fn show_now(cx: &mut App) {
         .ok();
     check_default_browser(cx);
     unsafe { platform::host_show_settings() };
+    // check.sh waits for this line, which the Mac's and Linux's hosts log as they show the window.
+    if cfg!(target_os = "windows") {
+        log!("browser: settings shown {}", title());
+    }
 }
 
 /// Looks again for the agent clients on this computer, as the Agents tab shows.
@@ -740,8 +748,8 @@ thread_local! {
     static SHOWN_TAB: Cell<&'static str> = const { Cell::new("") };
 }
 
-/// The window's title, for a host that logs it as the Mac's reads it off the window.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+/// The window's title, logged as the Mac's host reads it off the window.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 pub fn title() -> &'static str {
     SHOWN_TAB.get()
 }
@@ -956,6 +964,9 @@ impl Settings {
                 .when(shown, |plate| {
                     plate.bg(rgb(PLATE_FILL)).border(px(0.5)).border_color(rgb(PLATE_EDGE))
                 })
+                // check.sh clicks a tab where this says, as its labels' widths differ by platform.
+                .relative()
+                .child(self.drawn(format!("toolbar {}", tab.name())))
                 // A press here picks the tab, and doesn't move the window.
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(cx.listener(move |settings, _, window, cx| {
@@ -2271,7 +2282,11 @@ impl Settings {
         let refused = (self.refused.as_ref())
             .filter(|(refused, _)| *refused == command)
             .map(|(_, why)| div().text_color(rgb(DETAIL)).child(why.clone()));
-        let restore = user.is_set(command).then(|| {
+        // Who gets the keys first, once the user has chosen ilo, as the menu below says it.
+        let preferred = user.prefers_ilo(command).then(|| {
+            div().text_color(rgb(DETAIL)).child(MenuEntry::label(PREFER_ILO))
+        });
+        let restore = user.changed(command).then(|| {
             div()
                 .id(SharedString::from(format!("restore-{}", command.key_name())))
                 .size(px(CHIP_HEIGHT))
@@ -2291,15 +2306,57 @@ impl Settings {
             .active(|chip| chip.bg(Palette::on_dark(state_alpha(CHIP_ALPHA, STATE_PRESSED))))
             .on_click(cx.listener(move |settings, _, window, cx| {
                 settings.start_recording(command, window, cx)
-            }));
+            }))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |settings, event: &MouseDownEvent, window, cx| {
+                    settings.choose_preference(command, event.position, window, cx)
+                }),
+            )
+            .relative()
+            .child(self.drawn(format!("shortcut {}", command.key_name())));
         div()
             .flex()
             .items_center()
             .gap(px(CHIP_GAP))
             .children(refused)
+            .children(preferred)
             .children(restore)
             .child(chip)
             .into_any_element()
+    }
+
+    /// A right-click on `command`'s chip: who gets its keys first when a page uses them too,
+    /// Prefer Websites, the default, or Prefer ilo, as Arc's Shortcuts offers. A reserved command's
+    /// are always ilo's, which the menu shows. A page that keeps keys still gives them up to a
+    /// second press.
+    fn choose_preference(
+        &mut self,
+        command: Command,
+        at: gpui::Point<gpui::Pixels>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let user = shell::user_keys(cx);
+        let (ilo, can) = (user.before_page(command), UserKeys::can_prefer(command));
+        let items = vec![
+            MenuEntry { checked: !ilo, ..MenuEntry::new("Prefer Websites", can) },
+            MenuEntry { checked: ilo, ..MenuEntry::new(PREFER_ILO, can) },
+        ];
+        let settings = cx.weak_entity();
+        let picked = Box::new(move |picked: Option<usize>, cx: &mut App| {
+            let Some(picked) = picked else {
+                return;
+            };
+            let ilo = picked == 1;
+            shell::change_keys(cx, |keys| keys.set_prefers_ilo(command, ilo));
+            let who = if ilo { "ilo" } else { "websites" };
+            // check.sh waits for this line.
+            log!("browser: shortcut {} prefers {who}", command.key_name());
+            save_shortcuts(cx);
+            settings.update(cx, |_, cx| cx.notify()).ok();
+        });
+        show_menu(ns_view(window), items, at, false, Look::dark(), picked, cx);
     }
 
     /// Takes the next keys pressed for `command`, or stops if it's taking them already.
@@ -2447,6 +2504,13 @@ fn about() -> AnyElement {
     if let Some(engine) = build_info::ENGINE_VERSION.as_deref() {
         version = format!("{version}, on Chromium {engine}");
     }
+    // check.sh reads the engine's version here.
+    let line = format!("browser: settings about {version}");
+    ABOUT_LOGGED.with_borrow_mut(|logged| {
+        if logged.insert(line.clone()) {
+            log!("{line}");
+        }
+    });
     let open = |id: &'static str, url: Option<String>| {
         url.map(|url| {
             // check.sh clicks Open where this line says it is.

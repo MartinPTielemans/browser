@@ -49,9 +49,13 @@ jobs:
         tabs window find agents spaces crash profiles private quit mcp appearance access history
         load preview import adblock adblock-lists passkeys onboarding links relaunch split
         extensions capture popup pinned about windows dialogs trouble cards passwords updates
-        restore favorites
+        restore favorites keys
       # The runs that pass on Wayland so far, in the headless sway session.
       WAYLAND_RUNS: tabs
+      # The runs that don't apply to Linux, a line each with why, which the summary gives. They're
+      # skipped even when named.
+      LINUX_SKIPS: |
+        keychain: it checks the Mac's Keychain across a change of signing identity, in a check VM
     steps:
       # With the history, where fetch.sh looks for the engine's commit.
       - uses: actions/checkout@v4
@@ -79,8 +83,10 @@ jobs:
       # the app under Xvfb and openbox (BROWSER_XVFB), parks Xvfb's pointer with xdotool, captures
       # it with ImageMagick's import and reads pixels with ImageMagick, whose `magick` Ubuntu's 6.9
       # calls `convert`, and records it with ffmpeg (tools/window-record.sh). sway, grim and Xwayland
-      # run the headless sessions (tools/headless.sh). The access run reads the app's tree over
-      # AT-SPI, on buses of its own from dbus-daemon and at-spi2-core.
+      # run the headless sessions (tools/headless.sh), and wl-clipboard's wl-paste reads their
+      # clipboard (check/lib.sh's clipboard_holds). The access run reads the app's tree over
+      # AT-SPI, on buses of its own from dbus-daemon and at-spi2-core. check/ime.sh types through
+      # fcitx5, with check/vkbd's keyboard, whose keymap xkbcli makes.
       # Ubuntu's AppArmor denies Chromium's sandbox the user namespaces it needs, so the runner
       # allows them, and the sandbox stays on.
       - if: ${{ steps.engine.outputs.found == 'true' }}
@@ -90,10 +96,13 @@ jobs:
           sudo apt-get install -yq libclang-dev libfontconfig-dev libwayland-dev \
             libx11-xcb-dev libxkbcommon-x11-dev libvulkan1 mesa-vulkan-drivers libegl1 \
             libgl1-mesa-dri xvfb xauth openbox imagemagick xdotool ffmpeg sway grim xwayland \
-            dbus-daemon at-spi2-core
+            dbus-daemon at-spi2-core fcitx5 libxkbcommon-tools wl-clipboard
           rustup update stable --no-self-update
           mkdir -p "$RUNNER_TEMP/bin"
-          printf '#!/bin/sh\nexec convert "$@"\n' > "$RUNNER_TEMP/bin/magick"
+          # ImageMagick 6 has a tool for each of 7's magick subcommands, such as headless.sh's
+          # magick compare, and convert for the rest.
+          printf '#!/bin/sh\ncase $1 in compare|montage|identify) tool=$1; shift; exec "$tool" "$@" ;; esac\nexec convert "$@"\n' \
+            > "$RUNNER_TEMP/bin/magick"
           chmod +x "$RUNNER_TEMP/bin/magick"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
@@ -166,6 +175,12 @@ jobs:
               echo "|---|---|"
             } >> "$GITHUB_STEP_SUMMARY"
             for run in $all; do
+              why=$(printf '%s\n' "$LINUX_SKIPS" | sed -n "s/^$run: //p")
+              if [ -n "$why" ]; then
+                [ "$session" != wayland ] || continue
+                echo "| $run | not for Linux: $why |" | tee -a "$GITHUB_STEP_SUMMARY"
+                continue
+              fi
               case " $runs " in
               *" $run "*)
                 start=$SECONDS
@@ -218,6 +233,29 @@ jobs:
           fi
           printf '\nUnder Wayland, in a headless sway session: check/drops.sh %s.\n' "$result" |
             tee -a "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      # Typing through an input method, fcitx5, on Wayland and on sway's Xwayland, which check.sh's
+      # driver, typing plain keys, can't.
+      - if: ${{ !cancelled() && steps.engine.outputs.found == 'true' && (inputs.runs == '' || inputs.runs == 'all' || contains(inputs.runs, 'ime')) }}
+        env:
+          LANG: en_US.UTF-8
+        run: |
+          out=$RUNNER_TEMP/check
+          mkdir -p "$out"
+          XDG_RUNTIME_DIR=$(mktemp -d)
+          export XDG_RUNTIME_DIR
+          status=0
+          timeout 10m check/ime.sh > "$out/ime.log" 2>&1 || status=$?
+          [ ! -d build/check/ime ] || mv build/check/ime "$out/ime"
+          pkill -9 -f "$PWD/build/Browser/" || true
+          result=passed
+          if [ "$status" != 0 ]; then
+            result="failed ($status): $(grep -m1 '^FAIL' "$out/ime.log" | cut -c6- | tr '|' '/')"
+            echo "::error::Input methods failed. Its log: ime.log in the artifact."
+          fi
+          printf '\nOn Wayland and Xwayland, in headless sway sessions with fcitx5: check/ime.sh %s.\n' \
+            "$result" | tee -a "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
       - if: ${{ always() && steps.engine.outputs.found == 'true' }}

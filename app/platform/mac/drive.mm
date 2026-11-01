@@ -15,7 +15,8 @@
 //   rightclickkey <x> <y>                 a right click in the key window
 //   drag <x> <y> <x2> <y2>                presses at (x, y), moves to (x2, y2) and lets go
 //   dragkey <x> <y> <x2> <y2>             as drag, in the key window, such as Settings
-//   press <x> <y>                         presses at (x, y), for a drag in steps
+//   press <x> <y> [cmd] [shift] [alt]     presses at (x, y), for a drag in steps, with those keys
+//                                         held, as dragto and release take them too
 //   rightpress, rightdragto, rightrelease <x> <y>
 //                                         as press, dragto and release, with the right button,
 //                                         as a press-drag-release through a context menu
@@ -1336,7 +1337,7 @@ bool Run(const std::string& line, void (^done)(void)) {
     NSEventType type = action == "press"    ? NSEventTypeLeftMouseDown
                        : action == "dragto" ? NSEventTypeLeftMouseDragged
                                             : NSEventTypeLeftMouseUp;
-    PostMouse(target, type, x, y, 1);
+    PostMouse(target, type, x, y, 1, Modifiers(words));
     if (action == "release") {
       pressed = nil;
     }
