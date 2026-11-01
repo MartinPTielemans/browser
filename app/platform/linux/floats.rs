@@ -8,8 +8,10 @@
 //! screen, so the host shows and hides it at once. On X11 with no compositor, which draws an
 //! overlay's pixels opaque, its window is cut to its plate, without the shadow round it.
 //!
-//! shortcut: a scroll over the page doesn't end the hover card, as the Mac's does; one over the
-//! sidebar's rows does, in the UI.
+//! A scroll over the page doesn't end the hover card at once, as the Mac's does, and needn't: the
+//! card shows only while the pointer rests on a row or on the card, and goes 150 ms after it leaves
+//! them (hover_card.rs's LEAVE), so the pointer is over the page only for that long. A scroll over
+//! the sidebar's rows ends it, in the UI.
 //!
 //! The tooltip and the link target fade in and out as the UI asks, as the Mac's do, drawn by GPUI
 //! (motion.rs).
