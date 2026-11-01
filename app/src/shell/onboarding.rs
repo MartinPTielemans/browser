@@ -7,10 +7,13 @@
 //! giving the first Space its colour or signing in to sync; Skip doesn't. The flow ends with the
 //! command bar up over the first Space, and a line on the card under it saying what the bar is.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    AnyElement, Bounds, Context, Entity, KeystrokeEvent, MouseButton, PathBuilder, Rgba,
+    AnyElement, Bounds, Context, Entity, KeystrokeEvent, MouseButton, PathBuilder, Pixels, Rgba,
     Subscription, Window, canvas, div, fill, point, prelude::*, px, rgb, size,
 };
 
@@ -22,7 +25,7 @@ use super::{
 use crate::account::{self, Account, AccountEvent, Status};
 use crate::default_browser::{self, Os};
 use crate::import::{ImportEvent, ImportView, Look};
-use crate::settings_rows::{SLIDE, checked_row, switch};
+use crate::settings_rows::{SLIDE, checked_row, group, switch};
 use crate::theme::Theme;
 use crate::theme_picker::SWATCHES;
 use crate::tokens::palette::{INK, PAPER};
@@ -41,9 +44,7 @@ use crate::tokens::shell::onboarding::CHIP_RADIUS;
 use crate::tokens::shell::onboarding::LINE_GAP;
 use crate::tokens::shell::onboarding::LINE_LINE;
 use crate::tokens::shell::onboarding::LINE_SIZE;
-use crate::tokens::shell::onboarding::OPT_IN_GAP;
 use crate::tokens::shell::onboarding::OPT_IN_LINE;
-use crate::tokens::shell::onboarding::OPT_IN_SWITCH_GAP;
 use crate::tokens::shell::onboarding::OPT_IN_WIDTH;
 use crate::tokens::shell::onboarding::QUIET;
 use crate::tokens::shell::onboarding::SHIFT;
@@ -62,6 +63,7 @@ use crate::tokens::shell::onboarding::TAGLINE_SIZE;
 use crate::tokens::shell::onboarding::TITLE_LINE;
 use crate::tokens::shell::onboarding::TITLE_SIZE;
 use crate::tokens::shell::onboarding::WORDMARK_SCALE;
+use crate::tokens::settings::PADDING;
 
 /// The flow's steps, in the order they come.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -95,7 +97,7 @@ const STEPS: [Step; 7] = [
 ];
 
 /// The opt-ins the first launch offers, each Settings' own switch.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(super) enum OptIn {
     CrashReports,
     Agents,
@@ -315,6 +317,8 @@ pub(super) struct Onboarding {
     os: Os,
     /// The opt-in switch last turned, and when, for its knob's slide.
     switched: Option<(OptIn, Instant)>,
+    /// Where the opt-ins' rows and switches are drawn (opt_in_frame).
+    frames: Frames,
     /// When the step came, which its motion runs from.
     pub(super) since: Instant,
     /// The step before, leaving as this one comes, and how far into it it was when it left.
@@ -383,6 +387,7 @@ impl Shell {
             unticked: Vec::new(),
             os: self.browser.os(),
             switched: None,
+            frames: Frames::default(),
             since: Instant::now(),
             leaving: None,
             ending: None,
@@ -937,11 +942,20 @@ impl Shell {
         )
     }
 
-    /// The opt-ins offered, a row each: its name and sentence, and Settings' switch, in the green.
+    /// The opt-ins offered in one box, as Settings' Privacy has them: a row each of its name over
+    /// its sentence, wrapping in the box, and Settings' switch in the green at the box's right edge,
+    /// centred on the row. A click anywhere on a row, the switch included, turns it.
     fn opt_in_rows(&self, colors: Colors, cx: &mut Context<Self>) -> gpui::Div {
-        let switched = self.onboarding.as_ref().and_then(|onboarding| onboarding.switched);
-        // Off, the ink over the ground, as Settings' is over its box.
-        let look = Look::on(colors.ground, colors.ink(1.));
+        let Some(onboarding) = self.onboarding.as_ref() else {
+            return div();
+        };
+        let switched = onboarding.switched;
+        // Where they're drawn is kept once the step has come, not while it slides in.
+        let settled = onboarding.step == Step::OptIns && onboarding.settled;
+        let frames = onboarding.frames.clone();
+        // The import step's boxes, the ink a little over the ground.
+        let surface = colors.ground.blend(colors.ink(IMPORT_SURFACE));
+        let look = Look::on(surface, colors.ink(1.));
         let rows = self.opt_ins(cx).into_iter().map(|(opt_in, on)| {
             let slid = match switched {
                 Some((turned, at)) if turned == opt_in => {
@@ -950,35 +964,39 @@ impl Shell {
                 _ => 1.,
             };
             let (name, sentence) = opt_in.words();
-            div()
+            // Its text may take the row's width but the switch's, so a long sentence wraps rather
+            // than pushing the switch out of the row, where a click on it would miss (#1286).
+            let words = div()
+                .flex_1()
+                .min_w_0()
+                .line_height(px(OPT_IN_LINE))
+                .child(div().font_weight(gpui::FontWeight::MEDIUM).child(name))
+                .child(div().text_color(colors.ink(QUIET)).child(sentence));
+            let control = div()
+                .relative()
+                .flex_none()
+                .ml(px(PADDING))
+                .child(switch(&look, on, slid, rgb(SIGNAL)))
+                .child(opt_in_frame(frames.clone(), opt_in, "switch", settled));
+            let row = div()
                 .id(opt_in.name())
+                .relative()
+                .p(px(PADDING))
                 .flex()
                 .items_center()
-                .gap(px(OPT_IN_SWITCH_GAP))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(cx.listener(move |shell, _, _, cx| shell.onboarding_switch(opt_in, cx)))
-                .child(
-                    div()
-                        .flex_1()
-                        .text_size(px(crate::tokens::text::BODY))
-                        .line_height(px(OPT_IN_LINE))
-                        .child(
-                            div()
-                                .font_weight(gpui::FontWeight::MEDIUM)
-                                .text_color(colors.ink(1.))
-                                .child(name),
-                        )
-                        .child(div().text_color(colors.ink(QUIET)).child(sentence)),
-                )
-                .child(div().flex_none().child(switch(&look, on, slid, rgb(SIGNAL))))
+                .child(words)
+                .child(control)
+                .child(opt_in_frame(frames.clone(), opt_in, "row", settled));
+            div().child(row)
         });
         div()
             .mt(px(BUTTON_GAP))
             .w(px(OPT_IN_WIDTH))
-            .flex()
-            .flex_col()
-            .gap(px(OPT_IN_GAP))
-            .children(rows)
+            .text_size(px(crate::tokens::text::BODY))
+            .text_color(look.ink)
+            .child(group(&look, rows))
     }
 
     /// The favorites offered, a row each with its box ticked in the green, which a click unticks;
@@ -1034,6 +1052,26 @@ impl Shell {
             .child("Skip")
             .child(chip)
     }
+}
+
+/// Where each opt-in's row and switch is drawn, by the opt-in and "row" or "switch".
+type Frames = Rc<RefCell<HashMap<(OptIn, &'static str), Bounds<Pixels>>>>;
+
+/// Keeps where an opt-in's `part` is drawn once the step has `settled`, and logs where its switch
+/// is each time it moves, as "browser: onboarding agents at x y", for check.sh to click it there.
+fn opt_in_frame(frames: Frames, opt_in: OptIn, part: &'static str, settled: bool) -> impl IntoElement {
+    canvas(
+        move |bounds, _, _| {
+            let moved = settled && frames.borrow_mut().insert((opt_in, part), bounds) != Some(bounds);
+            if moved && part == "switch" {
+                let at = bounds.center();
+                log!("browser: onboarding {} at {:.0} {:.0}", opt_in.name(), f32::from(at.x), f32::from(at.y));
+            }
+        },
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .inset_0()
 }
 
 /// The theme picker's swatches in a row, the one picked ringed in the ink, each with a hairline
