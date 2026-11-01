@@ -1208,19 +1208,24 @@ impl Shell {
             Command::RecentTabBack => return self.walk(rows, false, cx),
             Command::NextTab => position.map(|index| (index + 1) % count),
             Command::PreviousTab => position.map(|index| (index + count - 1) % count),
-            Command::SelectTab(index) => {
-                // Past the favorites, which sidebar_rows puts first, if the user left them out.
-                let index = match user_keys(cx).favorites_numbered() {
-                    true => index,
-                    false => index + self.favorites.len(),
-                };
-                (index < count).then_some(index)
-            }
+            Command::SelectTab(index) => self.numbered(index, count, cx),
+            // The ninth, as ⌘1–⌘8 count, if the user chose it: nothing if there are fewer.
+            Command::SelectLastTab if user_keys(cx).last_tab_ninth() => self.numbered(8, count, cx),
             Command::SelectLastTab => count.checked_sub(1),
         };
         if let Some(index) = target {
             self.select(self.row_tab(rows[index]), cx);
         }
+    }
+
+    /// The row ⌘ and `index` + 1 goes to, of `count`: past the favorites, which sidebar_rows puts
+    /// first, if the user left them out.
+    fn numbered(&self, index: usize, count: usize, cx: &App) -> Option<usize> {
+        let index = match user_keys(cx).favorites_numbered() {
+            true => index,
+            false => index + self.favorites.len(),
+        };
+        (index < count).then_some(index)
     }
 
     /// ⌃Tab, as in Arc: shows the Space's tab shown before this one at once, with no switcher.
@@ -1497,12 +1502,14 @@ impl Shell {
             Command::CollapseFolders => self.shown_space().is_some_and(|space| {
                 space.folders.folders.keys().any(|&folder| space.is_open(folder))
             }),
+            // Only when they'd hide or show a row now (docs/ux-principles.md: a control with nothing
+            // to act on is noise).
             Command::CollapsePinned => self.shown_space().is_some_and(|space| {
-                !space.pinned.is_empty() && !space.folders.pinned_shut
+                !space.folders.pinned_shut && space.collapsing_hides()
             }),
-            Command::ExpandPinned => {
-                self.shown_space().is_some_and(|space| space.folders.pinned_shut)
-            }
+            Command::ExpandPinned => self.shown_space().is_some_and(|space| {
+                space.folders.pinned_shut && space.collapsing_hides()
+            }),
             // The Library and a page's full screen keep the sidebar away.
             Command::FocusSidebar => {
                 self.library.is_none() && !self.page_fullscreen && !self.sidebar_rows().is_empty()
