@@ -5365,6 +5365,12 @@ unsafe extern "C" fn history_added(_: *mut c_void, profile: bc::bc_id, added: us
     update_app_later(move |cx| import_host::history_added(added, cx));
 }
 
+unsafe extern "C" fn addresses_added(_: *mut c_void, profile: bc::bc_id, added: usize) {
+    // check.sh waits for this line.
+    log!("browser: addresses added {added} to profile {profile}");
+    update_app_later(move |cx| import_host::addresses_added(added, cx));
+}
+
 unsafe extern "C" fn favorites_changed(_: *mut c_void) {
     // Each with its holder: the Space it belongs to under Each Space, else its profile.
     let holder = |tab| unsafe {
@@ -6693,6 +6699,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         window_activated: Some(window_activated),
         #[cfg(target_os = "linux")]
         window_option_tapped: Some(window_option_tapped),
+        addresses_added: Some(addresses_added),
         ..Default::default()
     };
     (args, host)

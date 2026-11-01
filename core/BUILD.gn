@@ -118,6 +118,8 @@ source_set("browser_core") {
   sources = [
     "ad_block.cc",
     "ad_block.h",
+    "address_import.cc",
+    "address_import.h",
     "agent_autofill.cc",
     "agent_autofill.h",
     "agent_page.cc",
