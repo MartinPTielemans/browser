@@ -7,8 +7,10 @@
 # ilo isn't the default, and is skipped everywhere but a Linux CI VM, where its button makes ilo
 # the default for a moment, so the run never changes a desk's. The opt-ins' shows always, with
 # the agents' switch, as every build has their server, and the dark pass turns it on in its new
-# profile and sees the server start. Help › Welcome to ilo
-# plays it again, in the window while it shows no page and in a new window while it shows one. A
+# profile and sees the server start. The account's comes between the colour and the opt-ins while
+# the build names a sync server (branding/sync-server), and Esc leaves it signed out: the run never
+# signs in to the hosted server, as sync-account signs in on a server of its own. Help › Welcome to
+# ilo plays it again, in the window while it shows no page and in a new window while it shows one. A
 # launch that brings Spaces back never starts it. Every other run sets BROWSER_ONBOARDING=skip
 # (check.sh); this one sets the appearance instead.
 
@@ -40,12 +42,15 @@ fi
 capture_step() {
   ../tools/window-screenshot.sh "$pid" "$out/onboarding-$1.png" || fail "no window to capture"
 }
-# Launches a new profile, whose saved Spaces are gone, in appearance $1, and reads the steps it
-# shows into $steps.
+# The account's step, while the build names a server to sign in to.
+account=
+[ ! -s branding/sync-server ] || account="account "
+# Launches a new profile, whose saved Spaces are gone and which isn't signed in, in appearance $1,
+# and reads the steps it shows into $steps.
 launch_new() {
   log="$out/onboarding-$1.log"
   step=0
-  rm -f "$saved"
+  rm -f "$saved" "$profile_dir/Account"
   BROWSER_IMPORT_HOME="$import_home" BROWSER_DRIVE=1 BROWSER_ONBOARDING=$1 \
     "$browser" < "$out/drive" > "$log" 2>&1 &
   pid=$!
@@ -53,8 +58,8 @@ launch_new() {
   await '^browser: onboarding step intro settled$' || fail "$1: the intro didn't draw"
   steps=$(grep -m1 '^browser: onboarding steps ' "$log" | cut -d' ' -f4-)
   case "$steps" in
-    "intro import "*"color opt-ins") ;;
-    *) fail "$1: the steps were '$steps', not the intro, the import, the rest, the opt-ins" ;;
+    "intro import "*"color ${account}opt-ins") ;;
+    *) fail "$1: the steps were '$steps', not the intro, the import, the rest, ${account}the opt-ins" ;;
   esac
 }
 
@@ -218,12 +223,19 @@ capture_step dark-color
 send key return
 expect '^browser: onboarding picked color f0eae5$' "dark: → and Return didn't pick the first swatch"
 expect '^browser: onboarding left color via return$' "dark: Return didn't leave the colour step"
+if [ -n "$account" ]; then
+  expect '^browser: onboarding step account settled$' "dark: the account step didn't come"
+  capture_step dark-account
+  send key escape
+  expect '^browser: onboarding left account via escape$' "dark: Esc didn't leave the account step"
+  ! grep -q '^browser: onboarding sign in via ' "$log" || fail "dark: Esc at the account step signed in"
+fi
 expect '^browser: onboarding step opt-ins settled$' "dark: the opt-ins step didn't come"
 capture_step dark-opt-ins
-# The agents' row, the one switch a build without a crash collector offers, is a click anywhere
-# along it. The column is centred, so the row's middle is (title + line - 24) / 2 under the
-# window's, 18, whatever its sentence wraps to.
-send click $((width / 2)) $((height / 2 + 18))
+# The agents' row takes a click on its switch, where the app says it's drawn once the step has
+# come, the second row of two with a crash collector and the only one without (#1286).
+expect '^browser: onboarding agents at ' "dark: the opt-ins step didn't draw the agents' switch"
+send click $(grep '^browser: onboarding agents at ' "$log" | tail -1 | cut -d' ' -f5-6)
 expect '^browser: onboarding agents on$' "dark: a click on the agents' row didn't turn them on"
 expect '^browser: agents server on ' "dark: the agents' switch didn't start their server"
 send key escape
@@ -277,4 +289,4 @@ expect '^browser: command bar shown$' "the replay in its own window didn't end w
 exec 3>&-
 quit
 
-echo "ok: a new profile's first launch plays the intro, which goes on by itself or at a key, then the import of the fixture's $found, the default browser's step while ilo isn't the default, the colour and the opt-ins, each left by Esc or Skip and the colour kept by Return, for the welcome with the command bar up, in light and dark; Help › Welcome to $app_name plays it again, in a new window over a page; a launch that brings Spaces back doesn't. Captures: $out/onboarding-*.png, and the replayed intro's motion in $out/onboarding-intro.mp4"
+echo "ok: a new profile's first launch plays the intro, which goes on by itself or at a key, then the import of the fixture's $found, the default browser's step while ilo isn't the default, the colour, the account while the build names a sync server and the opt-ins, each left by Esc or Skip and the colour kept by Return, for the welcome with the command bar up, in light and dark; Help › Welcome to $app_name plays it again, in a new window over a page; a launch that brings Spaces back doesn't. Captures: $out/onboarding-*.png, and the replayed intro's motion in $out/onboarding-intro.mp4"

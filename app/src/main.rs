@@ -2801,6 +2801,12 @@ impl Browser for Engine {
         Rc::new(import_host::CoreImport)
     }
 
+    fn account_host(&self) -> Option<Rc<dyn browser::account::Host>> {
+        // A build that names no server leaves the first launch's step out, as the address is for
+        // Settings › Sync to ask (main's --sync-url).
+        (!env!("SYNC_SERVER").is_empty()).then(settings::browser_account)
+    }
+
     fn delete_profile(&self, profile: u64, _: &mut App) {
         unsafe { bc::bc_profile_delete(profile) };
     }

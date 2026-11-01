@@ -424,7 +424,20 @@ pub fn ask(
     confirmed: Box<dyn FnOnce(&mut App)>,
     cx: &mut App,
 ) {
-    pose(destructive(message, detail, action), Box::new(move |_, cx| confirmed(cx)), cx);
+    ask_returning(message, detail, action, Return::Action, confirmed, cx);
+}
+
+/// `ask`, with ↩ answering `on_return`, as `ask_in` has it.
+pub fn ask_returning(
+    message: String,
+    detail: String,
+    action: &'static str,
+    on_return: Return,
+    confirmed: Box<dyn FnOnce(&mut App)>,
+    cx: &mut App,
+) {
+    let question = Question { on_return, ..destructive(message, detail, action) };
+    pose(question, Box::new(move |_, cx| confirmed(cx)), cx);
 }
 
 /// Whether to do `action`, in red, or cancel.

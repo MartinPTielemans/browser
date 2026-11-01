@@ -1252,16 +1252,15 @@ swatch-pitch = 40.0
 swatch-gap = 28.0
 swatch-ring = 2.0
 swatch-edge = 0.12
-# The import step holds the import view as wide as Settings' boxes, on the flow's ground, its
-# boxes this much of the ink over it.
+# The import and account steps hold Settings' own views as wide as its boxes, on the flow's
+# ground, their boxes this much of the ink over it.
 import-width = 556.0
 import-surface = 0.05
-# The opt-ins step's switches, Settings' own, a row each under its line: the switch's name over its
-# one sentence, at body, and the switch at the row's end.
+# The opt-ins step's switches, Settings' own, in one box under its line, a row each of the switch's
+# name over its one sentence, at body, and the switch at the box's right edge; Settings' padding
+# and lines between rows.
 opt-in-width = 420.0
-opt-in-gap = 20.0
 opt-in-line = 18.0
-opt-in-switch-gap = 24.0
 
 [shell.permission]
 # Ours, as Arc's wasn't recorded: under the URL field, as wide as it, with the dialog's corners

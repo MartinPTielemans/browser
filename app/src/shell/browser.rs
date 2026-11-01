@@ -310,6 +310,11 @@ pub trait Browser {
     fn rename_profile(&self, profile: u64, name: &str, cx: &mut App);
     /// What the import view (crate::import) reads and adds through, for the first launch's step.
     fn import_host(&self) -> Rc<dyn crate::import::Host>;
+    /// What Settings › Sync's view (crate::account) asks the core through, for the first launch's
+    /// account step; none in a build that names no sync server, and in the preview.
+    fn account_host(&self) -> Option<Rc<dyn crate::account::Host>> {
+        None
+    }
     /// Deletes a profile no Space or favorite is in, with everything the browser keeps in it.
     fn delete_profile(&self, profile: u64, cx: &mut App);
     /// Shows ilo's own menu of `items` at `position` in the window, or in the reveal's panel if
