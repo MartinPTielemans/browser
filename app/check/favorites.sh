@@ -273,6 +273,7 @@ send click $page_point
 send key , cmd
 expect '^browser: command settings via page$' "⌘, from the page didn't run Settings"
 expect '^browser: settings shown General$' "⌘, didn't show Settings on its General tab"
+settings_drew General
 ../tools/window-screenshot.sh "$pid" "$out/settings.png" || fail "no window to capture"
 send clickkey 592 126
 expect '^browser: warn before quitting off$' "a click on Warn before quitting didn't turn it off"
@@ -288,6 +289,7 @@ send choose "$(cased 'In Each Space')"
 expect "^browser: favorites scope In Each Space\$" "choosing In Each Space in Settings didn't set it"
 send clickkey 519 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
+settings_drew Advanced
 send clickkey 592 126
 expect '^browser: haptics off$' "a click on the haptics switch didn't turn them off"
 send key w cmd
@@ -548,6 +550,7 @@ send click $sidebar_point
 send key , cmd
 expect '^browser: command settings via ui$' "⌘, from the UI didn't run Settings"
 expect '^browser: settings shown General$' "⌘, from the UI didn't show Settings"
+settings_drew General
 post clickkey 500 168
 expect '^browser: menu shown 12 hours (default), 24 hours (checked), 7 days, 30 days$' \
   "Settings didn't keep 24 hours across the quit"
@@ -560,6 +563,7 @@ send choose "$(cased "In Each Profile's Spaces")"
 expect "^browser: favorites scope In Each Profile's Spaces\$" "choosing Each Profile's Spaces didn't set it"
 send clickkey 519 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
+settings_drew Advanced
 send clickkey 592 126
 expect '^browser: haptics on$' "Settings didn't keep the haptics off across the quit"
 # The driver's done for a click that closes its window can be lost with the window, as it always
@@ -569,6 +573,7 @@ post clickkey $close
 expect '^browser: settings hidden$' "the close button didn't hide Settings"
 send menu Settings…
 expect '^browser: settings shown Advanced$' "Settings… didn't show Settings on the tab it showed"
+settings_drew Advanced
 # More Settings… sits under Advanced's box of four switch rows, the haptics', the link previews',
 # the Mini Player's and restoring windows', and on the Mac and Linux ⌥'s 42 under them, and the
 # box of Export…'s row. On Linux the box of Widevine's module, which Chromium downloads there, puts
