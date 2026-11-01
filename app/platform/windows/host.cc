@@ -1023,6 +1023,45 @@ void HoldKeys(HWND window) {
   g_hold_timer = SetTimer(nullptr, 0, kHoldKeysMs, HoldTimedOut);
 }
 
+// A held Escape's repeats reach only the window its press went to, as on the Mac (host.mm's
+// WatchHeldEscape): the command bar and the find bar close on Escape going down, which gives the
+// browser window the keyboard, and the repeats would go on to the page there, taking it out of its
+// full screen or closing its own dialog (#385). Once the key is let go, the next press goes
+// wherever the keyboard is. Floating windows are owned, not children, so each is its own root.
+HHOOK g_escape_hook = nullptr;
+HWND g_escape_pressed_in = nullptr;
+
+LRESULT CALLBACK HeldEscape(int code, WPARAM wparam, LPARAM lparam) {
+  if (code == HC_ACTION && wparam == PM_REMOVE) {
+    MSG* msg = reinterpret_cast<MSG*>(lparam);
+    if (msg->wParam == VK_ESCAPE) {
+      const HWND root = msg->hwnd ? GetAncestor(msg->hwnd, GA_ROOT) : nullptr;
+      const bool repeat = msg->lParam & (1 << 30);
+      switch (msg->message) {
+        case WM_KEYUP:
+        case WM_SYSKEYUP:
+          g_escape_pressed_in = nullptr;
+          break;
+        case WM_KEYDOWN:
+        case WM_SYSKEYDOWN:
+          if (!repeat) {
+            g_escape_pressed_in = root;
+          } else if (g_escape_pressed_in && root != g_escape_pressed_in) {
+            msg->message = WM_NULL;
+          }
+          break;
+      }
+    }
+  }
+  return CallNextHookEx(nullptr, code, wparam, lparam);
+}
+
+void WatchHeldEscape() {
+  if (!g_escape_hook) {
+    g_escape_hook = SetWindowsHookExW(WH_GETMESSAGE, HeldEscape, nullptr, GetCurrentThreadId());
+  }
+}
+
 // The window ilo's menu's coordinates are from, and which it's owned by: a browser window's
 // content, or its reveal's panel with |in_reveal|.
 HWND MenuBase(void* ui_view, bool in_reveal) {
@@ -1958,6 +1997,7 @@ void* host_ui_view(void) {
     return window_class.lpszClassName;
   }();
   WatchForeground();
+  WatchHeldEscape();
   // A window of its own until the core makes it a child of the browser window.
   HWND holder = CreateWindowExW(0, holder_class, L"", WS_POPUP | WS_CLIPCHILDREN, 0, 0, 0, 0,
                                 nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
