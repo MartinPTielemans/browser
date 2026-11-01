@@ -2202,7 +2202,9 @@ fn hold_mini_player(window: xproto::Window, step: &str, x: f64, y: f64) -> Optio
             return fake(xproto::MOTION_NOTIFY_EVENT, 0, back);
         }
         first_press(at, 1, false);
-        PIP_HELD.set(Some(HeldPip { x, y, root: (at.root_x, at.root_y), back }));
+        let [left, top, ..] = frame(window)?;
+        let held = HeldPip { x, y, root: (at.root_x, at.root_y), back, at: (left, top) };
+        PIP_HELD.set(Some(held));
         return fake(xproto::BUTTON_PRESS_EVENT, 1, (at.root_x, at.root_y));
     }
     let held = PIP_HELD.get()?;
@@ -2215,19 +2217,35 @@ fn hold_mini_player(window: xproto::Window, step: &str, x: f64, y: f64) -> Optio
     if step == "dragto" {
         return Some(());
     }
+    // The window manager takes the pointer only once it has the core's request to move the
+    // window, which can be after the drag's last motion, and it then moves the window with the
+    // pointer until a click, so the release would leave the window following the pointer home.
+    // A hand that drags keeps moving: a pixel back and forth till the window has moved, or 2 s.
+    if to != held.root {
+        for _ in 0..20 {
+            let [left, top, ..] = frame(window)?;
+            if (left, top) != held.at {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            fake(xproto::MOTION_NOTIFY_EVENT, 0, (to.0 + 1, to.1))?;
+            fake(xproto::MOTION_NOTIFY_EVENT, 0, to)?;
+        }
+    }
     PIP_HELD.set(None);
     fake(xproto::BUTTON_RELEASE_EVENT, 1, to)?;
     fake(xproto::MOTION_NOTIFY_EVENT, 0, held.back)
 }
 
-/// A press on the Mini Player through XTest: where it was in the window and on the screen, and
-/// where the display's pointer was before it, where the release puts it back.
+/// A press on the Mini Player through XTest: where it was in the window and on the screen, where
+/// the display's pointer was before it, where the release puts it back, and where the window was.
 #[derive(Clone, Copy)]
 struct HeldPip {
     x: f64,
     y: f64,
     root: (i16, i16),
     back: (i16, i16),
+    at: (f64, f64),
 }
 
 /// Logs the Mini Player's frame each time `window`, it, moves or resizes, from a thread of its own
