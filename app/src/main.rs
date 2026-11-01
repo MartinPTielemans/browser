@@ -4727,7 +4727,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 )),
                 MenuItem::separator(),
                 item(bar.sidebar_title(), Command::ToggleSidebar),
-                item(bar.pinned_item().0, bar.pinned_item().1),
+                item(bar.pinned_item().0, bar.pinned_item().1).disabled(!bar.pinned_offered),
                 MenuItem::separator(),
                 item("Stop Loading", Command::Stop),
                 item("Refresh the Page", Command::Reload),

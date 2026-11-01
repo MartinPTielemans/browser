@@ -73,7 +73,9 @@ impl Shell {
 
     /// Collapses the pinned rows of the Space shown or expands them, on a folder's fold.
     pub(super) fn set_pinned_open(&mut self, open: bool, cx: &mut Context<Self>) {
-        let shown = self.shown_space().filter(|space| space.folders.pinned_shut == open);
+        // The key and the menu bar's item act only as the caret is offered.
+        let command = if open { Command::ExpandPinned } else { Command::CollapsePinned };
+        let shown = self.shown_space().filter(|_| self.offers(command));
         let Some(space) = shown.map(|space| space.id) else {
             return;
         };
@@ -82,11 +84,11 @@ impl Shell {
     }
 
     /// The chevron after the Space's name that collapses its pinned rows or expands them. It fades
-    /// in with Clear while the Space has pinned rows and stays while they're collapsed, so the way
-    /// back shows. It acts as it's pressed, as a folder does.
+    /// in with Clear while collapsing would hide a row, and stays while they're collapsed and a row
+    /// is hidden, so the way back shows. It acts as it's pressed, as a folder does.
     fn pinned_caret(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
         let shut = self.shown_space()?.folders.pinned_shut;
-        let shown = shut || self.offers(Command::CollapsePinned);
+        let shown = self.offers(Command::CollapsePinned) || self.offers(Command::ExpandPinned);
         let drawn = self.caret_drawn.clone();
         if !shown {
             if drawn.take().is_some() {
@@ -2041,6 +2043,69 @@ mod tests {
         shell.update(cx, |shell, cx| shell.run(Command::ExpandPinned, "ui", cx));
         assert!(host.take().contains(&"pinned open 1 true".to_owned()));
         assert_eq!(shell.read_with(cx, |shell, _| shell.folding), Some(true));
+    }
+
+    /// Collapse and Expand Pinned Tabs are offered only while they'd hide or show a row now
+    /// (#1208): the tab shown keeps its row, so with it the only pinned tab there's no caret, no
+    /// command bar row and a dimmed View item, and the key does nothing. A Today tab shown leaves
+    /// the pinned row to hide, and once it's hidden Expand brings it back; the pinned tab shown
+    /// again from the command bar is its row. A tab shown in a folder with another collapses them.
+    #[gpui::test]
+    fn the_pinned_rows_collapse_only_when_that_hides_one(cx: &mut TestAppContext) {
+        use crate::shell::commands::{ShellHandle, bar_commands};
+        let (shell, cx, host) = window_with(cx, vec![1], vec![4], 1, Folders::default());
+        cx.update(|_, cx| cx.set_global(ShellHandle(shell.downgrade())));
+        let caret = |cx: &mut VisualTestContext| {
+            cx.run_until_parked();
+            shell.read_with(cx, |shell, _| shell.caret_drawn.get().map(|(shut, _)| shut))
+        };
+        let bar = |cx: &mut VisualTestContext| {
+            let rows = cx.update(|_, cx| bar_commands("pinned", cx));
+            let pinned = [Command::CollapsePinned, Command::ExpandPinned];
+            let commands = rows.into_iter().map(|row| row.command);
+            commands.filter(|command| pinned.contains(command)).collect::<Vec<_>>()
+        };
+        let menu = || {
+            let bar = host.menu_bar.borrow();
+            bar.pinned_offered.then(|| bar.pinned_item().1)
+        };
+        assert_eq!(caret(cx), None, "a caret with only the tab shown pinned");
+        assert_eq!(bar(cx), []);
+        assert_eq!(menu(), None);
+        host.take();
+        shell.update(cx, |shell, cx| shell.run(Command::CollapsePinned, "ui", cx));
+        assert!(!host.take().iter().any(|call| call.starts_with("pinned open")));
+
+        shell.update(cx, |shell, cx| shell.set_selected(4, cx));
+        assert_eq!(caret(cx), Some(false), "no caret with the pinned row to hide");
+        assert_eq!(bar(cx), [Command::CollapsePinned]);
+        assert_eq!(menu(), Some(Command::CollapsePinned));
+        shell.update(cx, |shell, cx| shell.run(Command::CollapsePinned, "ui", cx));
+        assert!(host.take().contains(&"pinned open 1 false".to_owned()));
+        let shut = Folders { pinned_shut: true, ..Folders::default() };
+        shell.update(cx, |shell, cx| shell.set_tabs(1, vec![1], vec![4], Vec::new(), shut, cx));
+        assert_eq!(shell.read_with(cx, |shell, _| shell.rows().0), Vec::<u64>::new());
+        assert_eq!(caret(cx), Some(true), "no caret for the way back");
+        assert_eq!(bar(cx), [Command::ExpandPinned]);
+        assert_eq!(menu(), Some(Command::ExpandPinned));
+
+        // As the core answers the command bar's row for the pinned tab.
+        shell.update(cx, |shell, cx| shell.set_selected(1, cx));
+        assert_eq!(shell.read_with(cx, |shell, _| shell.rows().0), [1]);
+        assert_eq!(caret(cx), None, "a caret with nothing hidden");
+        assert_eq!(bar(cx), []);
+
+        let docs = Folders {
+            folders: [(20, ("Docs".into(), true))].into(),
+            parents: [(21, 20), (22, 20)].into(),
+            ..Folders::default()
+        };
+        shell.update(cx, |shell, cx| {
+            shell.set_tabs(1, vec![20, 21, 22], vec![4], Vec::new(), docs, cx);
+            shell.set_selected(21, cx);
+        });
+        assert_eq!(caret(cx), Some(false), "no caret with the folder's other tab to hide");
+        assert_eq!(bar(cx), [Command::CollapsePinned]);
     }
 
     /// Presses in the first frames after ⌃2, while the second Space's rows still slide in from the
