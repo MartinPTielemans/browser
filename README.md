@@ -8,17 +8,17 @@ ilo is also built to be the browser AI agents work in. Claude Code, Codex or any
 
 ## Install
 
-0.1.0 is the first public beta. Its builds come from [Releases](https://github.com/MartinPTielemans/browser/releases), under the same names in every release.
+0.1.0 is the first public beta. Its builds come from [Releases](https://github.com/MartinPTielemans/ilo/releases), under the same names in every release.
 
 | OS | How | State |
 |---|---|---|
 | macOS 15 (Sequoia) or later, Apple silicon | `ilo-mac-arm64.dmg`, signed and notarized: open it and drag ilo into Applications. It updates itself. | 0.1.0 |
 | Windows 10 (1809) or later, x64 | From winget, which runs the installer `ilo-windows-x64-setup.exe`, or from the Microsoft Store, which installs `ilo-windows-x64.msix`. The installer's ilo updates itself, and the Store's through the Store. | coming |
-| Linux, x86-64 | A Flatpak: `flatpak install --user https://github.com/MartinPTielemans/browser/releases/latest/download/ilo.flatpakref`, then start ilo from your apps. It updates with your other Flatpaks. `ilo-linux-x86_64.flatpak` is the same build as one file. | 0.1.0 |
+| Linux, x86-64 | A Flatpak: `flatpak install --user https://github.com/MartinPTielemans/ilo/releases/latest/download/ilo.flatpakref`, then start ilo from your apps. It updates with your other Flatpaks. `ilo-linux-x86_64.flatpak` is the same build as one file. | 0.1.0 |
 
 ## Status
 
-Beta. 0.1.0 is the first build for other people to use, and some of it is still missing: [#454](https://github.com/MartinPTielemans/browser/issues/454) lists what's in and what's left.
+Beta. 0.1.0 is the first build for other people to use, and some of it is still missing: [#454](https://github.com/MartinPTielemans/ilo/issues/454) lists what's in and what's left.
 
 | Phase | What | State |
 |---|---|---|
