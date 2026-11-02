@@ -256,6 +256,8 @@ impl Fake {
                 url: url.into(),
                 title: title.into(),
                 archived,
+                // Every fourth, so the archive's filter shows (Little ilo).
+                little: id % 4 == 0,
             })
             .collect();
         self.later(cx, move |shell, cx| shell.set_archive(archive, cx));
@@ -1322,6 +1324,8 @@ impl Browser for Fake {
     fn open_tab_in_little(&self, _: u64, _: &mut App) {}
 
     fn open_in_main_window(&self, _: u64, _: u64, _: &mut App) {}
+
+    fn little_profile(&self, _: u64, _: &str, _: &mut App) {}
 
     fn close_window(&self, cx: &mut App) {
         cx.quit();
