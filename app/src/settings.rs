@@ -923,6 +923,7 @@ fn open(cx: &mut App) {
     SHOWN_TAB.set(Tab::General.name());
     let window = cx.open_window(options, |window, cx| {
         cx.new(|cx| {
+            crate::keyboard_trail::watch(crate::keyboard_trail::Window::Settings, window, cx);
             // Closing it hides it, so it opens again where the user left it.
             window.on_window_should_close(cx, |_, cx| {
                 hide(cx);

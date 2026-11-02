@@ -18,6 +18,7 @@ use gpui::{
 use gpui::{Role, accesskit::Live};
 
 use crate::{
+    keyboard_trail::{self, Closes, Event, KeyTo, Opens},
     palette,
     shell::{self, Match},
     text_input::{self, PasteAndGo, PasteAndSearch, TextInput, without_javascript},
@@ -367,6 +368,8 @@ pub struct CommandBar {
     /// the window at that click's press, before the click reaches the shell, so this stays set
     /// until the report, which comes after.
     open: Cell<bool>,
+    /// Why it's going, once the bar knows and before the host says it went, for the trail.
+    leaving: Option<Closes>,
 }
 
 struct CommandBarWindow(WindowHandle<CommandBar>);
@@ -443,6 +446,7 @@ pub fn open_at(
                 .caret_color(palette::current(cx).accent)
                 .selection_color(palette::current(cx).selection())
                 .paste_and_go()
+                .trails_composition()
         });
         window.focus(&input.focus_handle(cx), cx);
         cx.new(|cx| {
@@ -456,6 +460,32 @@ pub fn open_at(
             .detach();
             text_input::on_leave(&input.focus_handle(cx), window, cx, |bar, window, cx| {
                 bar.keep_focus(window, cx)
+            })
+            .detach();
+            let field = input.focus_handle(cx);
+            // That a key came to the bar's window, the bound ones too, and whether the field had
+            // it; never which.
+            let (bar_window, key_field) = (window.window_handle(), field.clone());
+            cx.intercept_keystrokes(move |_, window, _| {
+                if window.window_handle() == bar_window {
+                    let field = key_field.is_focused(window);
+                    let to = if field { KeyTo::Field } else { KeyTo::BarNotField };
+                    keyboard_trail::record(Event::Key(to));
+                }
+            })
+            .detach();
+            // GPUI tells of the field's focus as its window becomes key, and as it resigns, which
+            // the window's own line says already.
+            cx.on_focus_out(&field, window, |bar: &mut CommandBar, _, window, _| {
+                if bar.open.get() && bar.leaving.is_none() && window.is_window_active() {
+                    keyboard_trail::record(Event::FieldLosesFocus);
+                }
+            })
+            .detach();
+            cx.on_focus(&field, window, |bar: &mut CommandBar, _, _| {
+                if bar.open.get() && bar.leaving.is_none() {
+                    keyboard_trail::record(Event::FieldTakesFocus);
+                }
             })
             .detach();
             CommandBar {
@@ -481,6 +511,7 @@ pub fn open_at(
                 tabs: Vec::new(),
                 scroll: ScrollHandle::new(),
                 open: Cell::new(false),
+                leaving: None,
             }
         })
     });
@@ -518,6 +549,8 @@ pub fn show(
     let Some(host) = reset(target, text, tabs, field.is_some(), cx) else {
         return;
     };
+    let opens = if field.is_some() { Opens::OverUrlField } else { Opens::Centred };
+    keyboard_trail::record(Event::BarOpens(opens));
     match field {
         Some(field) => {
             let top = f32::from(field.top()) - FIELD_ABOVE;
@@ -535,6 +568,7 @@ pub fn show_tabs(tabs: Vec<shell::BarTab>, cx: &mut App) {
         tabs.iter().take(shell::BAR_ROWS).map(|tab| tab.tab.to_string()).collect();
     log!("browser: command bar searches tabs {}", ids.join(" "));
     if let Some(host) = reset(Target::Tabs, SharedString::default(), tabs, false, cx) {
+        keyboard_trail::record(Event::BarOpens(Opens::SearchTabs));
         host.show(true, 0., ABOVE_MIDDLE, WIDTH, RADIUS, Level::Modal);
     }
 }
@@ -545,6 +579,7 @@ pub fn show_tabs(tabs: Vec<shell::BarTab>, cx: &mut App) {
 pub fn show_split(with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App) {
     let text = SharedString::default();
     if let Some(host) = reset(Target::Beside(with), text, Vec::new(), false, cx) {
+        keyboard_trail::record(Event::BarOpens(Opens::Split));
         let left = pane.center().x - px(WIDTH / 2.);
         let left = left.min(card.right() - px(BESIDE_END + WIDTH)).max(card.left());
         // The card is as far in from the window's bottom as from its top.
@@ -576,6 +611,7 @@ fn reset(
             bar.keep_favicons(&tabs);
             bar.tabs = tabs;
             bar.open.set(true);
+            bar.leaving = None;
             bar.page = text.to_string();
             if !text.is_empty() {
                 bar.favicons.insert(bar.page.clone(), None);
@@ -622,6 +658,7 @@ pub fn space_shown(tabs: Vec<shell::BarTab>, open_tabs: Vec<shell::BarTab>, cx: 
                 return false;
             }
             if let Target::Beside(_) = bar.target {
+                bar.leave(Closes::SpaceShown);
                 // The shell is in an update, which its dismissal would update again.
                 let host = bar.host.clone();
                 cx.defer(move |_| host.dismiss());
@@ -668,7 +705,14 @@ pub fn space_shown(tabs: Vec<shell::BarTab>, open_tabs: Vec<shell::BarTab>, cx: 
 /// The user left the bar with a click outside it, or Esc.
 pub fn dismissed(cx: &mut App) {
     if let Some(window) = cx.try_global::<CommandBarWindow>().map(|bar| bar.0) {
-        window.update(cx, |bar, _, _| bar.open.set(false)).ok();
+        window
+            .update(cx, |bar, _, _| {
+                if bar.open.get() && bar.leaving.is_none() {
+                    keyboard_trail::record(Event::BarCloses(Closes::Left));
+                }
+                bar.open.set(false)
+            })
+            .ok();
     }
 }
 
@@ -1526,6 +1570,7 @@ impl CommandBar {
             // moves there without going, as hidden and shown at once it would lose the keyboard
             // to the page on X11, and goes only if it didn't open.
             self.open.set(false);
+            keyboard_trail::record(Event::BarCloses(Closes::Choice));
             let host = self.host.clone();
             cx.defer(move |cx| {
                 shell::run_from_bar(command, cx);
@@ -1597,6 +1642,9 @@ impl CommandBar {
 
     /// Hides the bar's window.
     fn close(&self) {
+        if self.open.get() {
+            keyboard_trail::record(Event::BarCloses(Closes::Choice));
+        }
         self.open.set(false);
         self.host.hide();
     }
@@ -1605,12 +1653,22 @@ impl CommandBar {
     /// window key by itself, such as when a page commits, which the host undoes as it's told; if
     /// the bar finds its window isn't key anyway, it asks for the keyboard back.
     fn activation_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let shows = self.open.get() && self.leaving.is_none();
+        // Where the keyboard went while the bar shows, for the keyboard trail.
+        keyboard_trail::record(match window.is_window_active() {
+            true => Event::BecomesKey(keyboard_trail::Window::CommandBar),
+            false if shows => Event::BarLosesKeyboard,
+            false => Event::ResignsKey(keyboard_trail::Window::CommandBar),
+        });
         if !self.open.get() {
             return;
         }
         if window.is_window_active() {
             self.keep_focus(window, cx);
         } else {
+            if shows {
+                keyboard_trail::record(Event::BarAsksForKeyboard);
+            }
             self.host.take_keyboard();
         }
     }
@@ -1635,13 +1693,23 @@ impl CommandBar {
         }
         // check.sh reads this line.
         log!("browser: command bar closes again on {}", run.0.name());
+        self.leave(Closes::Shortcut);
         self.host.dismiss();
     }
 
     /// Esc leaves the site search or the commands-only list first, then the bar.
     fn dismiss(&mut self, _: &Dismiss, window: &mut Window, cx: &mut Context<Self>) {
         if !self.leave_site(window, cx) && !self.leave_commands(window, cx) {
+            self.leave(Closes::Esc);
             self.host.dismiss();
+        }
+    }
+
+    /// The bar is going, for `why`, before the host hides it and says so.
+    fn leave(&mut self, why: Closes) {
+        if self.open.get() && self.leaving.is_none() {
+            self.leaving = Some(why);
+            keyboard_trail::record(Event::BarCloses(why));
         }
     }
 

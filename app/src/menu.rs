@@ -821,8 +821,11 @@ fn open_window(
     fixed: Option<Point<Pixels>>,
     cx: &mut App,
 ) -> Option<WindowHandle<ContextMenu>> {
-    let window = cx.open_window(options(bounds, fixed.is_some()), |_, cx| {
-        cx.new(|cx| ContextMenu { host, focus: cx.focus_handle(), shown: None, fixed, _rest: None, a11y: false })
+    let window = cx.open_window(options(bounds, fixed.is_some()), |window, cx| {
+        cx.new(|cx| {
+            crate::keyboard_trail::watch(crate::keyboard_trail::Window::Menu, window, cx);
+            ContextMenu { host, focus: cx.focus_handle(), shown: None, fixed, _rest: None, a11y: false }
+        })
     });
     match window {
         Ok(window) => {

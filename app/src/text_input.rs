@@ -166,6 +166,8 @@ pub struct TextInput {
     is_selecting: bool,
     paste_and_go: bool,
     secure: bool,
+    /// Whether its input method's composing starting and ending go in the keyboard trail.
+    trails_composition: bool,
 }
 
 impl TextInput {
@@ -186,7 +188,26 @@ impl TextInput {
             is_selecting: false,
             paste_and_go: false,
             secure: false,
+            trails_composition: false,
         }
+    }
+
+    /// Its input method's composing starting and ending, never what it composes, go in the
+    /// keyboard trail (keyboard_trail.rs), as the command bar's do.
+    pub fn trails_composition(mut self) -> Self {
+        self.trails_composition = true;
+        self
+    }
+
+    /// What the input method composes is now at `range`, or nothing.
+    fn mark(&mut self, range: Option<Range<usize>>) {
+        if self.trails_composition && self.marked_range.is_some() != range.is_some() {
+            crate::keyboard_trail::record(match range {
+                Some(_) => crate::keyboard_trail::Event::CompositionStarts,
+                None => crate::keyboard_trail::Event::CompositionEnds,
+            });
+        }
+        self.marked_range = range;
     }
 
     /// With `secure`, it shows a dot for each character typed and won't copy or cut them, as a
@@ -622,7 +643,7 @@ impl TextInput {
         self.selected_range = 0..text.len();
         self.content = text;
         self.selection_reversed = false;
-        self.marked_range = None;
+        self.mark(None);
         self.pasted = false;
         self.last_layout = None;
         self.last_bounds = None;
@@ -724,7 +745,7 @@ impl EntityInputHandler for TextInput {
     }
 
     fn unmark_text(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.marked_range = None;
+        self.mark(None);
         window.notify_text_input_changed(&self.focus_handle);
         cx.notify();
     }
@@ -747,7 +768,7 @@ impl EntityInputHandler for TextInput {
                 .into();
         self.selected_range = range.start + new_text.len()..range.start + new_text.len();
         self.selection_reversed = false;
-        self.marked_range.take();
+        self.mark(None);
         self.pasted = false;
         window.notify_text_input_changed(&self.focus_handle);
         cx.notify();
@@ -771,9 +792,9 @@ impl EntityInputHandler for TextInput {
             (self.content[0..range.start].to_owned() + new_text + &self.content[range.end..])
                 .into();
         if !new_text.is_empty() {
-            self.marked_range = Some(range.start..range.start + new_text.len());
+            self.mark(Some(range.start..range.start + new_text.len()));
         } else {
-            self.marked_range = None;
+            self.mark(None);
         }
         self.pasted = false;
         let insertion_start_utf16 = self.offset_to_utf16(range.start);

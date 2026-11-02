@@ -1927,3 +1927,137 @@ fn the_bar_keeps_the_focus_in_its_field(cx: &mut TestAppContext) {
     bar.type_text("dogs");
     assert_eq!(bar.input(), ("dogs".into(), 4..4));
 }
+
+/// The keyboard trail (#1314) hears the bar open and close and why, the keys reaching its field or
+/// not, the field losing the focus and taking it, and the input method composing, and none of its
+/// lines has what was typed or composed in it.
+#[gpui::test]
+fn the_keyboard_trail_follows_the_bar_without_what_is_typed(cx: &mut TestAppContext) {
+    use keyboard_trail::{Event as E, KeyTo};
+    let trail = keyboard_trail::capture();
+    let events = || -> Vec<E> {
+        let lines: Vec<_> = trail.try_iter().collect();
+        for line in &lines {
+            let text = keyboard_trail::format_line(line);
+            for typed in ["cats", "duck", "ねこ", "猫"] {
+                assert!(!text.contains(typed), "{text}");
+            }
+        }
+        // The test's window may become key or not; that's the host's to say.
+        lines
+            .into_iter()
+            .map(|line| line.event)
+            .filter(|event| !matches!(event, E::BecomesKey(_) | E::ResignsKey(_)))
+            .collect()
+    };
+
+    let mut bar = Bar::new(cx);
+    bar.type_text("cats");
+    bar.compose("ねこ");
+    bar.input_method(|input, window, cx| input.replace_text_in_range(None, "猫", window, cx));
+    bar.keys("escape");
+    assert_eq!(
+        events(),
+        [
+            E::BarOpens(Opens::Centred),
+            E::Key(KeyTo::Field),
+            E::CompositionStarts,
+            E::CompositionEnds,
+            E::Key(KeyTo::Field),
+            E::BarCloses(Closes::Esc),
+        ]
+    );
+    // The host's word that it went, after Esc, says nothing more.
+    bar.cx.cx.update(dismissed);
+    assert_eq!(events(), []);
+
+    // The field taking the focus as the window becomes key, losing it while the bar shows and
+    // taking it back, a key that came then, and the host's word that the user left it.
+    bar.edit("https://duck.test/", None);
+    bar.activate();
+    bar.cx.update(|window, cx| window.blur(cx));
+    bar.cx.run_until_parked();
+    bar.keys("a");
+    bar.cx.cx.update(dismissed);
+    bar.cx.run_until_parked();
+    assert_eq!(
+        events(),
+        [
+            E::BarOpens(Opens::Centred),
+            E::FieldTakesFocus,
+            E::FieldLosesFocus,
+            E::FieldTakesFocus,
+            E::Key(KeyTo::Field),
+            E::BarCloses(Closes::Left),
+        ]
+    );
+
+    // Search Tabs, and a choice.
+    bar.cx.cx.update(|cx| show_tabs(Vec::new(), cx));
+    bar.cx.run_until_parked();
+    bar.run(shell::Command::NewTab);
+    bar.cx.cx.update(|cx| show(None, Vec::new(), None, cx));
+    bar.cx.run_until_parked();
+    bar.type_text("duck.test");
+    bar.keys("enter");
+    assert_eq!(
+        events(),
+        [
+            E::BarOpens(Opens::SearchTabs),
+            E::BarCloses(Closes::Shortcut),
+            E::BarOpens(Opens::Centred),
+            E::Key(KeyTo::Field),
+            E::BarCloses(Closes::Choice),
+        ]
+    );
+}
+
+/// The bar losing the keyboard while it shows, and asking for it back, are the trail's lines of
+/// their own; once the user left it, its window resigning is only that. A browser window says it
+/// became key.
+#[gpui::test]
+fn the_keyboard_trail_hears_the_bar_lose_the_keyboard_and_ask_for_it(cx: &mut TestAppContext) {
+    use keyboard_trail::{Event as E, Window as W};
+    let trail = keyboard_trail::capture();
+    let mut bar = Bar::new(cx);
+    bar.activate();
+    bar.cx.deactivate_window();
+    bar.activate();
+    bar.keys("escape");
+    bar.cx.deactivate_window();
+    let events: Vec<_> = trail.try_iter().map(|line| line.event).collect();
+    assert_eq!(
+        events,
+        [
+            E::BarOpens(Opens::Centred),
+            E::BecomesKey(W::CommandBar),
+            E::FieldTakesFocus,
+            E::BarLosesKeyboard,
+            E::BarAsksForKeyboard,
+            E::BecomesKey(W::CommandBar),
+            E::FieldTakesFocus,
+            E::Key(KeyTo::Field),
+            E::BarCloses(Closes::Esc),
+            E::ResignsKey(W::CommandBar),
+        ]
+    );
+
+    struct Other;
+    impl Render for Other {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+        }
+    }
+    let other = bar.cx.cx.update(|cx| {
+        cx.open_window(WindowOptions::default(), |window, cx| {
+            cx.new(|cx| {
+                keyboard_trail::watch(W::Browser, window, cx);
+                Other
+            })
+        })
+    });
+    other.unwrap().update(&mut bar.cx.cx, |_, window, _| window.activate_window()).unwrap();
+    bar.cx.run_until_parked();
+    let events: Vec<_> = trail.try_iter().map(|line| line.event).collect();
+    assert!(events.contains(&E::BecomesKey(W::Browser)), "{events:?}");
+}

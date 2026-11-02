@@ -25,7 +25,8 @@ use browser::window_frames::{self, Frame};
 use browser::widevine::Widevine;
 use browser::{
     account, capture, command_bar, dialog, dock_dot, elevation::Level, folder_preview, hover_card,
-    icon_picker, launch, link_preview, link_target, log, menu, offer, passwords, site_controls,
+    icon_picker, keyboard_trail, launch, link_preview, link_target, log, menu, offer, passwords,
+    site_controls,
     theme_picker, toast, tooltip, zoom_hud,
 };
 use browser::shell::{
@@ -3522,6 +3523,8 @@ unsafe extern "C" fn tab_key_before_page(
     if browser::agents::pressing_key() {
         return false;
     }
+    // The trail records it only while the command bar shows, which it should have (#1314).
+    keyboard_trail::record(keyboard_trail::Event::Key(keyboard_trail::KeyTo::Page));
     #[cfg(target_os = "linux")]
     if held_escape::keeps_from_page(unsafe { &*key }) {
         return true;
@@ -4091,6 +4094,7 @@ fn open_window_as(
     };
     let window = cx.open_window(options, |window, cx| {
         let shell = cx.new(|cx| {
+            keyboard_trail::watch(keyboard_trail::Window::Browser, window, cx);
             // The page keeps its place in the card as the window resizes.
             cx.observe_window_bounds(window, move |shell: &mut Shell, window, cx| {
                 let viewport = window.viewport_size();
@@ -4517,6 +4521,7 @@ fn elevate(overlay: c_int, level: Level) {
 }
 
 unsafe extern "C" fn started(_: *mut c_void) {
+    keyboard_trail::start(trail_dir());
     // Chromium's message loop dispatches GPUI's messages, as its run loop does on the Mac.
     #[cfg(target_os = "windows")]
     gpui_windows::embed();
@@ -5202,6 +5207,7 @@ unsafe extern "C" fn launching(_: *mut c_void) {
 /// Back from another app, such as System Settings, where the user may have changed the default
 /// browser or given the app Full Disk Access.
 extern "C" fn became_active() {
+    keyboard_trail::record(keyboard_trail::Event::AppActive);
     // Later: AppKit can say so from inside the update that activated the app to show a window.
     update_app_later(|cx| {
         settings::check_default_browser(cx);
@@ -5246,6 +5252,7 @@ unsafe extern "C" fn stopping(_: *mut c_void) {
 // window is already hidden when it closes, and the frame alone as the last regular window closes.
 // Nothing of a private window is kept.
 extern "C" fn launch_picture_on_resigning() {
+    keyboard_trail::record(keyboard_trail::Event::AppInactive);
     // Later: AppKit can say so from inside an update of ours, such as one that hides the app.
     update_app_later(save_launch_picture);
 }
@@ -6599,6 +6606,31 @@ fn profile_dir() -> String {
             format!("{home}/Library/Caches/browser-app")
         }
     })
+}
+
+/// Where the keyboard trail goes (keyboard_trail.rs): the system's per-user log folder for the
+/// prod build, and a dev build's profile otherwise, so a dev build or a check never writes in the
+/// user's.
+fn trail_dir() -> std::path::PathBuf {
+    if !cfg!(feature = "prod") {
+        return profile_dir().into();
+    }
+    let home = std::env::var("HOME").unwrap_or_default();
+    let name = include_str!("../branding/name").trim();
+    let folder = if cfg!(target_os = "windows") {
+        let local = std::env::var("LOCALAPPDATA").unwrap_or_default();
+        format!(r"{local}\{name}\Logs")
+    } else if cfg!(target_os = "linux") {
+        // XDG's place for logs; a Flatpak points it at its own folder.
+        let state = std::env::var("XDG_STATE_HOME")
+            .ok()
+            .filter(|dir| !dir.is_empty())
+            .unwrap_or_else(|| format!("{home}/.local/state"));
+        format!("{state}/{name}")
+    } else {
+        format!("{home}/Library/Logs/{name}")
+    };
+    folder.into()
 }
 
 /// What the app gives the core to start with: Chromium's switches, from the arguments the process
