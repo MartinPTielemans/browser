@@ -43,8 +43,10 @@ impl Shell {
         shell.little = Some(Little { home });
         shell.space = space;
         shell.sidebar_hidden = true;
+        // The profiles too, for the bar's picker, which the core reports again only as they change.
         let look = from.and_then(|from| {
             let from = from.read(cx);
+            shell.profiles = from.profiles.clone();
             from.spaces.iter().find(|each| each.id == home).cloned()
         });
         shell.spaces = vec![Space {
