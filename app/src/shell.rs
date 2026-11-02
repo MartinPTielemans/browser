@@ -107,7 +107,10 @@ mod undo;
 
 pub use assets::Assets;
 pub use favorites::FavoritesScope;
-pub use browser::{AgentGrants, Browser, Folders, MediaAction, Page, Split, Trouble, WindowButton};
+pub use browser::{
+    AgentGrants, Browser, Folders, MediaAction, Page, Split, Trouble, WindowButton,
+    WindowButtonGeometry,
+};
 pub use commands::{
     BAR_ROWS, BAR_TABS_SHOWN, BarCommand, BarTab, CancelName, Command, CreateSpace, KEY_CONTEXT,
     KeepName, Match, bar_commands, bind_keys, copy_from_bar, copy_url_of_preview, find_commands,
@@ -464,7 +467,6 @@ const ZOOM_GLYPH: &str = match cfg!(any(target_os = "linux", target_os = "window
     false => "icons/window-full-screen.svg",
 };
 use crate::tokens::shell::WINDOW_BUTTON_Y;
-use crate::tokens::shell::WINDOW_BUTTON_SIZE;
 use crate::tokens::shell::WINDOW_BUTTON_GLYPH;
 use crate::tokens::shell::WINDOW_BUTTON_CLOSE;
 use crate::tokens::shell::WINDOW_BUTTON_MINIMIZE;
@@ -1162,6 +1164,9 @@ pub struct Shell {
     sidebar_hidden: bool,
     /// Whether the window's own buttons show (`window_buttons_shown`).
     window_buttons: bool,
+    /// The window's own buttons as the system draws them, once it has said, which the copies
+    /// drawn in their place match.
+    window_button_geometry: Option<WindowButtonGeometry>,
     /// The docked sidebar's width, at rest.
     sidebar_width: f32,
     /// While the sidebar's edge is dragged: how far right of the edge the pointer pressed it, and
@@ -1515,6 +1520,7 @@ impl Shell {
             full_screen_timing: None,
             sidebar_hidden: false,
             window_buttons: true,
+            window_button_geometry: None,
             sidebar_width,
             resize: None,
             pane_resize: None,
@@ -3220,6 +3226,10 @@ impl Render for Shell {
             self.window_buttons = window_buttons;
             self.browser.show_window_buttons(window_buttons, cx);
         }
+        // AppKit's say how they're drawn once they show, out of full screen, as at rest.
+        if self.window_button_geometry.is_none() && window_buttons {
+            self.window_button_geometry = self.browser.window_button_geometry(cx);
+        }
         // The Library slides in from the left with the card's edge, over the sidebar receding.
         let library = self.library.is_some() && !self.page_fullscreen;
         // Full screen has no window buttons, so the panel draws none.
@@ -3754,6 +3764,12 @@ impl Shell {
         DRAWS_WINDOW_BUTTONS && self.window_buttons && !self.full_screen
     }
 
+    /// Where the copies of the window's buttons go, in the window or in a panel at its corner: on
+    /// the window's own, at their size (#1310).
+    pub(super) fn window_button_frames(&self) -> [Bounds<Pixels>; 3] {
+        self.window_button_geometry.unwrap_or_default().frames()
+    }
+
     /// The window's close, minimize and zoom buttons, drawn in the reveal's panel.
     fn window_buttons(&self, cx: &mut Context<Self>) -> AnyElement {
         if cfg!(target_os = "windows") {
@@ -3765,39 +3781,44 @@ impl Shell {
             (WindowButton::Minimize, "icons/window-minimize.svg"),
             (WindowButton::Zoom, zoom),
         ];
-        let (first, _) = WINDOW_BUTTONS[0];
-        let (second, _) = WINDOW_BUTTONS[1];
+        let frames = self.window_button_frames();
+        let row = Bounds::from_corners(frames[0].origin, frames[2].bottom_right());
         div()
             .absolute()
-            .left(px(first - WINDOW_BUTTON_SIZE / 2.))
-            .top(px(WINDOW_BUTTON_Y - WINDOW_BUTTON_SIZE / 2.))
-            .flex()
-            .gap(px(second - first - WINDOW_BUTTON_SIZE))
+            .left(row.left())
+            .top(row.top())
+            .w(row.size.width)
+            .h(row.size.height)
             .group("window-buttons")
             // The row, not each button: a button that blocked the mouse would hide the row behind
             // it from the hover test, and the glyphs would show only between the buttons.
             .block_mouse_except_scroll()
-            .children(buttons.into_iter().zip(WINDOW_BUTTONS).map(|((button, glyph), (_, colour))| {
-                div()
-                    .id(glyph)
-                    .size(px(WINDOW_BUTTON_SIZE))
-                    .rounded_full()
-                    .bg(rgb(colour))
-                    .on_click(cx.listener(move |shell, _, _, cx| {
-                        // check.sh waits for this line.
-                        log!("browser: window button {button:?}");
-                        shell.browser.press_window_button(button, cx);
-                    }))
-                    .child(
-                        svg()
-                            .path(glyph)
-                            .size(px(WINDOW_BUTTON_SIZE))
-                            .text_color(gpui::transparent_black())
-                            .group_hover("window-buttons", |style| {
-                                style.text_color(rgba(WINDOW_BUTTON_GLYPH))
-                            }),
-                    )
-            }))
+            .children(buttons.into_iter().zip(WINDOW_BUTTONS).zip(frames).map(
+                |(((button, glyph), (_, colour)), frame)| {
+                    div()
+                        .id(glyph)
+                        .absolute()
+                        .left(frame.left() - row.left())
+                        .top(frame.top() - row.top())
+                        .size(frame.size.width)
+                        .rounded_full()
+                        .bg(rgb(colour))
+                        .on_click(cx.listener(move |shell, _, _, cx| {
+                            // check.sh waits for this line.
+                            log!("browser: window button {button:?}");
+                            shell.browser.press_window_button(button, cx);
+                        }))
+                        .child(
+                            svg()
+                                .path(glyph)
+                                .size(frame.size.width)
+                                .text_color(gpui::transparent_black())
+                                .group_hover("window-buttons", |style| {
+                                    style.text_color(rgba(WINDOW_BUTTON_GLYPH))
+                                }),
+                        )
+                },
+            ))
             .into_any_element()
     }
 
