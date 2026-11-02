@@ -683,7 +683,12 @@ await '^browser: sidebar backups of Default: 1$' || fail "saving the Spaces took
 ls "$backups"/*.json > /dev/null 2>&1 || fail "the backup isn't in the profile's directory"
 await '^browser: newest sidebar backup ' || fail "Help wasn't given the backup"
 backed_up=$(today | wc -w)
-open_from_bar "${site}notes.txt"
+# A page of the check's own site, so not open_from_bar, which types a bare host.
+send key t cmd
+expect '^browser: command bar shown$' "⌘T didn't open the command bar"
+send type "${site}notes.txt"
+send key return
+expect "^browser: loaded [0-9]* ${site}notes.txt\$" "the tab opened after the backup didn't load ${site}notes.txt"
 expect "^browser: today [0-9 ]*\$" "the tab opened after the backup isn't in Today"
 await_today() {
   for _ in $(seq 100); do
