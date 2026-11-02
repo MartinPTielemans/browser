@@ -39,7 +39,7 @@ onkeydown = e => {
 cookie_page="$(echo "$site" | sed 's/127\.0\.0\.1/localhost/')profile.html"
 log="$out/profiles.log"
 step=0
-rm -f "$saved" "$launch_frame"
+rm -f "$saved" "$launch_frame" "$(dirname "$saved")/Little ilo profiles"
 BROWSER_DRIVE=1 BROWSER_URL="$cookie_page" "$browser" \
   < "$out/drive" > "$log" 2>&1 &
 pid=$!
@@ -208,7 +208,8 @@ send key n cmd alt
 expect "^browser: little window opened [0-9]* profile $default home $first\$" \
   "⌥⌘N didn't open a Little ilo window in the first profile"
 little=$(grep '^browser: little window opened ' "$log" | tail -1 | cut -d' ' -f5)
-expect "^browser: key window $little\$" "the Little ilo window didn't come to the front"
+# A new window goes in front of the others, so it logs no "key window"; the page ⌘L loads below
+# being the one this window reopens shows it's key.
 send key l cmd
 expect '^browser: command bar shown$' "⌘L didn't open the Little ilo window's command bar"
 send insert "$cookie_page"
@@ -231,9 +232,9 @@ expect "^browser: little window opened $moved profile $work home $second\$" \
 expect "^browser: title [0-9]* cookie none\$" "the page in Profile 2 saw the first profile's cookie"
 grep -q "^localhost	Profile 2\$" "$(dirname "$saved")/Little ilo profiles" ||
   fail "Profile 2 wasn't kept for the site: $(cat "$(dirname "$saved")/Little ilo profiles" 2>&1)"
-expect "^browser: key window $moved\$" "the Profile 2 Little ilo window didn't come to the front"
+# New too, so ⌘W closing it shows it's key.
 send key w cmd
-expect "^browser: window closed $moved\$" "⌘W didn't close the Profile 2 Little ilo window"
+expect "^browser: window closed $moved\$" "the Profile 2 Little ilo window didn't come to the front: ⌘W didn't close it"
 send window 1
 exec 3>&-
 quit
