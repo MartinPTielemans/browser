@@ -222,6 +222,11 @@ fi
 # ⌥⌘-click on a Today tab's row moves the tab, its page live, into a Little ilo window for its
 # Space, and the main window shows another.
 send window 1
+# Shown first, so its page has loaded and can move live: a tab opened behind loads only when shown.
+send click $(row 0)
+expect '^browser: selected [0-9][0-9]*' "a click on the first Today row didn't show its tab"
+shown=$(grep '^browser: selected ' "$log" | tail -1 | cut -d' ' -f3)
+expect "^browser: loaded $shown " "the first Today tab's page didn't load once shown"
 # Read from the sidebar's own line: each Little ilo window logs its own Today, so the last Today
 # line may be one of theirs.
 send click $(row 0) alt cmd
@@ -234,7 +239,7 @@ expect "^browser: little window $little took $taken from window $main\$" \
   "the Little ilo window didn't take the tab: $(grep "^browser: little window $little " "$log" | tail -1)"
 expect "^browser: window $little shows $taken\$" "the Little ilo window doesn't show the tab's page"
 none_since "^browser: loaded $taken " || fail "the tab's page loaded again instead of moving live"
-none_since "^browser: splits " || fail "⌥⌘-click on a Today tab's row opened a split view too"
+none_since "^browser: splits [0-9]" || fail "⌥⌘-click on a Today tab's row opened a split view too"
 
 # ⌘W closes it into the archive, as Arc's Little Arc does, and ⇧⌘T in the main window reopens it
 # in a new Little ilo window for its Space.
