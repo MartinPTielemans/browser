@@ -222,10 +222,11 @@ fi
 # ⌥⌘-click on a Today tab's row moves the tab, its page live, into a Little ilo window for its
 # Space, and the main window shows another.
 send window 1
-taken=$(today | cut -d' ' -f1)
-[ -n "$taken" ] || fail "no Today tab left to ⌥⌘-click"
+# Read from the sidebar's own line: each Little ilo window logs its own Today, so the last Today
+# line may be one of theirs.
 send click $(row 0) alt cmd
-expect "^browser: command little via sidebar $taken\$" "⌥⌘-click on a Today tab's row didn't reach the sidebar"
+expect '^browser: command little via sidebar [0-9][0-9]*$' "⌥⌘-click on a Today tab's row didn't reach the sidebar"
+taken=$(grep '^browser: command little via sidebar ' "$log" | tail -1 | cut -d' ' -f6)
 expect "^browser: little window opened [0-9]* profile [0-9]* home $home\$" \
   "⌥⌘-click on a Today tab's row didn't open a Little ilo window for Space $home"
 little=$(opened)
