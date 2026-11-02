@@ -243,9 +243,9 @@ none_since "^browser: splits [0-9]" || fail "⌥⌘-click on a Today tab's row o
 
 # ⌘W closes it into the archive, as Arc's Little Arc does, and ⇧⌘T in the main window reopens it
 # in a new Little ilo window for its Space.
-expect "^browser: key window $little\$" "the Little ilo window holding the tab didn't come to the front"
+# New, so it logs no "key window"; ⌘W closing it shows it's key.
 send key w cmd
-expect "^browser: window closed $little\$" "⌘W didn't close the Little ilo window holding the tab"
+expect "^browser: window closed $little\$" "the Little ilo window holding the tab didn't come to the front: ⌘W didn't close it"
 expect '^browser: archive [1-9][0-9]* tabs$' "closing the Little ilo window didn't archive its tab"
 send window 1
 send key t cmd shift
@@ -254,9 +254,8 @@ expect "^browser: little window opened [0-9]* profile [0-9]* home $home\$" \
 little=$(opened)
 expect "^browser: little window $little reopened [0-9]* as [0-9]*\$" \
   "⇧⌘T didn't reopen the Little ilo window's tab in it: $(grep "^browser: little window $little " "$log" | tail -1)"
-expect "^browser: key window $little\$" "the reopened Little ilo window didn't come to the front"
 send key w cmd
-expect "^browser: window closed $little\$" "⌘W didn't close the reopened Little ilo window"
+expect "^browser: window closed $little\$" "the reopened Little ilo window didn't come to the front: ⌘W didn't close it"
 send window 1
 
 # The Library's Archived Tabs then has a Filter button, whose Little ilo lists only its tabs.
