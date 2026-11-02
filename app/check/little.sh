@@ -10,7 +10,7 @@
 serve
 log="$out/little.log"
 step=0
-rm -f "$saved" "$launch_frame" "$(dirname "$saved")/little-size"
+rm -f "$saved" "$launch_frame" "$(dirname "$saved")/little-size" "$(dirname "$saved")/little-in-menu-bar"
 BROWSER_DRIVE=1 BROWSER_URL="$site" "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
